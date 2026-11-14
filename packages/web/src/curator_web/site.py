@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appview, oauth
+from . import appview, oauth, post_details
 
 
 async def csrf_guard(request: Request):
@@ -172,6 +172,31 @@ def digest_api(request: Request):
         return {"items": reader_posts(c, reader(request, c), current_did(request))}
     finally:
         c.close()
+
+
+@router.get("/api/post-details")
+async def post_details_api(request: Request):
+    c = db.connect()
+    try:
+        posts = reader_posts(c, reader(request, c), current_did(request))
+    finally:
+        c.close()
+    items = {post["key"]: post_details.imported_details(post) for post in posts}
+    bluesky = {post["key"].removeprefix("bluesky:"): post for post in posts if post["platform"] == "bluesky"}
+    if bluesky:
+        try:
+            views = await asyncio.to_thread(appview.get_posts, list(bluesky))
+        except (httpx.HTTPError, ValueError):
+            views = []
+        for view in views:
+            if not isinstance(view, dict) or view.get("uri") not in bluesky:
+                continue
+            uri = view["uri"]
+            source = post_details.bluesky_details(view, bluesky[uri]["text"])
+            for field, value in source.items():
+                if value:
+                    items["bluesky:" + uri][field] = value
+    return {"items": items}
 
 
 @router.get("/api/curation")

@@ -25,6 +25,10 @@ class SocialPost:
     root_id: str | None = None
     quote_id: str | None = None
     context: str = ""
+    author_handle: str | None = None
+    author_avatar: str | None = None
+    media: str | None = None
+    facets: str | None = None
 
     @property
     def content_hash(self) -> str:
@@ -62,7 +66,15 @@ def _bluesky(row) -> SocialPost:
         parent_id=row["reply_parent"],
         root_id=row["reply_root"],
         quote_id=row["embed_ref"] if row["embed_kind"] == "record" else None,
+        author_handle=_optional(row, "author_handle"),
+        author_avatar=_optional(row, "author_avatar"),
+        media=_optional(row, "media"),
+        facets=_optional(row, "facets"),
     )
+
+
+def _optional(row, field):
+    return row[field] if field in row.keys() else None  # noqa: SIM118 - sqlite Row membership checks values
 
 
 def _social(row) -> SocialPost:
@@ -80,6 +92,10 @@ def _social(row) -> SocialPost:
         root_id=row["root_id"],
         quote_id=row["quote_id"],
         context=row["context"],
+        author_handle=_optional(row, "author_handle"),
+        author_avatar=_optional(row, "author_avatar"),
+        media=_optional(row, "media"),
+        facets=_optional(row, "facets"),
     )
 
 

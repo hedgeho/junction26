@@ -4,8 +4,9 @@
 {% if posts and curation_status.state != 'ready' %}<div class="notice" role="status"><span id="curation-pending">{{ curation_status.label }}</span><a href="/settings#services">Details</a></div>{% endif %}
 {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}">
-  <div class="post-head"><div><div class="author">{{ post.author }}</div><div class="meta"><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
+  <div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
   <div class="source-text post-text">{{ post.text }}</div>
+  <div class="post-embeds"></div>
   {% for note in post.notes %}<aside class="note-match"><span class="meta">{{ note.title }}</span><blockquote class="source-text">{{ note.text }}</blockquote></aside>{% endfor %}
   <div class="post-actions"><a href="{{ post.url }}" target="_blank" rel="noopener noreferrer">Original post <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a><button type="button" class="icon feedback-open" aria-label="Feedback on post by {{ post.author }}" aria-haspopup="dialog" aria-controls="feedback-dialog" title="Feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M8 9h8M8 13h5"/></svg></button></div>
 </article>

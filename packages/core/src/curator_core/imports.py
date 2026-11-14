@@ -44,7 +44,9 @@ def import_posts(conn, records: list[dict]) -> int:
         )
     with db.tx(conn):
         conn.executemany(
-            """INSERT INTO social_posts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """INSERT INTO social_posts
+            (platform,native_id,author_id,author_name,text,canonical_url,created_at,observed_at,
+             parent_id,root_id,quote_id,context,deleted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(platform,native_id) DO UPDATE SET
             author_id=excluded.author_id,author_name=excluded.author_name,text=excluded.text,
             canonical_url=excluded.canonical_url,created_at=excluded.created_at,observed_at=excluded.observed_at,

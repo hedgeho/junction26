@@ -293,3 +293,70 @@ def test_initial_feed_respects_membership_blocks_and_dismissals(conn):
     conn.execute("UPDATE reader_settings SET blocked_authors=? WHERE user_id=?", ('["bluesky:did:plc:blocked"]', uid))
     conn.execute("INSERT INTO dismissed_posts VALUES (?,?,unixepoch())", (uid, "bluesky:" + dismissed_post))
     assert {item["key"] for item in digests.read(conn, uid)} == {"bluesky:" + post, "bluesky:" + other_post}
+
+
+def test_post_details_only_hydrates_the_readers_displayed_posts(conn, monkeypatch):
+    from curator_web import appview
+
+    uid = seed(conn)
+    visible = digests.read(conn, uid)[0]
+    uri = visible["key"].removeprefix("bluesky:")
+    requested = []
+
+    def fake_views(uris):
+        requested.extend(uris)
+        return [
+            {
+                "uri": uri,
+                "author": {
+                    "did": "did:plc:human",
+                    "handle": "human.bsky.social",
+                    "displayName": "A person",
+                    "avatar": "https://cdn.bsky.app/avatar.png",
+                },
+                "record": {"text": visible["text"]},
+            },
+            {"uri": "at://another/post/hidden", "author": {"displayName": "Hidden"}},
+        ]
+
+    monkeypatch.setattr(appview, "get_posts", fake_views)
+    data = client_for().get("/api/post-details").json()["items"]
+    assert requested == [uri]
+    assert set(data) == {visible["key"]}
+    assert data[visible["key"]]["author_name"] == "A person"
+    assert data[visible["key"]]["author_handle"] == "human.bsky.social"
+
+
+def test_optional_pipeline_metadata_is_available_for_x(conn):
+    from curator_core.imports import import_posts
+    from curator_web.post_details import imported_details
+
+    for name in ("author_handle", "author_avatar", "media", "facets"):
+        conn.execute(f"ALTER TABLE social_posts ADD COLUMN {name} TEXT")
+    import_posts(
+        conn,
+        [
+            {
+                "platform": "x",
+                "native_id": "123",
+                "author_id": "writer",
+                "author_name": "Writer",
+                "text": "Original",
+                "canonical_url": "https://x.com/i/status/123",
+            }
+        ],
+    )
+    conn.execute(
+        "UPDATE social_posts SET author_handle=?,author_avatar=?,media=? WHERE native_id='123'",
+        (
+            "writer",
+            "https://example.org/avatar.png",
+            '{"images":[{"url":"https://example.org/image.png","full_url":"https://example.org/image.png","alt":"A photo"}]}',
+        ),
+    )
+    add_user(conn, DID)
+    uid = profiles.bootstrap(conn, DID)
+    post = next(item for item in digests.read(conn, uid) if item["platform"] == "x")
+    details = imported_details(post)
+    assert details["author_handle"] == "writer"
+    assert details["images"][0]["alt"] == "A photo"

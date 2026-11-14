@@ -132,3 +132,19 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 @media (prefers-reduced-motion: reduce) {
  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+.author-avatar { flex: 0 0 42px; width: 42px; height: 42px; overflow: hidden; border-radius: 50%; background: var(--soft); }
+.author-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.post-head { display: flex; gap: 12px; align-items: center; justify-content: flex-start; }
+.author-handle { overflow-wrap: anywhere; }
+.post-text a { color: #366c4b; }
+.post-embeds:empty { display: none; }
+.post-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; margin-top: 15px; }
+.post-images:has(> a:only-child) { grid-template-columns: 1fr; }
+.post-images a { display: block; min-width: 0; background: var(--soft); }
+.post-images img { width: 100%; max-height: 380px; aspect-ratio: 1.4; object-fit: cover; display: block; }
+.post-images a:only-child img { aspect-ratio: auto; object-fit: contain; }
+.link-card { display: flex; flex-direction: column; overflow: hidden; margin-top: 15px; border: 1px solid var(--line); border-radius: 12px; text-decoration: none; }
+.link-card:hover { background: var(--soft); }
+.link-card > img { display: block; width: 100%; max-height: 240px; object-fit: cover; }
+.link-card-body { display: grid; gap: 3px; padding: 12px 14px; line-height: 1.45; }
+.link-card-body > span, .link-card-body small { color: var(--muted); font-size: 12px; }
