@@ -134,17 +134,24 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                 (uid, profile_revision, version),
             )
         }
-        fresh = {p.key for p in unscored}
-        eligible = unscored + [p for p in pool if p.key in included and p.key not in fresh]
-        untriaged = triage.missing(conn, eligible, triager.model)
-    background = ThreadPoolExecutor(max_workers=1)
-    flagged = (
-        background.submit(
-            triage.assess,
-            triager,
-            [triage.candidate(p, media.describe([p])[0][p.key]) for p in untriaged],
-            cfg.triage_concurrency,
+        to_score = [p for batch, _, _ in batches for p in batch]
+        fresh = {p.key for p in to_score}
+        retries = [p for p in pool if p.key in included and p.key not in fresh]
+        untriaged = (
+            triage.missing(conn, to_score, triager.model)
+            + triage.missing(conn, retries, triager.model)[: cfg.score_batch_size]
         )
+    background = ThreadPoolExecutor(max_workers=1)
+
+    def run_triage(candidates):
+        t0 = time.monotonic()
+        try:
+            return triage.assess(triager, candidates, cfg.triage_concurrency)
+        finally:
+            timing["triage_s"] = round(time.monotonic() - t0, 3)
+
+    flagged = (
+        background.submit(run_triage, [triage.candidate(p, media.describe([p])[0][p.key]) for p in untriaged])
         if untriaged
         else None
     )
@@ -185,6 +192,7 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                         ),
                     )
                     total += 1
+    timing["relevance_s"] = round(time.monotonic() - scoring_started, 3)
     if flagged:
         results = flagged.result()
         triage.store(conn, untriaged, results, triager.model)
@@ -246,7 +254,7 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None) -> None:
 def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
     """Score a small batch of new candidates while the digest is current, so a refresh rarely waits on models.
 
-    Paced to leave a fifth of the day's scoring allowance for refreshes.
+    Paced, with a three-hour head start, to leave a fifth of the day's scoring allowance for refreshes.
     """
     cfg = settings()
     key = "background-scored:" + uid
@@ -255,7 +263,7 @@ def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
         return
     db.kv_set(conn, key, str(int(now)))
     midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    allowance = cfg.daily_scoring_cap * 0.8 * (now - midnight) / 86400
+    allowance = cfg.daily_scoring_cap * 0.8 * min(1, (now - midnight + 3 * 3600) / 86400)
     if int(db.kv_get(conn, budget_key(uid)) or "0") >= allowance:
         return
     try:

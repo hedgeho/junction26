@@ -27,7 +27,7 @@ class CurationSettings(CoreSettings):
     feed_size: int = 50  # Legacy feed ranking compatibility
     minimum_relevance: float = 0.65  # Generative backend scale
     decision_minimum_relevance: float = 0.4  # Decisions backend: grade/3, combined with want >= 0.5
-    decision_concurrency: int = 8  # Per-post Decisions requests in flight per scoring batch
+    decision_concurrency: int = 4  # Per-post Decisions requests in flight per scoring batch
     social_slots: int = 3  # Digest positions reserved for followed authors that pass the filter
     serendipity_share: float = 0.1  # Digest share for substantive, clean posts just outside the profile
     background_score_interval_s: int = 600  # Score new candidates ahead of refreshes this often

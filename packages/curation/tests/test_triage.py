@@ -143,3 +143,17 @@ def test_decision_questions_use_only_fields_the_gemini_api_accepts():
         assert set(question) <= set(allowed[question["type"]].__annotations__)
         if question["type"] == "noul":
             assert set(question["criteria"]) <= set(NoulCriteriaParam.__annotations__)
+
+
+def test_triage_skips_posts_the_scoring_budget_will_not_reach(conn, monkeypatch):
+    from curator_core.config import clear_settings
+
+    monkeypatch.setenv("DAILY_SCORING_CAP", "1")
+    monkeypatch.setenv("SCORE_BATCH_SIZE", "1")
+    clear_settings()
+    reader(conn)
+    for i in range(3):
+        insert_post(conn, f"did:plc:a{i}", "1", f"Distinct careful compiler benchmark number {i}")
+    triager = FakeTriager()
+    worker.run_cycle(conn, FakeScorer(), triager=triager)
+    assert len(triager.seen) == 1
