@@ -64,8 +64,6 @@ class Gemma:
                 "--gpu-memory-utilization",
                 "0.9",
                 "--enforce-eager",
-                "--disable-log-requests",
-                "--disable-log-outputs",
                 "--disable-log-stats",
                 "--uvicorn-log-level",
                 "warning",

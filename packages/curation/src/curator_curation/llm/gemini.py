@@ -70,7 +70,7 @@ class GeminiScorer:
                 temperature=0,
                 max_output_tokens=8192,
                 response_mime_type="application/json",
-                response_schema=Assessments,
+                response_json_schema=Assessments.model_json_schema(),
             ),
         )
         result = Assessments.model_validate_json(response.text or "")
