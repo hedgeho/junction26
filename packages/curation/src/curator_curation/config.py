@@ -6,6 +6,8 @@ class CurationSettings(CoreSettings):
     google_application_credentials: str = ""
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
+    scoring_backend: str = "decisions"
+    gemini_decision_model: str = "gemini-decision-1"
     gemma_url: str = ""  # OpenAI-compatible /v1 base URL on Modal
     gemma_token: str = ""
     gemma_model: str = "google/gemma-3-1b-it"

@@ -378,3 +378,59 @@ def test_image_fetch_rejects_foreign_hosts_non_images_and_oversize(conn, monkeyp
         "c": ("bluesky", "https://cdn.bsky.app/big.jpg"),
     }
     assert media.fetch_images(wanted) == ()
+
+
+def test_decision_scorer_maps_structured_results_and_public_images():
+    from curator_curation.llm.gemini import GeminiDecisionScorer, ScoringImage
+
+    seen = {}
+
+    def create(**kwargs):
+        seen.update(kwargs)
+        answers = {}
+        for name in kwargs["questions"]:
+            answers[name] = (
+                SimpleNamespace(type="choice", choice="include")
+                if name.endswith("_decision")
+                else SimpleNamespace(type="score", score=3.0)
+            )
+        return SimpleNamespace(answers=answers)
+
+    scorer = object.__new__(GeminiDecisionScorer)
+    scorer.model = "gemini-decision-1"
+    scorer.timeout_s = 30
+    scorer.client = SimpleNamespace(decisions=SimpleNamespace(create=create))
+    request = PublicScoringRequest(
+        "Public preferences",
+        (PublicCandidate("x:one", "x", "Original text", "", False, False),),
+        (ScoringImage("p0m0", "image/png", b"original-image"),),
+    )
+    result = scorer.score(request)
+    assert result.items[0].post_key == "x:one"
+    assert result.items[0].decision == "include"
+    assert result.items[0].relevance == 0.75
+    assert len(seen["questions"]) == 4
+    assert "Public preferences" in seen["input"][0]["text"]
+    assert seen["input"][2]["type"] == "image"
+    assert seen["input"][2]["data"] == "b3JpZ2luYWwtaW1hZ2U="
+
+
+def test_decision_scorer_rejects_missing_or_invalid_answers():
+    from curator_curation.llm.gemini import GeminiDecisionScorer
+
+    request = PublicScoringRequest("Public", (PublicCandidate("x:one", "x", "Text", "", False, False),))
+    scorer = object.__new__(GeminiDecisionScorer)
+    scorer.model = "gemini-decision-1"
+    scorer.timeout_s = 30
+    scorer.client = SimpleNamespace(decisions=SimpleNamespace(create=lambda **kwargs: SimpleNamespace(answers={})))
+    with pytest.raises(ValueError, match="coverage"):
+        scorer.score(request)
+
+    def wrong_score(**kwargs):
+        answers = {name: SimpleNamespace(type="score", score=5) for name in kwargs["questions"]}
+        answers["p0_decision"] = SimpleNamespace(type="choice", choice="include")
+        return SimpleNamespace(answers=answers)
+
+    scorer.client.decisions.create = wrong_score
+    with pytest.raises(ValueError):
+        scorer.score(request)

@@ -12,14 +12,34 @@ from curator_core import db
 from . import digests, jobs, media, note_folders, profiles
 from .candidates import public_candidates
 from .config import settings
-from .llm.gemini import SCORER_VERSION, GeminiScorer, PublicCandidate, PublicScoringRequest
+from .llm.gemini import (
+    DECISION_SCORER_VERSION,
+    SCORER_VERSION,
+    GeminiDecisionScorer,
+    GeminiScorer,
+    PublicCandidate,
+    PublicScoringRequest,
+)
 from .llm.gemma import GemmaClient
 
 log = logging.getLogger(__name__)
 
 
 def scorer_version() -> str:
-    return f"{SCORER_VERSION}:{settings().gemini_model}"
+    cfg = settings()
+    if cfg.scoring_backend == "decisions":
+        return f"{DECISION_SCORER_VERSION}:{cfg.gemini_decision_model}"
+    if cfg.scoring_backend == "generative":
+        return f"{SCORER_VERSION}:{cfg.gemini_model}"
+    raise ValueError("unsupported scoring backend")
+
+
+def make_scorer(cfg):
+    if cfg.scoring_backend == "decisions":
+        return GeminiDecisionScorer(cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s)
+    if cfg.scoring_backend == "generative":
+        return GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+    raise ValueError("unsupported scoring backend")
 
 
 def score_user(conn, scorer, did: str) -> int:
@@ -136,7 +156,7 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
             if not jobs.process_one(conn, gemma):
                 break
     if scorer is None and cfg.gemini_api_key:
-        scorer = GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+        scorer = make_scorer(cfg)
     users = conn.execute(
         "SELECT did FROM users" + (" WHERE did=?" if only_did else ""), (only_did,) if only_did else ()
     ).fetchall()

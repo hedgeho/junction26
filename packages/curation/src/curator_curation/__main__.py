@@ -17,12 +17,12 @@ def main() -> None:
     args = parser.parse_args()
     if args.cmd == "check-providers":
         from .config import settings
-        from .llm.gemini import GeminiScorer, PublicCandidate, PublicScoringRequest
+        from .llm.gemini import PublicCandidate, PublicScoringRequest
         from .llm.gemma import GemmaClient
 
         cfg = settings()
         try:
-            public = GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+            public = worker.make_scorer(cfg)
             public.score(
                 PublicScoringRequest(
                     "# Interests\nCompiler research",

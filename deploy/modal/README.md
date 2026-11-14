@@ -14,7 +14,7 @@ uv run --with 'modal>=1.0,<2' modal deploy deploy/modal/gemma_service.py
 ```
 
 5. Set the application host's `GEMMA_URL` to the returned endpoint URL plus `/v1`, and `GEMMA_TOKEN` to the same service token. Set `GEMMA_MODEL=google/gemma-3-1b-it`.
-6. Set `GEMINI_API_KEY` and `GEMINI_MODEL=gemini-3.1-flash-lite`, or another model available in the event account. Restart the Hostinger curation/web processes through the existing deployment procedure.
+6. Set `GEMINI_API_KEY` for the default `gemini-decision-1` scorer. For the previous generative scorer, set `SCORING_BACKEND=generative` and `GEMINI_MODEL=gemini-3.1-flash-lite`. Restart the Hostinger curation/web processes through the existing deployment procedure.
 
 Model weights are pinned to revision `dcc83ea841ab6100d6b47a070329e1ba4cf78752`. vLLM/Transformers are pinned in the image. The smaller model and T4 are chosen for cost; their fit, structured-output quality, and startup behavior still require live verification. The service scales to zero after 5 idle minutes and is capped at one container/two concurrent inputs. A cold download can exceed the application's inference timeout. Failed feedback jobs retry with a bounded attempt count, and no private data is sent to Gemini on failure.
 

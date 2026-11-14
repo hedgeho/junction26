@@ -18,7 +18,8 @@ LABELS = {
 
 def filtering_status(conn, uid):
     cfg = settings()
-    if not cfg.gemini_api_key or not cfg.gemini_model:
+    model = cfg.gemini_decision_model if cfg.scoring_backend == "decisions" else cfg.gemini_model
+    if not cfg.gemini_api_key or not model or cfg.scoring_backend not in {"decisions", "generative"}:
         code = "not_configured"
     elif db.kv_get(conn, "curation-state:" + uid) == "failed":
         code = "failed"
