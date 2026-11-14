@@ -1,55 +1,21 @@
-{% extends "base.html" %}{% block title %}Settings &mdash; Agora{% endblock %}{% block body %}
-<div class="page-heading">
-<p class="eyebrow">Make it yours</p>
-<h1>A little fine-tuning<span style="color:var(--accent)">.</span>
-</h1>
-<p class="subtitle">Your pace, your sources, your boundaries.</p>
-</div>
-<div class="settings-stack">
-<section class="settings-section"><h2>Your Bluesky source</h2>
-<p><a href="https://bsky.app/profile/spacecowboy17.bsky.social/feed/for-you" target="_blank" rel="noopener noreferrer">For You by spacecowboy17 &#8599;</a><br>Pull your personalized feed, then let Agora filter it around your intentions. Feed access is read-only.</p>
-<p role="status">{% if feed_status %}{{ {'loading':'Pulling posts...', 'ready':'Connected', 'auth_required':'Reconnect Bluesky to allow feed access.', 'failed':'Could not pull posts. Try again or reconnect Bluesky.'}.get(feed_status.state, 'Not connected') }}{% if feed_status.state == 'ready' %} &middot; {{ feed_status.post_count }} candidates{% endif %}{% else %}Connect Bluesky to pull your personalized posts.{% endif %}</p>
-<form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button">Connect / reconnect Bluesky &#8599;</button></form>
-<form method="post" action="/settings/bluesky/sync"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button secondary">Pull posts now &#8599;</button></form>
-</section>
+{% extends "base.html" %}
+{% block title %}Settings &middot; Agora{% endblock %}
+{% block body %}
+<div class="page-heading"><h1>Settings</h1></div>
 <section class="settings-section">
-<h2>Daily rhythm</h2>
-<p>A ceiling, not a target. Some days, less is more.</p>
-<form method="post" action="/settings/delivery">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<div class="field-grid">
-<div>
-<label for="daily-limit">Daily maximum</label>
-<input id="daily-limit" type="number" name="daily_limit" min="1" max="50" value="{{ config.daily_limit }}" required>
-</div>
-<div>
-<label for="timezone">Timezone</label>
-<input id="timezone" name="timezone" value="{{ config.timezone }}" required>
-</div>
-</div>
-<label for="blocked">Blocked author IDs</label>
-<textarea id="blocked" name="blocked_authors" placeholder="One per line: bluesky:did:... or x:...">{{ config.blocked_authors }}</textarea>
-<button class="button">Save settings &#8599;</button>
-</form>
+  <div class="connection-top"><div><h2>Bluesky</h2><p class="connection-info"><a href="https://bsky.app/profile/spacecowboy17.bsky.social/feed/for-you" target="_blank" rel="noopener noreferrer">For You by spacecowboy17 &#8599;</a></p></div>{% if feed_status and feed_status.state == 'ready' %}<span class="badge">Connected</span>{% endif %}</div>
+  {% if not feed_status or feed_status.state != 'ready' %}<p class="status">{{ {'loading':'Loading','auth_required':'Reconnect required','failed':'Update failed'}.get(feed_status.state, 'Not connected') if feed_status else 'Not connected' }}</p>{% endif %}
+  <div class="row"><form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reconnect</button></form><form method="post" action="/settings/bluesky/sync"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Sync feed</button></form>{% if feed_status and feed_status.state == 'ready' %}<span class="meta">{{ feed_status.post_count }} posts loaded</span>{% endif %}</div>
 </section>
-<section class="settings-section" id="notes">
-<h2>Your words, kept intact.</h2>
-<p>Add a read-only snapshot of your writing. Relevant passages can appear alongside posts, exactly as you wrote them. Private notes are processed with Gemma on Modal.</p>
-<form method="post" action="/settings/notes">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<label for="note-title">Source title</label>
-<input id="note-title" name="title" maxlength="200" required placeholder="A working thought, a journal entry, an essay...">
-<label for="note-text">Original Markdown or plain text</label>
-<textarea id="note-text" name="text" maxlength="200000" required placeholder="Paste your original writing here.">
-</textarea>
-<button class="button">Add snapshot &#8599;</button>
-</form>{% for note in notes %}<form class="note-row" method="post" action="/settings/notes/{{ note.id }}/delete">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<span>{{ note.title }}</span>
-<button class="text-link">Remove snapshot &times;</button>
-</form>{% endfor %}</section>
-<details class="settings-section">
-<summary>Under the hood &middot; Configuration files</summary>
+<section class="settings-section" id="notes"><h2>Notes</h2>
+  <form method="post" action="/settings/notes/folder"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="checkbox"><input type="checkbox" name="enabled" value="yes" data-toggle="notes-fields" {% if notes_enabled %}checked{% endif %}>Connect notes</label>
+    <fieldset id="notes-fields" {% if not notes_enabled %}hidden disabled{% endif %}><label for="folder">Markdown folder or Google Drive folder link</label><input id="folder" name="folder" value="{{ folder or 'notes' }}" maxlength="2000" aria-describedby="notes-help{% if folder_error %} folder-error{% endif %}" {% if folder_error %}aria-invalid="true"{% endif %}><p class="help" id="notes-help">Read-only .md files. Local folders must be on the app host.</p>{% if drive_viewer %}<p class="help">Share the Drive folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">Drive requires a connection configured by the host.</p>{% endif %}</fieldset>
+    {% if folder_error %}<p class="error" role="alert" id="folder-error">{{ folder_error }}</p>{% endif %}<button>Save connection</button>
+  </form>{% if folder %}<p class="status">{{ notes|length }} files{% if notes_state == 'unavailable' %} &middot; Folder unavailable{% endif %}</p>{% endif %}
+</section>
+<details class="settings-section"><summary>Delivery</summary><form method="post" action="/settings/delivery"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="daily-limit">Posts per day</label><input id="daily-limit" type="number" name="daily_limit" min="1" max="50" value="{{ config.daily_limit }}" required><label for="timezone">Timezone</label><input id="timezone" name="timezone" value="{{ config.timezone }}" required><label for="blocked">Blocked author IDs</label><textarea id="blocked" name="blocked_authors">{{ config.blocked_authors }}</textarea><button>Save delivery</button></form></details>
+<details class="settings-section" id="configuration">
+<summary>Configuration files</summary>
 <p>Model-maintained Markdown. Public filtering preferences are sent to Gemini; the private file stays in the Gemma processing path. Removing a snapshot removes its displayed matches. Configuration history may retain inferred interests.</p>{% for doc in docs %}<div class="config-doc">
 <h3>{{ doc.kind }} configuration</h3>
 <a class="text-link" href="/settings/profile/{{ doc.kind }}">Download Markdown &#8599;</a>
@@ -64,5 +30,7 @@
 <input type="hidden" name="expected" value="{{ doc.revision }}">
 <button class="text-link">Restore revision {{ revision.id[:8] }}</button>
 </form>{% endfor %}</div>{% endfor %}</details>
-</div>
+
+<details class="settings-section" id="services"><summary>Service status <span class="meta">{{ curation_status.label }}</span></summary><p class="status">{{ curation_status.label }}</p>{% if curation_status.state == 'not_configured' %}<p class="help">The host needs GEMINI_API_KEY and GEMINI_MODEL in .env, then the curation worker must run.</p>{% elif curation_status.state == 'offline' %}<p class="help">Start the curation worker: <code>uv run python -m curator_curation run</code></p>{% elif curation_status.state == 'failed' %}<p class="help">Check provider configuration and retry.</p>{% endif %}</details>
+<div class="settings-footer"><a class="meta" href="/privacy">Privacy</a><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-link">Sign out</button></form></div>
 {% endblock %}

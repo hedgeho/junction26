@@ -1,104 +1,32 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="page-heading">
-<p class="eyebrow" id="edition-date">Your daily edition</p>
-<h1>Your daily selection<span style="color:var(--accent)">.</span>
-</h1>
-<p class="subtitle">A few things worth your attention. The rest can wait.</p>
-</div>
-<div class="reader-grid">
-<section aria-label="Selected posts">
-<div class="toolbar">
-<div class="filters" aria-label="Filter by source">
-<button class="filter" type="button" data-source="all" aria-pressed="true">All sources</button>
-<button class="filter" type="button" data-source="bluesky" aria-pressed="false">Bluesky</button>
-<button class="filter" type="button" data-source="x" aria-pressed="false">X</button>
-</div>
-<span class="count" id="post-count">{{ posts|length }} selected</span>
-</div>
-<div id="posts">
-{% for post in posts %}<article class="post" data-platform="{{ post.platform }}">
-<div class="post-head">
-<span class="post-avatar" aria-hidden="true">{{ post.author[:1]|upper }}</span>
-<div>
-<div class="author">{{ post.author }}</div>
-<div class="source-meta">
-<span class="platform">{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}</span>
-<span>Original post</span>
-</div>
-</div>
-</div>
-<div class="source-text">{{ post.text }}</div>
-{% for note in post.notes %}<aside class="note-match">
-<div class="note-label">
-<svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
-<path d="M5 3h8l3 3v11H5zM8 9h5M8 12h5"/>
-</svg>From your notes &middot; {{ note.title }}</div>
-<blockquote class="source-text">{{ note.text }}</blockquote>
-</aside>{% endfor %}
-<div class="post-actions">
-<a class="text-link" href="{{ post.url }}" target="_blank" rel="noopener noreferrer">Read original <span aria-hidden="true">&#8599;</span>
-</a>
-<form method="post" action="/me/dismiss">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<input type="hidden" name="post_key" value="{{ post.key }}">
-<button class="dismiss" aria-label="Dismiss post by {{ post.author }}">Not for me <span aria-hidden="true">&times;</span>
-</button>
-</form>
-</div>
+<div class="toolbar"><div><h1>Today</h1>{% if posts %}<div class="toolbar-meta">{{ posts|length }} posts</div>{% endif %}</div><form method="post" action="/me/refresh"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="icon" aria-label="Refresh feed" title="Refresh feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg></button></form></div>
+{% if feed_status and feed_status.state != 'ready' %}<div class="notice" role="status"><span>{% if feed_status.state == 'auth_required' %}Bluesky needs to reconnect.{% elif feed_status.state == 'failed' %}Feed update failed.{% else %}Loading posts&hellip;{% endif %}</span><a href="/settings">Manage connection</a></div>{% endif %}
+{% if posts and curation_status.state in ['not_configured', 'offline', 'failed'] %}<div class="notice" role="status"><span>{{ curation_status.label }}</span><a href="/settings#services">Details</a></div>{% endif %}
+{% for post in posts %}
+<article class="post" data-post-key="{{ post.key }}">
+  <div class="post-head"><div><div class="author">{{ post.author }}</div><div class="meta"><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
+  <div class="source-text post-text">{{ post.text }}</div>
+  {% for note in post.notes %}<aside class="note-match"><span class="meta">{{ note.title }}</span><blockquote class="source-text">{{ note.text }}</blockquote></aside>{% endfor %}
+  <div class="post-actions"><a href="{{ post.url }}" target="_blank" rel="noopener noreferrer">Original post <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg></a><button type="button" class="icon feedback-open" aria-label="Feedback on post by {{ post.author }}" aria-haspopup="dialog" aria-controls="feedback-dialog" title="Feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M8 9h8M8 13h5"/></svg></button></div>
 </article>
-{% else %}<div class="empty">
-<h2>A little space, for now.</h2>
-<p>No matching posts yet. Add your interests; your selection will appear after processing.</p>
-</div>{% endfor %}
-</div>
-<p id="filter-empty" class="empty" hidden>No posts from this source in today's selection.</p>
-{% if posts %}<div class="endmark">
-<span class="ornament" aria-hidden="true">&#10035;</span>
-<h2>You're all caught up.</h2>
-<p>A good place to close the tab.</p>
-<form method="post" action="/me/refresh">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<button class="refresh">Refresh selection</button>
-</form>
-</div>{% else %}<form method="post" action="/me/refresh">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<button class="refresh">Refresh selection</button>
-</form>{% endif %}</section>
-<aside class="feedback-rail">
-<div class="panel">
-<span class="eyebrow">Your intention, first</span>
-<h2>Tune your signal.</h2>
-<p>What would you like more or less of? A small nudge is enough.</p>
-<form method="post" action="/me/feedback">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<input type="hidden" name="key" value="{{ submission_key }}">
-<label class="eyebrow" for="feedback" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Your feedback</label>
-<textarea id="feedback" name="text" required maxlength="8000" placeholder="More independent research. Less launch-day hype.">
-</textarea>
-<label class="checkbox">
-<input type="checkbox" name="kind" value="private">Keep this feedback private</label>
-<button class="button">Update preferences <span aria-hidden="true">&#8599;</span>
-</button>
-</form>{% if job %}<p class="status" id="job-status" role="status" data-job="{{ job.id }}">{{ {'queued':'Queued','processing':'Updating','applied':'Updated','failed':'Update failed. Please try again.'}.get(job.state, 'Queued') }}</p>{% endif %}<p class="panel-foot">Public preferences help filter posts with Gemini. Private feedback stays in the Gemma processing path. <a href="/privacy" class="text-link">Details &#8599;</a>
-</p>
-</div>
-{% if feed_status %}<p class="rail-foot">Bluesky source: For You by spacecowboy17.<br>{% if feed_status.state == 'auth_required' %}<a class="text-link" href="/settings">Reconnect to allow feed access &#8599;</a>{% elif feed_status.state == 'failed' %}<a class="text-link" href="/settings">Feed update failed. Try again &#8599;</a>{% else %}<a class="text-link" href="/settings">Manage source &#8599;</a>{% endif %}</p>{% endif %}<p class="rail-foot">
-<span class="live-dot">
-</span>A finite feed. Updated daily.<br>Original voices, always.</p>
-<form method="post" action="/logout">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<button class="text-link">Sign out &#8599;</button>
-</form>
-</aside>
-</div>
-<script>
-const dateNode = document.getElementById('edition-date');
-dateNode.textContent = new Intl.DateTimeFormat(undefined, {weekday:'long', month:'long', day:'numeric'}).format(new Date()) + ' / Your daily edition';
-function updateCount() { const cards = [...document.querySelectorAll('.post')]; const visible = cards.filter(card => !card.hidden).length; document.getElementById('post-count').textContent = visible + ' selected'; document.getElementById('filter-empty').hidden = visible > 0 || cards.length === 0; }
-document.querySelectorAll('[data-source]').forEach(button => button.addEventListener('click', () => {document.querySelectorAll('[data-source]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));document.querySelectorAll('.post').forEach(card => card.hidden = button.dataset.source !== 'all' && card.dataset.platform !== button.dataset.source);updateCount();}));
-const stateLabels = {queued: 'Queued', processing: 'Updating', applied: 'Updated', failed: 'Update failed. Please try again.'};
-const statusNode = document.getElementById('job-status');
-if (statusNode && ['Queued', 'Updating'].includes(statusNode.textContent)) { const timer = setInterval(async () => {try {const response = await fetch('/api/jobs/' + statusNode.dataset.job);if (!response.ok) {clearInterval(timer); return;}const value = await response.json();statusNode.textContent = stateLabels[value.state] || 'Queued';if (['applied', 'failed'].includes(value.state)) clearInterval(timer);} catch (_) {clearInterval(timer);}}, 3000);}
-</script>
+{% else %}
+<section class="empty" aria-label="Feed status">
+  <svg class="empty-icon" viewBox="0 0 28 28" aria-hidden="true"><rect x="5" y="4" width="18" height="20" rx="4"/><path d="M10 10h8M10 14h8M10 18h4"/></svg>
+  {% if feed_status and feed_status.state == 'ready' and not feed_status.post_count %}<h2>No posts yet.</h2>
+  {% elif curation_status.state in ['not_configured', 'offline', 'failed'] %}
+    <h2>{{ curation_status.label }}</h2><p>{% if feed_status and feed_status.state == 'ready' %}Bluesky connected &middot; {{ feed_status.post_count }} posts loaded{% else %}Check your source connection in Settings.{% endif %}</p><a href="/settings#services">Service details</a>
+  {% elif curation_status.state == 'processing' %}
+    <h2 id="curation-pending" role="status">Filtering posts...</h2><p>Your selection will appear here.</p>
+  {% elif feed_status and feed_status.state == 'ready' and feed_status.post_count %}<h2>No matching posts today.</h2>
+  {% else %}<h2>No posts yet.</h2>{% endif %}
+</section>
+{% endfor %}
+{% if posts %}<p class="end">End of today's feed</p>{% endif %}
+{% if job and not feedback_available and job.state in ['queued', 'processing'] %}<p class="status" role="status">Feedback saved. Processing is unavailable.</p>{% elif job %}<p class="status" id="job-status" role="status" data-job="{{ job.id }}" data-state="{{ job.state }}">{{ {'queued':'Queued','processing':'Updating','applied':'Updated','failed':'Update failed. Please try again.'}.get(job.state, 'Queued') }}</p>{% endif %}
+<dialog id="feedback-dialog" aria-labelledby="feedback-title">
+  <div class="dialog-head"><h2 id="feedback-title">Feedback</h2><button type="button" class="icon" id="feedback-close" aria-label="Close feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+  <blockquote id="feedback-context" class="feedback-context"></blockquote>
+  <form method="post" action="/me/feedback"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ submission_key }}"><input type="hidden" name="post_key" id="feedback-post"><label for="feedback">What would you like to change?</label><textarea id="feedback" name="text" required maxlength="8000"></textarea><div class="dialog-footer"><label class="checkbox"><input type="checkbox" name="kind" value="private">Keep private</label><button class="primary">Save feedback</button></div></form>
+</dialog>
 {% endblock %}

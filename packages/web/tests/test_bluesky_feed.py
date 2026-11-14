@@ -179,3 +179,16 @@ def test_for_you_keeps_x_candidates_and_honors_source_tombstones(conn, monkeypat
     assert [post.platform for post in public_candidates(conn, DID, [], 20)] == ["bluesky", "x"]
     conn.execute("UPDATE social_posts SET deleted=1 WHERE platform='bluesky'")
     assert [post.platform for post in public_candidates(conn, DID, [], 20)] == ["x"]
+
+
+@pytest.mark.parametrize("reply", [None, {"parent": None, "root": None}])
+@pytest.mark.parametrize("embed", [None, {"record": None}, {"record": {"record": None}}])
+def test_null_optional_metadata_keeps_original_post(reply, embed):
+    body = payload(text="Exact original text with null metadata.")
+    body["feed"][0]["post"]["record"].update(reply=reply, embed=embed)
+    records = bluesky_feed.normalize_feed(body)
+    assert len(records) == 1
+    assert records[0]["text"] == "Exact original text with null metadata."
+    assert records[0]["parent_id"] is None
+    assert records[0]["root_id"] is None
+    assert records[0]["quote_id"] is None

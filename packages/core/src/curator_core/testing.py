@@ -17,6 +17,9 @@ def conn(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("HOSTNAME", "feed.example.com")
     monkeypatch.setenv("PUBLISHER_DID", "did:plc:publisher")
+    # Never use developer/provider credentials from local dotenv files in tests.
+    for key in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMMA_URL", "GEMMA_TOKEN"):
+        monkeypatch.setenv(key, "")
     clear_settings()
     yield db.connect()
     clear_settings()

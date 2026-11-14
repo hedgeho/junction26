@@ -4,8 +4,8 @@ Deploy from this directory with: uv run --with 'modal>=1.0,<2' modal deploy gemm
 
 import modal
 
-MODEL = "google/gemma-3-12b-it"
-REVISION = "96b6f1eccf38110c56df3a15bffe176da04bfd80"
+MODEL = "google/gemma-3-1b-it"
+REVISION = "dcc83ea841ab6100d6b47a070329e1ba4cf78752"
 app = modal.App("quiet-curator-gemma")
 weights = modal.Volume.from_name("quiet-curator-model-weights", create_if_missing=True)
 image = (
@@ -18,7 +18,7 @@ image = (
 
 @app.cls(
     image=image,
-    gpu="L40S",
+    gpu="T4",
     volumes={"/weights": weights},
     secrets=[modal.Secret.from_name("quiet-curator-gemma")],
     max_containers=1,
@@ -56,7 +56,7 @@ class Gemma:
                 "--port",
                 "8001",
                 "--dtype",
-                "bfloat16",
+                "float16",
                 "--max-model-len",
                 "32768",
                 "--max-num-seqs",
@@ -67,8 +67,6 @@ class Gemma:
                 "--disable-log-stats",
                 "--uvicorn-log-level",
                 "warning",
-                "--limit-mm-per-prompt",
-                '{"image":0,"video":0}',
             ],
             env=env,
         )

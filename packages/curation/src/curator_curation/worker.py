@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from curator_core import db
 
-from . import digests, jobs, profiles
+from . import digests, jobs, note_folders, profiles
 from .candidates import public_candidates
 from .config import settings
 from .llm.gemini import SCORER_VERSION, GeminiScorer, PublicCandidate, PublicScoringRequest
@@ -48,6 +48,7 @@ def score_user(conn, scorer, did: str) -> int:
     ][: cfg.candidates_per_cycle]
     total = 0
     for start in range(0, len(unscored), cfg.score_batch_size):
+        db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
         batch = unscored[start : start + cfg.score_batch_size]
         day = datetime.now(UTC).date().isoformat()
         budget_key = f"scoring-budget:{uid}:{day}"
@@ -93,6 +94,13 @@ def score_user(conn, scorer, did: str) -> int:
 
 def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
     cfg = settings()
+    db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
+    for row in conn.execute("SELECT user_id FROM notes_folders").fetchall():
+        if only_did:
+            account = conn.execute("SELECT id FROM reader_accounts WHERE bluesky_did=?", (only_did,)).fetchone()
+            if not account or account["id"] != row["user_id"]:
+                continue
+        note_folders.sync(conn, row["user_id"])
     if gemma is None and cfg.gemma_url and cfg.gemma_token:
         gemma = GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
     if gemma:
@@ -116,9 +124,14 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
                 continue
             if scorer is None:
                 continue
+            db.kv_set(conn, "curation-state:" + uid, "processing")
             score_user(conn, scorer, user["did"])
             digests.build(conn, uid, scorer_version(), gemma)
+            db.kv_set(conn, "curation-state:" + uid, "ready")
         except Exception:  # noqa: BLE001 - sanitize external provider errors at the boundary
+            account = conn.execute("SELECT id FROM reader_accounts WHERE bluesky_did=?", (user["did"],)).fetchone()
+            if account:
+                db.kv_set(conn, "curation-state:" + account["id"], "failed")
             log.warning("curation cycle failed for a reader; retry next cycle")
 
 

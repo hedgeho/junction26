@@ -40,11 +40,13 @@ def normalize_feed(payload: dict) -> list[dict]:
             raise ValueError("Invalid post identity")
         if not isinstance(text, str):
             raise TypeError("Missing original text")
-        reply = record.get("reply", {})
-        embed = record.get("embed", {})
-        quoted = embed.get("record", {})
+        # Optional union fields can be explicitly null in hydrated feed records.
+        # Null metadata must not discard the original post or fail the whole page.
+        reply = record.get("reply") or {}
+        embed = record.get("embed") or {}
+        quoted = embed.get("record") or {}
         if "record" in quoted:
-            quoted = quoted["record"]
+            quoted = quoted["record"] or {}
         records.setdefault(
             uri,
             {
@@ -55,8 +57,8 @@ def normalize_feed(payload: dict) -> list[dict]:
                 "text": text,
                 "canonical_url": f"https://bsky.app/profile/{quote(did, safe=':')}/post/{quote(uri.rsplit('/', 1)[-1], safe='')}",
                 "created_at": record.get("createdAt"),
-                "parent_id": reply.get("parent", {}).get("uri"),
-                "root_id": reply.get("root", {}).get("uri"),
+                "parent_id": (reply.get("parent") or {}).get("uri"),
+                "root_id": (reply.get("root") or {}).get("uri"),
                 "quote_id": quoted.get("uri"),
             },
         )

@@ -108,9 +108,14 @@ def read(conn, uid) -> list[dict]:
     run = latest(conn, uid)
     profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
+    if not profile:
+        return initial_feed(conn, uid, config)
     if not run or not profile or run["profile_revision"] != profile["id"]:
         return []
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
+    account = conn.execute("SELECT bluesky_did FROM reader_accounts WHERE id=?", (uid,)).fetchone()
+    did = account["bluesky_did"] if account else None
+    connected = did and conn.execute("SELECT 1 FROM bluesky_feed_sync WHERE user_did=?", (did,)).fetchone()
     out = []
     for item in conn.execute("SELECT * FROM digest_items WHERE run_id=? ORDER BY position", (run["id"],)):
         post = get_post(conn, item["post_key"])
@@ -119,6 +124,14 @@ def read(conn, uid) -> list[dict]:
             or post.key in dismissed
             or post.content_hash != item["content_hash"]
             or post.author_key in blocked(config)
+        ):
+            continue
+        if (
+            connected
+            and post.platform == "bluesky"
+            and not conn.execute(
+                "SELECT 1 FROM bluesky_feed_posts WHERE user_did=? AND post_key=?", (did, post.key)
+            ).fetchone()
         ):
             continue
         # Explicit source-only DTO. Never expose assessment/profile/generated metadata.
@@ -134,3 +147,32 @@ def read(conn, uid) -> list[dict]:
             }
         )
     return out[: config["daily_limit"]]
+
+
+def initial_feed(conn, uid, config) -> list[dict]:
+    account = conn.execute("SELECT bluesky_did FROM reader_accounts WHERE id=?", (uid,)).fetchone()
+    if not account or not config:
+        return []
+    dismissed = {row[0] for row in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
+    rows = conn.execute(
+        "SELECT post_key FROM bluesky_feed_posts WHERE user_did=? ORDER BY position", (account["bluesky_did"],)
+    )
+    posts = []
+    for row in rows:
+        post = get_post(conn, row["post_key"])
+        if not post or post.key in dismissed or post.author_key in blocked(config):
+            continue
+        posts.append(
+            {
+                "key": post.key,
+                "platform": post.platform,
+                "author": post.author_name,
+                "text": post.text,
+                "url": post.canonical_url,
+                "created_at": post.created_at,
+                "notes": notes.matches_for(conn, uid, post),
+            }
+        )
+        if len(posts) >= config["daily_limit"]:
+            break
+    return posts

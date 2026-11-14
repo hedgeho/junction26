@@ -1,17 +1,16 @@
-{% extends "base.html" %}{% block title %}Agora &mdash; a little more space{% endblock %}{% block body %}
-<section class="welcome">
-<span class="eyebrow">Social, on your terms</span>
-<h1>The world is loud.<br>Your feed can be<br>
-<em>a little quieter.</em>
-</h1>
-<p class="intro">A finite daily selection of original posts, connected to your own writing. Chosen around what matters to you.</p>
-<form class="login-form" method="post" action="/login">
-<input type="hidden" name="csrf" value="{{ csrf }}">
-<label for="handle">Your Bluesky handle</label>
-<input id="handle" name="handle" required maxlength="253" placeholder="you.bsky.social" autocomplete="username" autocapitalize="none" spellcheck="false">
-<button class="button">Make room for what matters <span aria-hidden="true">&#8599;</span>
-</button>
-</form>
-<p class="welcome-foot">Bluesky &amp; X &middot; Original posts &middot; A place to stop</p>
-<p class="muted" style="max-width:350px;margin-top:18px;font-size:11px">Sign in with Bluesky. X posts appear when supplied by the connected data pipeline.</p>{% if demo %}<a class="button secondary" href="/me">Explore the sample edition &#8599;</a>{% endif %}</section>
+{% extends "base.html" %}
+{% block title %}Sign in &middot; Agora{% endblock %}
+{% block body %}
+<section class="auth">
+  <div class="page-heading"><h1>Connect Bluesky</h1><p class="muted">Use your Bluesky account to continue.</p></div>
+  <form method="post" action="/login">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="handle">Bluesky handle</label>
+    <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true"{% endif %}>
+    <p class="help" id="login-help">For You by spacecowboy17 &middot; Read-only access</p>
+    {% if error %}<p class="error" role="alert" id="login-error">{{ error }}</p>{% endif %}
+    <button class="primary">Continue <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
+  </form>
+  <div class="auth-footer"><span>Bluesky OAuth</span><a href="/privacy">Privacy</a></div>
+</section>
 {% endblock %}

@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from curator_core import db
-from curator_curation import digests, jobs, notes, profiles
+from curator_curation import digests, drive_notes, health, jobs, note_folders, profiles
+from curator_curation.config import settings as curation_settings
 from curator_curation.readers import ensure_user
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
@@ -36,7 +37,9 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 def page(request, name, context):
     token = request.session.setdefault("csrf", secrets.token_urlsafe(32))
-    return templates.TemplateResponse(request, name, dict(context, csrf=token))
+    static = Path(__file__).parent / "static"
+    version = max((static / name).stat().st_mtime_ns for name in ("app.css", "app.js"))
+    return templates.TemplateResponse(request, name, dict(context, csrf=token, asset_version=version))
 
 
 def current_did(request: Request) -> str:
@@ -50,6 +53,12 @@ def reader(request: Request, conn) -> str:
     did = current_did(request)
     ensure_user(conn, did)
     return profiles.bootstrap(conn, did)
+
+
+def reader_posts(conn, uid, did):
+    if not note_folders.setup_done(conn, uid) or not bluesky_feed.status(conn, did):
+        return []
+    return digests.read(conn, uid)
 
 
 def redirect(path="/me"):
@@ -67,11 +76,15 @@ def oauth_jwks():
 
 
 @router.post("/login")
-async def login(handle: str = Form(..., min_length=1, max_length=253)):
+async def login(request: Request, handle: str = Form(..., min_length=1, max_length=253)):
     try:
         url = await oauth.client().authorize(handle.strip().lstrip("@"))
     except Exception:  # noqa: BLE001 - sanitize external provider errors at the boundary
-        raise HTTPException(400, "Sign-in failed") from None
+        response = page(
+            request, "index.html", {"handle": handle, "error": "Could not connect. Check your handle and try again."}
+        )
+        response.status_code = 400
+        return response
     return redirect(url)
 
 
@@ -88,7 +101,8 @@ async def oauth_callback(request: Request):
     c = db.connect()
     try:
         ensure_user(c, did)
-        profiles.bootstrap(c, did)
+        uid = profiles.bootstrap(c, did)
+        destination = "/me" if note_folders.setup_done(c, uid) else "/setup"
         try:
             handle = (await asyncio.to_thread(appview.get_profile, did)).get("handle")
             c.execute("UPDATE users SET handle=? WHERE did=?", (handle, did))
@@ -97,7 +111,7 @@ async def oauth_callback(request: Request):
     finally:
         c.close()
     await bluesky_feed.sync(did, force=True, initialize=True)
-    return redirect()
+    return redirect(destination)
 
 
 @router.post("/logout")
@@ -120,6 +134,14 @@ def privacy(request: Request):
 
 @router.get("/me", response_class=HTMLResponse)
 async def me(request: Request):
+    c = db.connect()
+    try:
+        uid = reader(request, c)
+        if not note_folders.setup_done(c, uid):
+            return redirect("/setup")
+        await asyncio.to_thread(note_folders.sync, c, uid)
+    finally:
+        c.close()
     await bluesky_feed.sync(current_did(request))
     c = db.connect()
     try:
@@ -134,10 +156,12 @@ async def me(request: Request):
             "me.html",
             {
                 "user": user,
-                "posts": digests.read(c, uid),
+                "posts": reader_posts(c, uid, current_did(request)),
                 "job": dict(pending) if pending else None,
                 "feed_status": bluesky_feed.status(c, current_did(request)),
+                "curation_status": health.filtering_status(c, uid),
                 "submission_key": uuid.uuid4().hex,
+                "feedback_available": bool(curation_settings().gemma_url and curation_settings().gemma_token),
             },
         )
     finally:
@@ -148,7 +172,16 @@ async def me(request: Request):
 def digest_api(request: Request):
     c = db.connect()
     try:
-        return {"items": digests.read(c, reader(request, c))}
+        return {"items": reader_posts(c, reader(request, c), current_did(request))}
+    finally:
+        c.close()
+
+
+@router.get("/api/curation")
+def curation_status(request: Request):
+    c = db.connect()
+    try:
+        return health.filtering_status(c, reader(request, c))
     finally:
         c.close()
 
@@ -159,10 +192,14 @@ def feedback(
     text: str = Form(..., min_length=1, max_length=8000),
     key: str = Form(..., min_length=1, max_length=128),
     kind: str = Form("public"),
+    post_key: str = Form("", max_length=1000),
 ):
     c = db.connect()
     try:
-        jobs.enqueue(c, reader(request, c), kind, text, key)
+        uid = reader(request, c)
+        if post_key and post_key not in {p["key"] for p in digests.read(c, uid)}:
+            raise HTTPException(404)
+        jobs.enqueue(c, uid, kind, text, key, post_key or None)
     except ValueError:
         raise HTTPException(400, "Invalid feedback") from None
     finally:
@@ -210,10 +247,16 @@ def dismiss(request: Request, post_key: str = Form(..., max_length=1000)):
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def config_page(request: Request):
+def settings_page(request: Request):
+    return config_page(request)
+
+
+def config_page(request: Request, folder_error: str | None = None, submitted_folder: str | None = None):
     c = db.connect()
     try:
         uid = reader(request, c)
+        note_folders.sync(c, uid)
+        folder = note_folders.folder_for(c, uid)
         docs = [
             {
                 "kind": k,
@@ -238,8 +281,14 @@ def config_page(request: Request):
                 "docs": docs,
                 "config": config,
                 "notes": source_notes,
+                "folder": submitted_folder if submitted_folder is not None else note_folders.folder_label(folder),
+                "notes_enabled": submitted_folder is not None or bool(folder),
+                "drive_viewer": drive_notes.viewer_email(),
+                "notes_state": folder["state"] if folder else "",
+                "folder_error": folder_error,
                 "history": history,
                 "feed_status": bluesky_feed.status(c, current_did(request)),
+                "curation_status": health.filtering_status(c, uid),
             },
         )
     finally:
@@ -327,31 +376,6 @@ def delivery(
     return redirect("/settings")
 
 
-@router.post("/settings/notes")
-def add_note(request: Request, title: str = Form(..., max_length=200), text: str = Form(..., max_length=200000)):
-    c = db.connect()
-    try:
-        notes.import_note(c, reader(request, c), title, text)
-    except ValueError:
-        raise HTTPException(400, "Invalid note") from None
-    finally:
-        c.close()
-    return redirect("/settings")
-
-
-@router.post("/settings/notes/{note_id}/delete")
-def remove_note(request: Request, note_id: str):
-    c = db.connect()
-    try:
-        uid = reader(request, c)
-        if not c.execute("SELECT 1 FROM note_versions WHERE user_id=? AND id=?", (uid, note_id)).fetchone():
-            raise HTTPException(404)
-        notes.delete_note(c, uid, note_id)
-    finally:
-        c.close()
-    return redirect("/settings")
-
-
 @router.post("/settings/bluesky/connect")
 async def connect_bluesky(request: Request):
     did = current_did(request)
@@ -366,3 +390,73 @@ async def connect_bluesky(request: Request):
 async def sync_bluesky(request: Request):
     await bluesky_feed.sync(current_did(request), force=True, initialize=True)
     return redirect("/settings")
+
+
+@router.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request):
+    return setup_view(request)
+
+
+def setup_view(request: Request, error: str | None = None, status_code: int = 200, submitted_folder: str | None = None):
+    c = db.connect()
+    try:
+        uid = reader(request, c)
+        user = c.execute("SELECT handle FROM users WHERE did=?", (current_did(request),)).fetchone()
+        folder = note_folders.folder_for(c, uid)
+        response = page(
+            request,
+            "setup.html",
+            {
+                "did": current_did(request),
+                "handle": user["handle"] if user else None,
+                "folder": submitted_folder if submitted_folder is not None else note_folders.folder_label(folder),
+                "notes_enabled": submitted_folder is not None or bool(folder),
+                "drive_viewer": drive_notes.viewer_email(),
+                "error": error,
+                "feed_status": bluesky_feed.status(c, current_did(request)),
+                "curation_status": health.filtering_status(c, uid),
+            },
+        )
+        response.status_code = status_code
+        return response
+    finally:
+        c.close()
+
+
+@router.post("/setup")
+def finish_setup(request: Request, enabled: str = Form(""), folder: str = Form("notes", max_length=2000)):
+    c = db.connect()
+    error = None
+    try:
+        uid = reader(request, c)
+        source = bluesky_feed.status(c, current_did(request))
+        if not source or source["state"] != "ready":
+            error = "Connect Bluesky before opening the feed."
+        else:
+            try:
+                note_folders.configure(c, uid, folder if enabled == "yes" else None)
+                db.kv_set(c, "setup:" + uid, "done")
+            except ValueError as exc:
+                error = str(exc)
+    finally:
+        c.close()
+    if error:
+        return setup_view(request, error, 400, folder if enabled == "yes" else None)
+    return redirect()
+
+
+@router.post("/settings/notes/folder")
+def set_notes_folder(request: Request, enabled: str = Form(""), folder: str = Form("notes", max_length=2000)):
+    c = db.connect()
+    error = None
+    try:
+        note_folders.configure(c, reader(request, c), folder if enabled == "yes" else None)
+    except ValueError as exc:
+        error = str(exc)
+    finally:
+        c.close()
+    if error:
+        response = config_page(request, error, folder if enabled == "yes" else None)
+        response.status_code = 400
+        return response
+    return redirect("/settings#notes")

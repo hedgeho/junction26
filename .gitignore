@@ -8,3 +8,6 @@ dist/
 # Runtime state: SQLite DB, OAuth sessions and the private JWK
 data/
 .env
+
+# Private Markdown source files
+notes/

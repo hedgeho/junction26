@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Setup &middot; Agora{% endblock %}
+{% block body %}
+<div class="page-heading"><h1>Setup</h1><p class="muted">Connect your sources.</p></div>
+<section class="settings-section">
+  <div class="connection-top"><div class="connection"><span class="connection-symbol" aria-hidden="true"><svg class="small-icon" viewBox="0 0 24 24"><path d="m12 12-5-7C3 1 2 6 4 10c1 2 4 2 8 2Zm0 0 5-7c4-4 5 1 3 5-1 2-4 2-8 2Zm0 0c-7-2-9 5-5 6 2 1 4-3 5-6Zm0 0c7-2 9 5 5 6-2 1-4-3-5-6Z"/></svg></span><div><div class="connection-name">{{ handle or did }}</div><p class="connection-info">For You by spacecowboy17</p></div></div>{% if feed_status and feed_status.state == 'ready' %}<span class="badge">Connected</span>{% endif %}</div>
+  {% if feed_status and feed_status.state == 'ready' %}<p class="status">{{ feed_status.post_count }} posts loaded</p>{% else %}<p class="status">{% if feed_status and feed_status.state == 'failed' %}Could not load your feed.{% else %}Feed access required.{% endif %}</p><form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reconnect Bluesky</button></form>{% endif %}
+</section>
+<form method="post" action="/setup">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <section class="settings-section">
+    <label class="checkbox"><input type="checkbox" name="enabled" value="yes" data-toggle="notes-fields" {% if notes_enabled %}checked{% endif %}>Connect notes <span class="muted">Optional</span></label>
+    <fieldset id="notes-fields" {% if not notes_enabled %}hidden disabled{% endif %}>
+      <label for="folder">Markdown folder or Google Drive folder link</label>
+      <input id="folder" name="folder" value="{{ folder or 'notes' }}" maxlength="2000" aria-describedby="notes-help{% if error %} setup-error{% endif %}">
+      <p class="help" id="notes-help">Read-only .md files. Local folders must be on the app host.</p>
+      {% if drive_viewer %}<p class="help">For Drive, share the folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">Drive requires a connection configured by the host.</p>{% endif %}
+    </fieldset>
+  </section>
+  {% if error %}<p class="error" role="alert" id="setup-error">{{ error }}</p>{% endif %}
+  {% if curation_status.state in ['not_configured', 'offline', 'failed'] %}<div class="notice" role="status" style="margin-top:24px"><span>{{ curation_status.label }}</span><a href="/settings#services">Service details</a></div>{% endif %}
+  <button class="primary">Open feed <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
+</form>
+{% endblock %}

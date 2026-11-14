@@ -395,6 +395,7 @@ version = "0.1.0"
 source = { editable = "packages/curation" }
 dependencies = [
     { name = "curator-core" },
+    { name = "google-auth", extra = ["requests"] },
     { name = "google-genai" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -404,6 +405,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "curator-core", editable = "packages/core" },
+    { name = "google-auth", extras = ["requests"], specifier = ">=2.38.0" },
     { name = "google-genai", specifier = ">=3.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.14.3" },
