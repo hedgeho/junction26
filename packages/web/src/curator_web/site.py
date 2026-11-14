@@ -155,6 +155,7 @@ async def me(request: Request):
             {
                 "user": user,
                 "posts": reader_posts(c, uid, current_did(request)),
+                "daily_limit": digests.config_for(c, uid)["daily_limit"],
                 "job": dict(pending) if pending else None,
                 "curation_status": health.filtering_status(c, uid),
                 "submission_key": uuid.uuid4().hex,
@@ -240,6 +241,21 @@ def job_status(request: Request, job_id: str):
         return {"state": row["state"]}
     finally:
         c.close()
+
+
+@router.post("/me/daily-limit")
+def set_daily_limit(request: Request, daily_limit: int = Form(..., ge=1, le=50)):
+    c = db.connect()
+    try:
+        uid = reader(request, c)
+        c.execute(
+            """UPDATE reader_settings SET daily_limit=?, version=version+1, refresh_requested=1
+            WHERE user_id=? AND daily_limit<>?""",
+            (daily_limit, uid, daily_limit),
+        )
+    finally:
+        c.close()
+    return redirect()
 
 
 @router.post("/me/refresh")

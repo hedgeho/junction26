@@ -47,8 +47,8 @@ function pollStatus(url, node, isDone, render) {
 const pending = document.getElementById('curation-pending');
 if (pending) pollStatus('/api/curation', pending, result => result.state === 'ready', result => {
  if (result.state === 'ready') {
-  const dialog = document.getElementById('feedback-dialog');
-  if (dialog?.open) dialog.addEventListener('close', () => location.reload(), {once:true});
+  const dialog = document.querySelector('dialog[open]');
+  if (dialog) dialog.addEventListener('close', () => location.reload(), {once:true});
   else location.reload();
  } else pending.textContent = result.label;
 });
@@ -56,6 +56,18 @@ const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
  const labels = {queued:'Queued', processing:'Updating', applied:'Updated', failed:'Update failed. Please try again.'};
  pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {job.textContent = labels[result.state] || 'Queued';});
+}
+const limitDialog = document.getElementById('daily-limit-dialog');
+const limitOpen = document.getElementById('daily-limit-open');
+if (limitDialog && limitOpen) {
+ limitOpen.addEventListener('click', () => { limitDialog.showModal(); document.getElementById('feed-daily-limit').focus(); });
+ document.getElementById('daily-limit-close').addEventListener('click', () => limitDialog.close());
+ limitDialog.addEventListener('close', () => limitOpen.focus());
+ limitDialog.addEventListener('click', event => {
+  if (event.target !== limitDialog) return;
+  const rect = limitDialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) limitDialog.close();
+ });
 }
 const dialog = document.getElementById('feedback-dialog');
 if (dialog) {

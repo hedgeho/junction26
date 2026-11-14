@@ -57,7 +57,9 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .row form > button { margin: 0; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; gap: 12px; }
-.toolbar-meta { margin-top: 6px; color: var(--muted); font-size: 12px; }
+.toolbar-meta { display: flex; align-items: center; gap: 4px; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.count-edit { width: 30px; height: 30px; min-height: 30px; padding: 7px; }
+.count-edit svg { width: 15px; height: 15px; }
 .toolbar form > button { margin: 0; }
 .icon { width: 40px; min-height: 40px; height: 40px; padding: 10px; border: 1px solid transparent; background: transparent; color: var(--muted); }
 .icon:hover { background: var(--soft); border-color: var(--line); color: var(--ink); }

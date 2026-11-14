@@ -382,3 +382,32 @@ def test_post_details_falls_back_to_ingested_bluesky_media(conn, monkeypatch):
     details = client_for().get("/api/post-details").json()["items"][key]
     assert details["images"][0]["url"] == items[0]["thumb"]
     assert details["images"][0]["full_url"].startswith("https://bsky.app/profile/did:plc:human/post/")
+
+
+def test_feed_daily_limit_dialog_and_update_preserve_other_settings(conn):
+    uid = seed(conn)
+    client = client_for()
+    conn.execute(
+        "UPDATE reader_settings SET timezone='Europe/Helsinki', blocked_authors='[\"x:blocked\"]' WHERE user_id=?",
+        (uid,),
+    )
+    before = conn.execute("SELECT * FROM reader_settings WHERE user_id=?", (uid,)).fetchone()
+    html = client.get("/me").text
+    assert 'id="daily-limit-open"' in html
+    assert 'id="daily-limit-dialog"' in html
+    assert 'name="daily_limit" min="1" max="50" value="10"' in html
+    assert client.post("/me/daily-limit", data={"daily_limit": 3}).status_code == 403
+    for value in (0, 51):
+        assert client.post("/me/daily-limit", data={"csrf": "csrf-test", "daily_limit": value}).status_code == 400
+    assert (
+        client.post("/me/daily-limit", data={"csrf": "csrf-test", "daily_limit": 3}, follow_redirects=False).status_code
+        == 303
+    )
+    after = conn.execute("SELECT * FROM reader_settings WHERE user_id=?", (uid,)).fetchone()
+    assert after["daily_limit"] == 3 and after["refresh_requested"] == 1
+    assert after["version"] == before["version"] + 1
+    assert after["timezone"] == before["timezone"]
+    assert after["blocked_authors"] == before["blocked_authors"]
+    assert 'name="daily_limit" min="1" max="50" value="3"' in client.get("/me").text
+    client.post("/me/daily-limit", data={"csrf": "csrf-test", "daily_limit": 3})
+    assert conn.execute("SELECT version FROM reader_settings WHERE user_id=?", (uid,)).fetchone()[0] == after["version"]
