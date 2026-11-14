@@ -120,3 +120,26 @@ def test_decision_triager_asks_typed_flags_and_validates_answers():
     triager.client.decisions.create = lambda **kwargs: SimpleNamespace(answers={})
     with pytest.raises(ValueError):
         triager.flags(candidate)
+
+
+def test_decision_questions_use_only_fields_the_gemini_api_accepts():
+    from curator_curation.llm.gemini import DECISION_QUESTIONS
+    from google.genai._gaos.types.decisions.noulcriteria import NoulCriteriaParam
+    from google.genai._gaos.types.decisions.noulquestion import NoulQuestionParam
+    from google.genai._gaos.types.decisions.scorequestion import ScoreQuestionParam
+
+    seen = {}
+
+    def create(**kwargs):
+        seen.update(kwargs["questions"])
+        return SimpleNamespace(answers={f: SimpleNamespace(type="noul", noul=0.2) for f in kwargs["questions"]})
+
+    triager = object.__new__(GeminiDecisionTriager)
+    triager.model, triager.timeout_s = "gemini-decision-1", 30
+    triager.client = SimpleNamespace(decisions=SimpleNamespace(create=create))
+    triager.flags(PublicCandidate("x:1", "x", "Text", "", False, False))
+    allowed = {"noul": NoulQuestionParam, "score": ScoreQuestionParam}
+    for question in [*DECISION_QUESTIONS.values(), *seen.values()]:
+        assert set(question) <= set(allowed[question["type"]].__annotations__)
+        if question["type"] == "noul":
+            assert set(question["criteria"]) <= set(NoulCriteriaParam.__annotations__)
