@@ -44,18 +44,37 @@ function pollStatus(url, node, isDone, render) {
  }
  setTimeout(poll, delay);
 }
+function refreshFeedWhenSafe() {
+ const dialog = document.querySelector('dialog[open]');
+ const draft = document.getElementById('more-feedback');
+ if (dialog) { dialog.addEventListener('close', refreshFeedWhenSafe, {once:true}); return; }
+ if (draft?.value.trim()) {
+  const waitForClear = () => {
+   if (!draft.value.trim()) { draft.removeEventListener('input', waitForClear); refreshFeedWhenSafe(); }
+  };
+  draft.addEventListener('input', waitForClear);
+  return;
+ }
+ location.reload();
+}
 const pending = document.getElementById('curation-pending');
 if (pending) pollStatus('/api/curation', pending, result => result.state === 'ready', result => {
- if (result.state === 'ready') {
-  const dialog = document.querySelector('dialog[open]');
-  if (dialog) dialog.addEventListener('close', () => location.reload(), {once:true});
-  else location.reload();
- } else pending.textContent = result.label;
+ if (result.state === 'ready') refreshFeedWhenSafe();
+ else pending.textContent = result.label;
 });
 const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
  const labels = {queued:'Queued', processing:'Updating', applied:'Updated', failed:'Update failed. Please try again.'};
- pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {job.textContent = labels[result.state] || 'Queued';});
+ pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {
+  job.textContent = labels[result.state] || 'Queued';
+  if (result.state === 'applied') {
+   job.textContent = 'Filtering posts...';
+   pollStatus('/api/curation', job, state => state.state === 'ready', state => {
+    if (state.state === 'ready') refreshFeedWhenSafe();
+    else job.textContent = state.label;
+   });
+  }
+ });
 }
 const limitDialog = document.getElementById('daily-limit-dialog');
 const limitOpen = document.getElementById('daily-limit-open');

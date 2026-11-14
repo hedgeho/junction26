@@ -411,3 +411,47 @@ def test_feed_daily_limit_dialog_and_update_preserve_other_settings(conn):
     assert 'name="daily_limit" min="1" max="50" value="3"' in client.get("/me").text
     client.post("/me/daily-limit", data={"csrf": "csrf-test", "daily_limit": 3})
     assert conn.execute("SELECT version FROM reader_settings WHERE user_id=?", (uid,)).fetchone()[0] == after["version"]
+
+
+def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
+    from curator_curation.llm.schemas import ProfileProposal
+
+    uid = seed(conn)
+    for number in range(24):
+        insert_post(conn, f"did:plc:author{number}", str(number), f"Original source post number {number}")
+
+    class Scorer:
+        def score(self, request):
+            return Assessments(
+                items=[
+                    Assessment(post_key=p.post_key, decision="include", relevance=0.9, substance=0.8, opportunity=0.7)
+                    for p in request.candidates
+                ]
+            )
+
+    class Gemma:
+        def update_profile(self, current, feedback):
+            return ProfileProposal(markdown=current + "\n" + feedback, search_terms=[])
+
+    conn.execute("UPDATE reader_settings SET refresh_requested=1 WHERE user_id=?", (uid,))
+    worker.run_cycle(conn, Scorer())
+    assert len(digests.read(conn, uid)) == 10
+    client = client_for()
+    page = client.get("/me").text
+    assert "What would you like to see more of?" in page
+    assert 'action="/me/more"' in page
+    assert client.post("/me/more", data={"key": "more-one", "text": "More technical research"}).status_code == 403
+    data = {"csrf": "csrf-test", "key": "more-one", "text": "More technical research"}
+    assert client.post("/me/more", data=data, follow_redirects=False).status_code == 303
+    assert client.post("/me/more", data=data, follow_redirects=False).status_code == 303
+    config = digests.config_for(conn, uid)
+    assert config["daily_limit"] == 10
+    assert config["requested_more_count"] == 10
+    assert conn.execute("SELECT count(*) FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()[0] == 1
+    worker.run_cycle(conn, Scorer(), Gemma())
+    assert "More technical research" in profiles.markdown(conn, uid)
+    assert len(digests.read(conn, uid)) == 20
+    assert "More technical research" not in client.get("/me").text
+    conn.execute("UPDATE reader_settings SET requested_more_day='2000-01-01' WHERE user_id=?", (uid,))
+    assert digests.delivery_limit(digests.config_for(conn, uid)) == 10
+    assert len(digests.read(conn, uid)) == 10

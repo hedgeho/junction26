@@ -150,3 +150,10 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .link-card > img { display: block; width: 100%; max-height: 240px; object-fit: cover; }
 .link-card-body { display: grid; gap: 3px; padding: 12px 14px; line-height: 1.45; }
 .link-card-body > span, .link-card-body small { color: var(--muted); font-size: 12px; }
+
+.more-section { margin-top: 28px; padding-top: 6px; border-top: 1px solid var(--line); }
+.more-section label { margin: 18px 0 9px; font-size: 13px; }
+.more-compose { display: flex; align-items: flex-end; gap: 10px; }
+.more-compose textarea { min-height: 66px; flex: 1; }
+.more-compose button { flex: 0 0 auto; margin: 0; }
+@media (max-width: 420px) { .more-compose { flex-wrap: wrap; } .more-compose button { margin-left: auto; } }

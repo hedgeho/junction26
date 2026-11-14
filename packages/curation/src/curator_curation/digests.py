@@ -26,6 +26,11 @@ def day_key(config) -> str:
     return datetime.now(ZoneInfo(config["timezone"])).date().isoformat()
 
 
+def delivery_limit(config) -> int:
+    extra = config["requested_more_count"] if config["requested_more_day"] == day_key(config) else 0
+    return min(200, config["daily_limit"] + extra)
+
+
 def config_for(conn, uid):
     return conn.execute("SELECT * FROM reader_settings WHERE user_id=?", (uid,)).fetchone()
 
@@ -84,7 +89,7 @@ def build(conn, uid, scorer_version: str, gemma=None) -> str | None:
         conversations.add(conversation)
         texts.add(normalized)
         authors[post.author_key] = authors.get(post.author_key, 0) + 1
-        if len(selected) >= config["daily_limit"]:
+        if len(selected) >= delivery_limit(config):
             break
     if gemma:
         for post in selected:
@@ -130,7 +135,7 @@ def read(conn, uid) -> list[dict]:
         ):
             continue
         posts.append(post)
-    return present(conn, uid, posts)[: config["daily_limit"]]
+    return present(conn, uid, posts)[: delivery_limit(config)]
 
 
 def present(conn, uid, posts) -> list[dict]:
@@ -168,6 +173,6 @@ def initial_feed(conn, uid, config) -> list[dict]:
         if post.key in dismissed or post.author_key in blocked(config):
             continue
         posts.append(post)
-        if len(posts) >= config["daily_limit"]:
+        if len(posts) >= delivery_limit(config):
             break
     return present(conn, uid, posts)

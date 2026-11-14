@@ -159,6 +159,7 @@ async def me(request: Request):
                 "job": dict(pending) if pending else None,
                 "curation_status": health.filtering_status(c, uid),
                 "submission_key": uuid.uuid4().hex,
+                "more_submission_key": uuid.uuid4().hex,
                 "feedback_available": bool(curation_settings().gemma_url and curation_settings().gemma_token),
             },
         )
@@ -228,6 +229,37 @@ def feedback(
     finally:
         c.close()
     return redirect()
+
+
+@router.post("/me/more")
+def request_more(
+    request: Request,
+    text: str = Form(..., min_length=1, max_length=8000),
+    key: str = Form(..., min_length=1, max_length=128),
+):
+    c = db.connect()
+    try:
+        uid = reader(request, c)
+        with db.tx(c):
+            existing = c.execute(
+                "SELECT 1 FROM feedback_jobs WHERE user_id=? AND idempotency_key=?", (uid, key)
+            ).fetchone()
+            jobs.enqueue(c, uid, "public", text, key)
+            if not existing:
+                config = digests.config_for(c, uid)
+                day = digests.day_key(config)
+                extra = config["requested_more_count"] if config["requested_more_day"] == day else 0
+                extra = min(extra + 10, max(0, 200 - config["daily_limit"]))
+                c.execute(
+                    """UPDATE reader_settings SET requested_more_day=?, requested_more_count=?,
+                    refresh_requested=1, version=version+1 WHERE user_id=?""",
+                    (day, extra, uid),
+                )
+    except ValueError:
+        raise HTTPException(400, "Invalid request") from None
+    finally:
+        c.close()
+    return redirect("/me#more")
 
 
 @router.get("/api/jobs/{job_id}")
