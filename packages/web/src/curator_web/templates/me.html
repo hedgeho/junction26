@@ -17,7 +17,7 @@
       {% endfor %}
       <button type="button" class="social-action share-post" data-url="{{ post.url }}" aria-label="Share post" title="Share post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7"/></svg></button>
     </div>
-    <button type="button" class="feedback-action feedback-open" aria-label="Feed feedback on post by {{ post.author }}" aria-haspopup="dialog" aria-controls="feedback-dialog" title="Feed feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>Feed feedback</span></button>
+    <button type="button" class="feedback-action feedback-open" aria-label="Shape your feed using post by {{ post.author }}" aria-expanded="false" aria-controls="feedback-panel" title="Shape your feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Shape your feed</span></button>
   </div><p class="social-status" role="status" aria-live="polite"></p>
 </article>
 {% else %}
@@ -48,9 +48,10 @@
   <div class="dialog-head"><h2 id="social-title">Comment</h2><button type="button" class="icon" id="social-close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
   <form id="social-form"><label for="social-text">Your text</label><textarea id="social-text" maxlength="300" required></textarea><p class="social-dialog-status" role="status"></p><div class="dialog-footer"><span class="help">Posted to Bluesky</span><button class="primary" type="submit">Post</button></div></form>
 </dialog>
-<dialog id="feedback-dialog" aria-labelledby="feedback-title">
-  <div class="dialog-head"><h2 id="feedback-title">Feedback</h2><button type="button" class="icon" id="feedback-close" aria-label="Close feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
-  <blockquote id="feedback-context" class="feedback-context"></blockquote>
-  <form method="post" action="/me/feedback"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ submission_key }}"><input type="hidden" name="post_key" id="feedback-post"><label for="feedback">What would you like to change?</label><textarea id="feedback" name="text" required maxlength="8000"></textarea><div class="dialog-footer"><label class="checkbox"><input type="checkbox" name="kind" value="private">Keep private</label><button class="primary">Save feedback</button></div></form>
-</dialog>
+<aside id="feedback-panel" class="feedback-panel" aria-labelledby="feedback-title" hidden>
+  <div class="feedback-panel-head"><div><span class="feedback-eyebrow">YOUR FEED</span><h2 id="feedback-title">Shape your feed</h2></div><button type="button" class="icon" id="feedback-close" aria-label="Close feed feedback"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
+  <p class="feedback-intro">Tell your feed what you think. Your words help shape future recommendations and won't be posted.</p>
+  <div class="feedback-source"><span class="feedback-source-label">ABOUT THIS POST</span><blockquote id="feedback-context" class="feedback-context"></blockquote></div>
+  <form method="post" action="/me/feedback"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ submission_key }}"><input type="hidden" name="post_key" id="feedback-post"><label for="feedback">What should your feed know?</label><textarea id="feedback" name="text" required maxlength="8000" placeholder="Tell it what you like, what you don't, or what you'd rather see."></textarea><button class="primary feedback-send" type="submit">Tell your feed <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button></form>
+</aside>
 {% endblock %}

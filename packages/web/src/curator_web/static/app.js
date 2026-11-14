@@ -44,9 +44,21 @@ function pollStatus(url, node, isDone, render) {
  }
  setTimeout(poll, delay);
 }
+const feedbackDrafts = new Map();
 function refreshFeedWhenSafe() {
  const dialog = document.querySelector('dialog[open]');
  const draft = document.getElementById('more-feedback');
+ const panel = document.getElementById('feedback-panel');
+ const feedbackDraft = document.getElementById('feedback');
+ if (panel && !panel.hidden) { panel.addEventListener('feedback-close', refreshFeedWhenSafe, {once:true}); return; }
+ if (feedbackDraft?.value.trim() || [...feedbackDrafts.values()].some(value => value.trim())) {
+  const waitForClear = () => {
+   if (!feedbackDraft?.value.trim() && ![...feedbackDrafts.values()].some(value => value.trim())) {
+    document.removeEventListener('feedback-draft-change', waitForClear); refreshFeedWhenSafe();
+   }
+  };
+  document.addEventListener('feedback-draft-change', waitForClear); return;
+ }
  if (dialog) { dialog.addEventListener('close', refreshFeedWhenSafe, {once:true}); return; }
  if (draft?.value.trim()) {
   const waitForClear = () => {
@@ -88,27 +100,38 @@ if (limitDialog && limitOpen) {
   if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) limitDialog.close();
  });
 }
-const dialog = document.getElementById('feedback-dialog');
-if (dialog) {
+const feedbackPanel = document.getElementById('feedback-panel');
+if (feedbackPanel) {
  let trigger;
- const form = dialog.querySelector('form');
+ const form = feedbackPanel.querySelector('form');
+ const feedbackInput = document.getElementById('feedback');
+ feedbackInput.addEventListener('input', () => {
+  feedbackDrafts.set(document.getElementById('feedback-post').value, feedbackInput.value);
+  document.dispatchEvent(new Event('feedback-draft-change'));
+ });
+ const closeFeedback = () => {
+  feedbackPanel.hidden = true;
+  trigger?.setAttribute('aria-expanded', 'false');
+  trigger?.focus();
+  feedbackPanel.dispatchEvent(new Event('feedback-close'));
+ };
  document.querySelectorAll('.feedback-open').forEach(button => button.addEventListener('click', () => {
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
   trigger = button;
   const post = button.closest('.post');
   const key = post.dataset.postKey;
-  // Keep a draft for the same post; do not carry feedback onto a different post.
-  if (document.getElementById('feedback-post').value !== key) form.reset();
+  if (document.getElementById('feedback-post').value !== key) {
+   form.reset(); feedbackInput.value = feedbackDrafts.get(key) || '';
+  }
   document.getElementById('feedback-post').value = key;
   document.getElementById('feedback-context').textContent = post.querySelector('.post-text').textContent;
-  dialog.showModal();
+  feedbackPanel.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
   document.getElementById('feedback').focus();
  }));
- document.getElementById('feedback-close').addEventListener('click', () => dialog.close());
- dialog.addEventListener('close', () => trigger?.focus());
- dialog.addEventListener('click', event => {
-  if (event.target !== dialog) return;
-  const rect = dialog.getBoundingClientRect();
-  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+ document.getElementById('feedback-close').addEventListener('click', closeFeedback);
+ document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !feedbackPanel.hidden && !document.querySelector('dialog[open]')) closeFeedback();
  });
 }
 // Source text stays unchanged; facets supply destinations for displayed substrings.

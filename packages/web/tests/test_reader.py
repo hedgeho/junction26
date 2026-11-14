@@ -446,7 +446,11 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     for action in ("Comment", "Repost", "Repost with comment", "Like", "Save"):
         assert f'aria-label="{action}"' in page
     assert 'aria-label="Share post"' in page
-    assert "Feed feedback" in page
+    assert "Shape your feed" in page
+    assert 'id="feedback-panel"' in page
+    assert 'id="feedback-dialog"' not in page
+    assert 'name="kind"' not in page
+    assert "Tell your feed" in page
     assert 'action="/me/more"' in page
     assert client.post("/me/more", data={"key": "more-one", "text": "More technical research"}).status_code == 403
     data = {"csrf": "csrf-test", "key": "more-one", "text": "More technical research"}
