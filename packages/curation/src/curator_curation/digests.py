@@ -45,7 +45,7 @@ def blocked(config) -> set[str]:
     return set(json.loads(config["blocked_authors"]))
 
 
-def build(conn, uid, scorer_version: str, gemma=None) -> str | None:
+def build(conn, uid, scorer_version: str) -> str | None:
     profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
     if not config:
@@ -91,12 +91,6 @@ def build(conn, uid, scorer_version: str, gemma=None) -> str | None:
         authors[post.author_key] = authors.get(post.author_key, 0) + 1
         if len(selected) >= delivery_limit(config):
             break
-    if gemma:
-        for post in selected:
-            try:
-                notes.match_post(conn, uid, post, gemma)
-            except Exception:  # noqa: BLE001 - isolate provider failure without leaking its private payload
-                log.warning("Private matching failed; source selection remains available")
     run_id = uuid.uuid4().hex
     with db.tx(conn):
         current = profiles.head(conn, uid)
@@ -113,6 +107,23 @@ def build(conn, uid, scorer_version: str, gemma=None) -> str | None:
         )
         conn.execute("UPDATE reader_settings SET refresh_requested=0 WHERE user_id=?", (uid,))
     return run_id
+
+
+def match_notes(conn, uid, run_id, gemma) -> int:
+    """Runs after the digest is published; matches appear on the next read."""
+    matched = 0
+    for item in conn.execute(
+        "SELECT post_key FROM digest_items WHERE run_id=? ORDER BY position", (run_id,)
+    ).fetchall():
+        post = get_post(conn, item["post_key"])
+        if not post:
+            continue
+        try:
+            notes.match_post(conn, uid, post, gemma)
+            matched += 1
+        except Exception:  # noqa: BLE001 - isolate provider failure without leaking its private payload
+            log.warning("Private matching failed; source selection remains available")
+    return matched
 
 
 def read(conn, uid) -> list[dict]:

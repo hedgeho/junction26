@@ -14,6 +14,7 @@ class CurationSettings(CoreSettings):
     inference_timeout_s: float = 120
     score_batch_size: int = 20
     score_concurrency: int = 3
+    reader_concurrency: int = 4
     curate_interval_s: int = 60
     candidates_per_cycle: int = 200
     candidate_pool_size: int = 2000

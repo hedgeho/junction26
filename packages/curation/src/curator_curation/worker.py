@@ -42,8 +42,10 @@ def make_scorer(cfg):
     raise ValueError("unsupported scoring backend")
 
 
-def score_user(conn, scorer, did: str) -> int:
+def score_user(conn, scorer, did: str, timing: dict | None = None) -> int:
     cfg = settings()
+    timing = {} if timing is None else timing
+    started = time.monotonic()
     uid = profiles.bootstrap(conn, did)
     profile = profiles.head(conn, uid)
     version = scorer_version()
@@ -67,6 +69,7 @@ def score_user(conn, scorer, did: str) -> int:
             (uid, p.key, profile_revision, p.content_hash, version),
         ).fetchone()
     ][: cfg.candidates_per_cycle]
+    timing["candidates_s"] = round(time.monotonic() - started, 3)
     total = 0
     batches = []
     day = datetime.now(UTC).date().isoformat()
@@ -95,11 +98,21 @@ def score_user(conn, scorer, did: str) -> int:
         )
         batches.append((batch, request, wanted if cfg.score_images else {}))
     errors = 0
+    image_s, model_s = [], []
+
+    def run_batch(request, wanted):
+        t0 = time.monotonic()
+        images = media.fetch_images(wanted)
+        t1 = time.monotonic()
+        try:
+            return scorer.score(replace(request, images=images))
+        finally:
+            image_s.append(t1 - t0)
+            model_s.append(time.monotonic() - t1)
+
+    scoring_started = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, min(cfg.score_concurrency, 8))) as executor:
-        futures = {
-            executor.submit(lambda r, w: scorer.score(replace(r, images=media.fetch_images(w))), request, wanted): batch
-            for batch, request, wanted in batches
-        }
+        futures = {executor.submit(run_batch, request, wanted): batch for batch, request, wanted in batches}
         for future in as_completed(futures):
             db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
             batch = futures[future]
@@ -135,9 +148,64 @@ def score_user(conn, scorer, did: str) -> int:
                         ),
                     )
                     total += 1
+    timing.update(
+        scoring_s=round(time.monotonic() - scoring_started, 3),
+        batches=len(batches),
+        batch_errors=errors,
+        scored=total,
+        image_fetch_max_s=round(max(image_s, default=0), 3),
+        model_call_p50_s=round(sorted(model_s)[len(model_s) // 2], 3) if model_s else 0,
+        model_call_max_s=round(max(model_s, default=0), 3),
+    )
     if errors:
         raise RuntimeError("One or more scoring batches failed")
     return total
+
+
+def curate_reader(conn, scorer, gemma, did: str) -> None:
+    started = time.monotonic()
+    uid = None
+    try:
+        uid = profiles.bootstrap(conn, did)
+        config = digests.config_for(conn, uid)
+        last = digests.latest(conn, uid)
+        if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
+            return
+        if scorer is None:
+            return
+        db.kv_set(conn, "curation-state:" + uid, "processing")
+        current = profiles.head(conn, uid)
+        terms = json.loads(current["search_terms"]) if current else []
+        if not public_candidates(conn, did, terms, 1):
+            return
+        timing = {"started_at": int(time.time())}
+        score_user(conn, scorer, did, timing)
+        if digests.revision(profiles.head(conn, uid)) != digests.revision(current):
+            return
+        t = time.monotonic()
+        run_id = digests.build(conn, uid, scorer_version())
+        timing["digest_s"] = round(time.monotonic() - t, 3)
+        db.kv_set(conn, "curation-state:" + uid, "ready")
+        timing["time_to_ready_s"] = round(time.monotonic() - started, 3)
+        if run_id and gemma:
+            t = time.monotonic()
+            timing["notes_matched"] = digests.match_notes(conn, uid, run_id, gemma)
+            timing["notes_s"] = round(time.monotonic() - t, 3)
+        timing["total_s"] = round(time.monotonic() - started, 3)
+        db.kv_set(conn, "curation-timing:" + uid, json.dumps(timing))
+        log.info("curation timing %s", json.dumps(timing))
+    except Exception:  # noqa: BLE001 - sanitize external provider errors at the boundary
+        if uid:
+            db.kv_set(conn, "curation-state:" + uid, "failed")
+        log.warning("curation cycle failed for a reader; retry next cycle")
+
+
+def _curate_in_own_connection(scorer, gemma, did: str) -> None:
+    conn = db.connect()
+    try:
+        curate_reader(conn, scorer, gemma, did)
+    finally:
+        conn.close()
 
 
 def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
@@ -157,37 +225,38 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
                 break
     if scorer is None and cfg.gemini_api_key:
         scorer = make_scorer(cfg)
-    users = conn.execute(
-        "SELECT did FROM users" + (" WHERE did=?" if only_did else ""), (only_did,) if only_did else ()
-    ).fetchall()
-    for user in users:
-        try:
-            uid = profiles.bootstrap(conn, user["did"])
-            config = digests.config_for(conn, uid)
-            last = digests.latest(conn, uid)
-            if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
-                continue
-            if scorer is None:
-                continue
-            db.kv_set(conn, "curation-state:" + uid, "processing")
-            current = profiles.head(conn, uid)
-            terms = json.loads(current["search_terms"]) if current else []
-            if not public_candidates(conn, user["did"], terms, 1):
-                continue
-            score_user(conn, scorer, user["did"])
-            if digests.revision(profiles.head(conn, uid)) != digests.revision(current):
-                continue
-            digests.build(conn, uid, scorer_version(), gemma)
-            db.kv_set(conn, "curation-state:" + uid, "ready")
-        except Exception:  # noqa: BLE001 - sanitize external provider errors at the boundary
-            account = conn.execute("SELECT id FROM reader_accounts WHERE bluesky_did=?", (user["did"],)).fetchone()
-            if account:
-                db.kv_set(conn, "curation-state:" + account["id"], "failed")
-            log.warning("curation cycle failed for a reader; retry next cycle")
+    dids = [
+        row["did"]
+        for row in conn.execute(
+            "SELECT did FROM users" + (" WHERE did=?" if only_did else ""), (only_did,) if only_did else ()
+        ).fetchall()
+    ]
+    if cfg.reader_concurrency <= 1 or len(dids) <= 1:
+        for did in dids:
+            curate_reader(conn, scorer, gemma, did)
+        return
+    with ThreadPoolExecutor(max_workers=cfg.reader_concurrency) as executor:
+        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did) for did in dids]:
+            future.result()
+
+
+def pending_work(conn) -> set[tuple]:
+    """Everything that should wake the worker before its interval: refresh requests, feedback, new readers."""
+    refreshes = conn.execute("SELECT 'refresh', user_id, version FROM reader_settings WHERE refresh_requested=1")
+    feedback = conn.execute("SELECT 'feedback', id, 0 FROM feedback_jobs WHERE state='queued'")
+    readers = conn.execute("SELECT 'readers', count(*), 0 FROM users")
+    return {tuple(r) for r in [*refreshes, *feedback, *readers]}
+
+
+def wait_for_work(conn, seen: set[tuple], timeout_s: float, poll_s: float = 1.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline and pending_work(conn) <= seen:
+        time.sleep(poll_s)
 
 
 def run_forever() -> None:
     conn = db.connect()
     while True:
+        seen = pending_work(conn)
         run_cycle(conn)
-        time.sleep(settings().curate_interval_s)
+        wait_for_work(conn, seen, settings().curate_interval_s)

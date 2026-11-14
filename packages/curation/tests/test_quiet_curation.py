@@ -272,8 +272,70 @@ def test_refresh_race_preserves_new_settings_request(conn):
             conn.execute("UPDATE reader_settings SET version=version+1,refresh_requested=1 WHERE user_id=?", (uid,))
             return super().match(*args)
 
-    assert digests.build(conn, uid, worker.scorer_version(), ChangedDuringMatching()) is None
+    run_id = digests.build(conn, uid, worker.scorer_version())
+    assert run_id
+    digests.match_notes(conn, uid, run_id, ChangedDuringMatching())
     assert digests.config_for(conn, uid)["refresh_requested"] == 1
+
+
+def test_digest_is_ready_before_private_matching_runs(conn):
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Source", "Original note")
+    states = []
+
+    class Observing(FakeGemma):
+        def match(self, *args):
+            states.append(conn.execute("SELECT value FROM kv WHERE key=?", ("curation-state:" + uid,)).fetchone()[0])
+            return super().match(*args)
+
+    worker.run_cycle(conn, FakeScorer(), Observing())
+    assert states == ["ready"]
+    assert digests.read(conn, uid)[0]["notes"]
+    timing = json.loads(conn.execute("SELECT value FROM kv WHERE key=?", ("curation-timing:" + uid,)).fetchone()[0])
+    assert timing["scored"] == 1 and timing["notes_matched"] == 1
+    assert {"candidates_s", "scoring_s", "digest_s", "time_to_ready_s", "notes_s", "total_s"} <= set(timing)
+
+
+def test_readers_are_curated_in_parallel_connections(conn):
+    uid, _ = setup(conn)
+    other = "did:plc:other"
+    add_user(conn, other, "Compiler evaluations")
+    other_uid = profiles.bootstrap(conn, other)
+    worker.run_cycle(conn, FakeScorer())
+    assert digests.latest(conn, uid) and digests.latest(conn, other_uid)
+
+
+def test_failed_reader_does_not_block_others(conn):
+    uid, _ = setup(conn)
+    add_user(conn, "did:plc:other", "Compiler evaluations")
+    other_uid = profiles.bootstrap(conn, "did:plc:other")
+
+    class FailsForOther(FakeScorer):
+        def score(self, request):
+            if "Compiler evaluations" in request.explicit_profile:
+                raise RuntimeError("provider down")
+            return super().score(request)
+
+    worker.run_cycle(conn, FailsForOther())
+    assert digests.latest(conn, uid)
+    assert conn.execute("SELECT value FROM kv WHERE key=?", ("curation-state:" + other_uid,)).fetchone()[0] == "failed"
+
+
+def test_worker_wakes_for_new_requests_but_not_for_ones_it_already_saw(conn):
+    uid, _ = setup(conn)
+    worker.run_cycle(conn, FakeScorer())
+    seen = worker.pending_work(conn)
+    started = time.monotonic()
+    worker.wait_for_work(conn, seen, timeout_s=0.3, poll_s=0.05)
+    assert time.monotonic() - started >= 0.3
+    conn.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (uid,))
+    started = time.monotonic()
+    worker.wait_for_work(conn, seen, timeout_s=5, poll_s=0.05)
+    assert time.monotonic() - started < 1
+    stuck = worker.pending_work(conn)
+    started = time.monotonic()
+    worker.wait_for_work(conn, stuck, timeout_s=0.3, poll_s=0.05)
+    assert time.monotonic() - started >= 0.3
 
 
 def test_recall_finds_followed_and_topic_posts_beyond_recent_firehose_slice(conn):

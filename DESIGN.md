@@ -29,7 +29,8 @@ Private matching shortlists up to 12 original chunks by lexical overlap, then Ge
 - X source import, classification and rendering work. The pipeline owner supplies an authorized live collector. Sign-in uses Bluesky with read-only feed permissions.
 - Daily delivery only; source retention remains 48 hours.
 - Notes are read-only Markdown files from a host folder or a privately shared Google Drive folder. Drive needs operator-supplied service-account credentials; per-user Google OAuth is not implemented.
-- Matching failures preserve the public digest; refresh retries matching. Cold Gemma startup needs live latency/GPU tuning.
+- Matching runs after a digest is published, so notes appear on a later read; failures preserve the public digest and refresh retries matching. Cold Gemma startup needs live latency/GPU tuning.
+- The worker wakes within a second of a refresh request, feedback submission or new reader instead of waiting for `CURATE_INTERVAL_S`, and curates up to `READER_CONCURRENCY` readers in parallel, each on its own connection. Per-stage timings for each reader's latest run are stored without source text; `curator-curate timings` prints them.
 - Tests prove software invariants, not model relevance, feedback nuance or production performance.
 - Explicit public feedback is shared with Gemini. Sensitive source notes belong in notes import or the private-feedback path. Private interests never expand public discovery terms automatically.
 - Topic quotas, configurable exploration, semantic duplicate detection and private embeddings are future improvements; current diversity uses authors, conversations and normalized exact text.
