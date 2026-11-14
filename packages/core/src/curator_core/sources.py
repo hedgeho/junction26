@@ -1,4 +1,4 @@
-"""Platform-neutral read contract. Only the ingest package writes source tables."""
+"""Platform-neutral read contract. Source adapters write through the shared validated importer."""
 
 import hashlib
 import json

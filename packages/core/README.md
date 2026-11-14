@@ -1,6 +1,6 @@
 # Shared contracts
 
-SQLite stays on one host. Ingest writes source facts; curation/web write configuration and judgments. Packages communicate through tables and `curator_core.sources`.
+SQLite stays on one host. Ingest and the authenticated Bluesky feed adapter write source facts through the shared validator; curation writes judgments and configuration. Packages communicate through tables and `curator_core.sources`.
 
 ## Compatibility
 
@@ -13,7 +13,8 @@ Legacy preferences/scores/feed tables remain for compatibility. The reader uses 
 - `reader_accounts`: opaque user IDs mapped to Bluesky sign-in identities.
 - `profile_revisions`, `profile_heads`: immutable Markdown metadata/current pointers; bodies live under `data/profiles`, outside public serving.
 - `reader_settings`, `feedback_jobs`: validated delivery settings, refresh versions, durable explicit/source feedback. Source jobs only update private configuration.
-- `social_posts`: pipeline-owned Bluesky/X normalized source facts; curation reads only.
+- `social_posts`: normalized public Bluesky/X source facts; curation reads only.
+- `bluesky_feed_sync`, `bluesky_feed_posts`: per-reader For You connection state and ordered snapshot membership. These do not copy OAuth tokens or private notes.
 - `assessments_v2`: profile/content/model-aware public classifications.
 - `digest_runs`, `digest_items`, `dismissed_posts`: snapshot selection and source references, never copied social bodies.
 - `note_versions`, `note_chunks`, `note_matches`: immutable imported private snapshots, offsets and matches. External original files are never written.
@@ -22,7 +23,7 @@ Add numbered migrations; never edit a deployed migration. Coordinate shared cont
 
 ## Public source import
 
-Call `curator_ingest.imports.import_posts` or supply a UTF-8 JSON array to `curator-ingest import-posts <path>`:
+Call `curator_core.imports.import_posts` (also exported from `curator_ingest.imports`) or supply a UTF-8 JSON array to `curator-ingest import-posts <path>`:
 
 ```json
 [

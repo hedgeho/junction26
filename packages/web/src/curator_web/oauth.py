@@ -5,9 +5,9 @@ metadata; open the site at http://127.0.0.1:8000.
 Prod: confidential client. client_id is the URL of our metadata document, and
 we sign client assertions with the ES256 JWK from scripts/gen_oauth_key.py.
 
-Scope is identity-only for now: follows/likes are public and come from the
-AppView. Add `include:app.bsky.authViewAll?aud=...` (read-only permission set)
-when you need getTimeline or other authenticated reads.
+Scopes permit only feed reads through the AppView and feed generators. No repo,
+post, like, follow, or publishing permissions are requested. Existing identity-only
+sessions must reconnect to grant feed access.
 """
 
 import json
@@ -18,7 +18,9 @@ from atproto_oauth import JsonFileStore
 
 from .config import settings
 
-SCOPE = "atproto"
+SCOPE = (
+    "atproto rpc:app.bsky.feed.getFeed?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.feed.getFeedSkeleton?aud=*"
+)
 
 
 def is_dev() -> bool:
@@ -46,6 +48,6 @@ def client() -> AsyncOAuthClient:
         redirect_uri=redirect,
         scope=SCOPE,
         keys=[key],
-        metadata={"client_name": "Curator", "client_uri": base_url()},
+        metadata={"client_name": "Agora", "client_uri": base_url()},
         **stores,
     )

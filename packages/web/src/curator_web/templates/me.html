@@ -1,41 +1,104 @@
 {% extends "base.html" %}
 {% block body %}
-<nav><a href="/settings">Settings</a> ? <a href="/privacy">Privacy</a></nav>
-<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Sign out</button></form>
-<h1>Your daily selection</h1>
-<form method="post" action="/me/feedback">
-<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ submission_key }}">
-<label for="feedback">What would you like more or less of?</label>
-<textarea id="feedback" name="text" required maxlength="8000" placeholder="Topics, exceptions, or a change in direction."></textarea>
-<label><input type="checkbox" name="kind" value="private"> Keep this feedback private</label>
-<p class="why">Filtering preferences are used with Gemini. Private feedback and notes are processed with Gemma on our cloud infrastructure.</p>
-<button>Update</button>
-</form>
-{% if job %}<p id="job-status" role="status" data-job="{{ job.id }}">{{ {'queued':'Queued','processing':'Updating','applied':'Updated','failed':'Update failed. Please try again.'}.get(job.state, 'Queued') }}</p>{% endif %}
-{% for post in posts %}
-<article class="post">
-<div class="why">{{ post.platform }} ? {{ post.author }}</div>
+<div class="page-heading">
+<p class="eyebrow" id="edition-date">Your daily edition</p>
+<h1>Your daily selection<span style="color:var(--accent)">.</span>
+</h1>
+<p class="subtitle">A few things worth your attention. The rest can wait.</p>
+</div>
+<div class="reader-grid">
+<section aria-label="Selected posts">
+<div class="toolbar">
+<div class="filters" aria-label="Filter by source">
+<button class="filter" type="button" data-source="all" aria-pressed="true">All sources</button>
+<button class="filter" type="button" data-source="bluesky" aria-pressed="false">Bluesky</button>
+<button class="filter" type="button" data-source="x" aria-pressed="false">X</button>
+</div>
+<span class="count" id="post-count">{{ posts|length }} selected</span>
+</div>
+<div id="posts">
+{% for post in posts %}<article class="post" data-platform="{{ post.platform }}">
+<div class="post-head">
+<span class="post-avatar" aria-hidden="true">{{ post.author[:1]|upper }}</span>
+<div>
+<div class="author">{{ post.author }}</div>
+<div class="source-meta">
+<span class="platform">{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}</span>
+<span>Original post</span>
+</div>
+</div>
+</div>
 <div class="source-text">{{ post.text }}</div>
-<a href="{{ post.url }}" target="_blank" rel="noopener noreferrer">Original post</a>
-{% for note in post.notes %}<aside><p class="why">From your notes ? {{ note.title }}</p><blockquote class="source-text">{{ note.text }}</blockquote></aside>{% endfor %}
-<form method="post" action="/me/dismiss"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="post_key" value="{{ post.key }}"><button>Dismiss</button></form>
+{% for note in post.notes %}<aside class="note-match">
+<div class="note-label">
+<svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+<path d="M5 3h8l3 3v11H5zM8 9h5M8 12h5"/>
+</svg>From your notes &middot; {{ note.title }}</div>
+<blockquote class="source-text">{{ note.text }}</blockquote>
+</aside>{% endfor %}
+<div class="post-actions">
+<a class="text-link" href="{{ post.url }}" target="_blank" rel="noopener noreferrer">Read original <span aria-hidden="true">&#8599;</span>
+</a>
+<form method="post" action="/me/dismiss">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="post_key" value="{{ post.key }}">
+<button class="dismiss" aria-label="Dismiss post by {{ post.author }}">Not for me <span aria-hidden="true">&times;</span>
+</button>
+</form>
+</div>
 </article>
-{% else %}<p>No matching posts yet. Add your interests above; your selection will appear after processing.</p>{% endfor %}
-{% if posts %}<p>You're done for now.</p>{% endif %}
-<form method="post" action="/me/refresh"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Refresh selection</button></form>
+{% else %}<div class="empty">
+<h2>A little space, for now.</h2>
+<p>No matching posts yet. Add your interests; your selection will appear after processing.</p>
+</div>{% endfor %}
+</div>
+<p id="filter-empty" class="empty" hidden>No posts from this source in today's selection.</p>
+{% if posts %}<div class="endmark">
+<span class="ornament" aria-hidden="true">&#10035;</span>
+<h2>You're all caught up.</h2>
+<p>A good place to close the tab.</p>
+<form method="post" action="/me/refresh">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<button class="refresh">Refresh selection</button>
+</form>
+</div>{% else %}<form method="post" action="/me/refresh">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<button class="refresh">Refresh selection</button>
+</form>{% endif %}</section>
+<aside class="feedback-rail">
+<div class="panel">
+<span class="eyebrow">Your intention, first</span>
+<h2>Tune your signal.</h2>
+<p>What would you like more or less of? A small nudge is enough.</p>
+<form method="post" action="/me/feedback">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="key" value="{{ submission_key }}">
+<label class="eyebrow" for="feedback" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Your feedback</label>
+<textarea id="feedback" name="text" required maxlength="8000" placeholder="More independent research. Less launch-day hype.">
+</textarea>
+<label class="checkbox">
+<input type="checkbox" name="kind" value="private">Keep this feedback private</label>
+<button class="button">Update preferences <span aria-hidden="true">&#8599;</span>
+</button>
+</form>{% if job %}<p class="status" id="job-status" role="status" data-job="{{ job.id }}">{{ {'queued':'Queued','processing':'Updating','applied':'Updated','failed':'Update failed. Please try again.'}.get(job.state, 'Queued') }}</p>{% endif %}<p class="panel-foot">Public preferences help filter posts with Gemini. Private feedback stays in the Gemma processing path. <a href="/privacy" class="text-link">Details &#8599;</a>
+</p>
+</div>
+{% if feed_status %}<p class="rail-foot">Bluesky source: For You by spacecowboy17.<br>{% if feed_status.state == 'auth_required' %}<a class="text-link" href="/settings">Reconnect to allow feed access &#8599;</a>{% elif feed_status.state == 'failed' %}<a class="text-link" href="/settings">Feed update failed. Try again &#8599;</a>{% else %}<a class="text-link" href="/settings">Manage source &#8599;</a>{% endif %}</p>{% endif %}<p class="rail-foot">
+<span class="live-dot">
+</span>A finite feed. Updated daily.<br>Original voices, always.</p>
+<form method="post" action="/logout">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<button class="text-link">Sign out &#8599;</button>
+</form>
+</aside>
+</div>
 <script>
+const dateNode = document.getElementById('edition-date');
+dateNode.textContent = new Intl.DateTimeFormat(undefined, {weekday:'long', month:'long', day:'numeric'}).format(new Date()) + ' / Your daily edition';
+function updateCount() { const cards = [...document.querySelectorAll('.post')]; const visible = cards.filter(card => !card.hidden).length; document.getElementById('post-count').textContent = visible + ' selected'; document.getElementById('filter-empty').hidden = visible > 0 || cards.length === 0; }
+document.querySelectorAll('[data-source]').forEach(button => button.addEventListener('click', () => {document.querySelectorAll('[data-source]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));document.querySelectorAll('.post').forEach(card => card.hidden = button.dataset.source !== 'all' && card.dataset.platform !== button.dataset.source);updateCount();}));
 const stateLabels = {queued: 'Queued', processing: 'Updating', applied: 'Updated', failed: 'Update failed. Please try again.'};
 const statusNode = document.getElementById('job-status');
-if (statusNode && ['Queued', 'Updating'].includes(statusNode.textContent)) {
-  const timer = setInterval(async () => {
-    try {
-      const response = await fetch('/api/jobs/' + statusNode.dataset.job);
-      if (!response.ok) { clearInterval(timer); return; }
-      const value = await response.json();
-      statusNode.textContent = stateLabels[value.state] || 'Queued';
-      if (['applied', 'failed'].includes(value.state)) clearInterval(timer);
-    } catch (_) { clearInterval(timer); }
-  }, 3000);
-}
+if (statusNode && ['Queued', 'Updating'].includes(statusNode.textContent)) { const timer = setInterval(async () => {try {const response = await fetch('/api/jobs/' + statusNode.dataset.job);if (!response.ok) {clearInterval(timer); return;}const value = await response.json();statusNode.textContent = stateLabels[value.state] || 'Queued';if (['applied', 'failed'].includes(value.state)) clearInterval(timer);} catch (_) {clearInterval(timer);}}, 3000);}
 </script>
 {% endblock %}

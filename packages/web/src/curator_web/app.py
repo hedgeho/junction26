@@ -9,7 +9,7 @@ from .config import settings
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="curator")
+    app = FastAPI(title="Agora")
     app.add_middleware(SessionMiddleware, secret_key=settings().session_secret, https_only=not oauth.is_dev())
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 

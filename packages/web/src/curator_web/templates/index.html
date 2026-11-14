@@ -1,12 +1,17 @@
-{% extends "base.html" %}
-{% block body %}
-<h1>Your attention, on your terms.</h1>
-<p>A finite daily selection of original posts, connected to your own writing.</p>
-<form method="post" action="/login">
+{% extends "base.html" %}{% block title %}Agora &mdash; a little more space{% endblock %}{% block body %}
+<section class="welcome">
+<span class="eyebrow">Social, on your terms</span>
+<h1>The world is loud.<br>Your feed can be<br>
+<em>a little quieter.</em>
+</h1>
+<p class="intro">A finite daily selection of original posts, connected to your own writing. Chosen around what matters to you.</p>
+<form class="login-form" method="post" action="/login">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-<label>Bluesky handle <input name="handle" required maxlength="253" placeholder="you.bsky.social"></label>
-<button>Sign in</button>
+<label for="handle">Your Bluesky handle</label>
+<input id="handle" name="handle" required maxlength="253" placeholder="you.bsky.social" autocomplete="username" autocapitalize="none" spellcheck="false">
+<button class="button">Make room for what matters <span aria-hidden="true">&#8599;</span>
+</button>
 </form>
-<p class="why">Bluesky identifies your account. The reader supports Bluesky and X posts supplied by the data pipeline.</p>
-<a href="/privacy">Privacy</a>
+<p class="welcome-foot">Bluesky &amp; X &middot; Original posts &middot; A place to stop</p>
+<p class="muted" style="max-width:350px;margin-top:18px;font-size:11px">Sign in with Bluesky. X posts appear when supplied by the connected data pipeline.</p>{% if demo %}<a class="button secondary" href="/me">Explore the sample edition &#8599;</a>{% endif %}</section>
 {% endblock %}

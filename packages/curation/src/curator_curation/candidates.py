@@ -84,6 +84,30 @@ def public_candidates(conn, did: str, terms: list[str], limit: int):
     from curator_core.sources import get_post, recent_posts
 
     since = int(time.time()) - CANDIDATE_WINDOW_H * 3600
+    # A connected reader's Bluesky recall comes exclusively from their For You
+    # snapshot. Other readers' memberships never become this reader's candidates.
+    connected = conn.execute("SELECT 1 FROM bluesky_feed_sync WHERE user_did=?", (did,)).fetchone()
+    if connected:
+        feed_rows = conn.execute(
+            """SELECT post_key FROM bluesky_feed_posts WHERE user_did=? AND observed_at>?
+            ORDER BY position LIMIT ?""",
+            (did, since, limit),
+        )
+        feed_posts = [post for row in feed_rows if (post := get_post(conn, row[0])) is not None]
+        x_rows = conn.execute(
+            """SELECT native_id FROM social_posts WHERE platform='x' AND deleted=0 AND observed_at>?
+            ORDER BY observed_at DESC LIMIT ?""",
+            (since, limit),
+        )
+        x_posts = [post for row in x_rows if (post := get_post(conn, "x:" + row[0])) is not None]
+        # Interleave sources so one platform cannot fill the entire scoring budget.
+        result = []
+        for i in range(max(len(feed_posts), len(x_posts))):
+            if i < len(feed_posts):
+                result.append(feed_posts[i])
+            if i < len(x_posts):
+                result.append(x_posts[i])
+        return result[:limit]
     share = max(1, math.ceil(limit / 3))
     followed = conn.execute(
         """SELECT p.uri FROM posts p JOIN follows f ON f.subject_did=p.author_did

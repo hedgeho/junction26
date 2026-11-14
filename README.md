@@ -1,4 +1,4 @@
-# Quiet Curator
+# Agora
 
 A finite daily selection of original social posts, matched to the reader's interests and their own original notes. Feedback silently updates Markdown configuration. The main interface displays no generated prose.
 

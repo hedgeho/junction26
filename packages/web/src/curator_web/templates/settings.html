@@ -1,24 +1,68 @@
-{% extends "base.html" %}
-{% block body %}
-<a href="/me">Back to your selection</a><h1>Settings</h1>
+{% extends "base.html" %}{% block title %}Settings &mdash; Agora{% endblock %}{% block body %}
+<div class="page-heading">
+<p class="eyebrow">Make it yours</p>
+<h1>A little fine-tuning<span style="color:var(--accent)">.</span>
+</h1>
+<p class="subtitle">Your pace, your sources, your boundaries.</p>
+</div>
+<div class="settings-stack">
+<section class="settings-section"><h2>Your Bluesky source</h2>
+<p><a href="https://bsky.app/profile/spacecowboy17.bsky.social/feed/for-you" target="_blank" rel="noopener noreferrer">For You by spacecowboy17 &#8599;</a><br>Pull your personalized feed, then let Agora filter it around your intentions. Feed access is read-only.</p>
+<p role="status">{% if feed_status %}{{ {'loading':'Pulling posts...', 'ready':'Connected', 'auth_required':'Reconnect Bluesky to allow feed access.', 'failed':'Could not pull posts. Try again or reconnect Bluesky.'}.get(feed_status.state, 'Not connected') }}{% if feed_status.state == 'ready' %} &middot; {{ feed_status.post_count }} candidates{% endif %}{% else %}Connect Bluesky to pull your personalized posts.{% endif %}</p>
+<form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button">Connect / reconnect Bluesky &#8599;</button></form>
+<form method="post" action="/settings/bluesky/sync"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button secondary">Pull posts now &#8599;</button></form>
+</section>
+<section class="settings-section">
+<h2>Daily rhythm</h2>
+<p>A ceiling, not a target. Some days, less is more.</p>
 <form method="post" action="/settings/delivery">
 <input type="hidden" name="csrf" value="{{ csrf }}">
-<label>Daily maximum <input type="number" name="daily_limit" min="1" max="50" value="{{ config.daily_limit }}" required></label>
-<label>Timezone <input name="timezone" value="{{ config.timezone }}" required></label>
-<label>Blocked author IDs, one per line (bluesky:did:? or x:?)</label>
-<textarea name="blocked_authors">{{ config.blocked_authors }}</textarea><button>Save delivery settings</button>
+<div class="field-grid">
+<div>
+<label for="daily-limit">Daily maximum</label>
+<input id="daily-limit" type="number" name="daily_limit" min="1" max="50" value="{{ config.daily_limit }}" required>
+</div>
+<div>
+<label for="timezone">Timezone</label>
+<input id="timezone" name="timezone" value="{{ config.timezone }}" required>
+</div>
+</div>
+<label for="blocked">Blocked author IDs</label>
+<textarea id="blocked" name="blocked_authors" placeholder="One per line: bluesky:did:... or x:...">{{ config.blocked_authors }}</textarea>
+<button class="button">Save settings &#8599;</button>
 </form>
-<details><summary>Configuration files</summary>
-<p>These files contain model-maintained configuration. Public filtering preferences are sent to Gemini; the private file stays in the Gemma processing path.</p>
-{% for doc in docs %}
-<h2>{{ doc.kind }} configuration</h2><a href="/settings/profile/{{ doc.kind }}">Download Markdown</a>
-<form method="post" action="/settings/profile/{{ doc.kind }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ doc.revision }}"><textarea name="body" maxlength="24000">{{ doc.body }}</textarea><button>Save file</button></form>
-{% for revision in history if revision.kind == doc.kind %}
-<form method="post" action="/settings/restore/{{ revision.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="expected" value="{{ doc.revision }}"><button>Restore revision {{ revision.id[:8] }}</button></form>
-{% endfor %}
-{% endfor %}
-</details>
-<h2>Private notes</h2><p>Import a read-only snapshot. The original is never changed. Removing a snapshot removes its displayed matches.</p>
-<form method="post" action="/settings/notes"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Source title <input name="title" maxlength="200" required></label><label>Original Markdown or plain text</label><textarea name="text" maxlength="200000" required></textarea><button>Add snapshot</button></form>
-{% for note in notes %}<form method="post" action="/settings/notes/{{ note.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}">{{ note.title }} <button>Remove snapshot</button></form>{% endfor %}
+</section>
+<section class="settings-section" id="notes">
+<h2>Your words, kept intact.</h2>
+<p>Add a read-only snapshot of your writing. Relevant passages can appear alongside posts, exactly as you wrote them. Private notes are processed with Gemma on Modal.</p>
+<form method="post" action="/settings/notes">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="note-title">Source title</label>
+<input id="note-title" name="title" maxlength="200" required placeholder="A working thought, a journal entry, an essay...">
+<label for="note-text">Original Markdown or plain text</label>
+<textarea id="note-text" name="text" maxlength="200000" required placeholder="Paste your original writing here.">
+</textarea>
+<button class="button">Add snapshot &#8599;</button>
+</form>{% for note in notes %}<form class="note-row" method="post" action="/settings/notes/{{ note.id }}/delete">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<span>{{ note.title }}</span>
+<button class="text-link">Remove snapshot &times;</button>
+</form>{% endfor %}</section>
+<details class="settings-section">
+<summary>Under the hood &middot; Configuration files</summary>
+<p>Model-maintained Markdown. Public filtering preferences are sent to Gemini; the private file stays in the Gemma processing path. Removing a snapshot removes its displayed matches. Configuration history may retain inferred interests.</p>{% for doc in docs %}<div class="config-doc">
+<h3>{{ doc.kind }} configuration</h3>
+<a class="text-link" href="/settings/profile/{{ doc.kind }}">Download Markdown &#8599;</a>
+<form method="post" action="/settings/profile/{{ doc.kind }}">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="revision" value="{{ doc.revision }}">
+<label for="config-{{ doc.kind }}">{{ doc.kind|capitalize }} Markdown</label>
+<textarea class="config-file" id="config-{{ doc.kind }}" name="body" maxlength="24000">{{ doc.body }}</textarea>
+<button class="button secondary">Save file</button>
+</form>{% for revision in history if revision.kind == doc.kind %}<form method="post" action="/settings/restore/{{ revision.id }}">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<input type="hidden" name="expected" value="{{ doc.revision }}">
+<button class="text-link">Restore revision {{ revision.id[:8] }}</button>
+</form>{% endfor %}</div>{% endfor %}</details>
+</div>
 {% endblock %}

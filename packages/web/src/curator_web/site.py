@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appview, oauth
+from . import appview, bluesky_feed, oauth
 
 
 async def csrf_guard(request: Request):
@@ -96,6 +96,7 @@ async def oauth_callback(request: Request):
             pass
     finally:
         c.close()
+    await bluesky_feed.sync(did, force=True, initialize=True)
     return redirect()
 
 
@@ -118,7 +119,8 @@ def privacy(request: Request):
 
 
 @router.get("/me", response_class=HTMLResponse)
-def me(request: Request):
+async def me(request: Request):
+    await bluesky_feed.sync(current_did(request))
     c = db.connect()
     try:
         uid = reader(request, c)
@@ -134,6 +136,7 @@ def me(request: Request):
                 "user": user,
                 "posts": digests.read(c, uid),
                 "job": dict(pending) if pending else None,
+                "feed_status": bluesky_feed.status(c, current_did(request)),
                 "submission_key": uuid.uuid4().hex,
             },
         )
@@ -181,7 +184,8 @@ def job_status(request: Request, job_id: str):
 
 
 @router.post("/me/refresh")
-def refresh(request: Request):
+async def refresh(request: Request):
+    await bluesky_feed.sync(current_did(request), force=True)
     c = db.connect()
     try:
         c.execute(
@@ -228,7 +232,15 @@ def config_page(request: Request):
             (uid,),
         ).fetchall()
         return page(
-            request, "settings.html", {"docs": docs, "config": config, "notes": source_notes, "history": history}
+            request,
+            "settings.html",
+            {
+                "docs": docs,
+                "config": config,
+                "notes": source_notes,
+                "history": history,
+                "feed_status": bluesky_feed.status(c, current_did(request)),
+            },
         )
     finally:
         c.close()
@@ -337,4 +349,20 @@ def remove_note(request: Request, note_id: str):
         notes.delete_note(c, uid, note_id)
     finally:
         c.close()
+    return redirect("/settings")
+
+
+@router.post("/settings/bluesky/connect")
+async def connect_bluesky(request: Request):
+    did = current_did(request)
+    try:
+        url = await oauth.client().authorize(did)
+    except Exception:  # noqa: BLE001 - sanitized OAuth boundary
+        raise HTTPException(400, "Connection failed; please try again") from None
+    return redirect(url)
+
+
+@router.post("/settings/bluesky/sync")
+async def sync_bluesky(request: Request):
+    await bluesky_feed.sync(current_did(request), force=True, initialize=True)
     return redirect("/settings")

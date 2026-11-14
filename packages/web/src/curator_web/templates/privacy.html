@@ -1,8 +1,14 @@
 {% extends "base.html" %}{% block body %}
-<h1>Privacy</h1>
-<p>The application stores your account identity, explicit feedback, versioned configuration, private note snapshots and selected source references. The social data pipeline supplies public source posts and handles their retention and deletion.</p>
+<div class="page-heading">
+<p class="eyebrow">Your space, respected</p>
+<h1>Privacy & care<span style="color:var(--accent)">.</span>
+</h1>
+</div>
+<div class="prose">
+<p>The application stores your account identity, explicit feedback, versioned configuration, private note snapshots and selected source references. Bluesky source candidates are pulled from your personalized For You feed using your read-only OAuth connection. The social data pipeline also supplies public posts and handles source retention and deletion.</p>
 <p>Gemini receives public candidate text and your explicit public filtering configuration. Private note text and private configuration are processed with self-hosted Gemma on Modal, outside the Gemini path. The application host and Modal process this data in the cloud; processing is not on-device.</p>
 <p>Models do not modify or publish your posts or original notes. The reader displays source posts and verified original note passages. Configuration is available separately in settings.</p>
 <p>You can remove imported note snapshots in settings. Profile history and feedback remain stored on the application host. Provider and backup retention must be configured by the deployment operator; this demo does not promise automatic account erasure.</p>
-<a href="/me">Back</a>
+<a class="text-link" href="/me">Back to your selection &#8599;</a>
+</div>
 {% endblock %}
