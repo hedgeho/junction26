@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from curator_core import db
 
-from . import digests, jobs, media, note_folders, profiles
+from . import digests, jobs, media, note_folders, profiles, screen
 from .candidates import public_candidates
 from .config import settings
 from .llm.gemini import (
@@ -68,7 +68,8 @@ def score_user(conn, scorer, did: str, timing: dict | None = None) -> int:
         AND profile_revision=? AND content_hash=? AND scorer_version=?""",
             (uid, p.key, profile_revision, p.content_hash, version),
         ).fetchone()
-    ][: cfg.candidates_per_cycle]
+    ]
+    unscored, timing["screened"] = screen.screen(conn, unscored, followed, cfg.candidates_per_cycle)
     timing["candidates_s"] = round(time.monotonic() - started, 3)
     total = 0
     batches = []

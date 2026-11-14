@@ -4,7 +4,7 @@ SQLite stays on one host. Ingest and the authenticated Bluesky feed adapter writ
 
 ## Compatibility
 
-`posts`, `posts_fts`, `follows`, `follow_sync` and ingest keys retain their original shape. `users.did` and `last_seen_at` remain compatible with follow sync. Engagement counters are approximate. Ingest retains sources for its configured window and honors deletes.
+`posts`, `posts_fts`, `follows`, `follow_sync` and ingest keys retain their original shape. `users.did` and `last_seen_at` remain compatible with follow sync. Engagement counters are approximate. `posts.text_sig` is a normalized text signature (`curator_core.text.signature`) for detecting one text posted from many accounts. Ingest retains sources for its configured window and honors deletes.
 
 Legacy preferences/scores/feed tables remain for compatibility. The reader uses new contracts; existing prompt/preferences are bootstrapped on first reader/worker access.
 
@@ -19,6 +19,7 @@ Legacy preferences/scores/feed tables remain for compatibility. The reader uses 
 - `posts.media`, `social_posts.media`: JSON media references (images, video thumbnails, link cards); see `curator_core.media`. Bytes stay on platform CDNs.
 - `assessments_v2`: profile/content/model-aware public classifications.
 - `digest_runs`, `digest_items`, `dismissed_posts`: snapshot selection and source references, never copied social bodies.
+- `post_labels`: curation-owned cache of platform moderation labels for candidate posts and their authors.
 - `note_versions`, `note_chunks`, `note_matches`: immutable imported private snapshots, offsets and matches. External original files are never written.
 
 Add numbered migrations; never edit a deployed migration. Coordinate shared contracts with the pipeline owner. Source lifecycle events are required, not just creation events.

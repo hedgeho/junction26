@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from curator_core import db, media
 from curator_core.sources import get_post
 
-from . import notes, profiles
+from . import notes, profiles, screen
 from .candidates import public_candidates
 from .config import settings
 
@@ -73,21 +73,30 @@ def build(conn, uid, scorer_version: str) -> str | None:
             or post.author_key in blocked(config)
             or post.key in dismissed | previous
             or post.observed_at < time.time() - 86400
+            or screen.label_blocked(screen.labels_of(conn, post.key))
         ):
             continue
         age_h = max(0, (time.time() - post.published_at) / 3600)
         value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
         pool.append((value, post))
     pool.sort(key=lambda p: (-p[0], p[1].key))
-    selected, authors, conversations, texts = [], {}, set(), set()
+    selected, authors, conversations, texts, stories = [], {}, set(), set(), set()
     for _, post in pool:
         conversation = (post.platform, post.root_id or post.parent_id or post.native_id)
         normalized = " ".join(post.text.casefold().split())
-        if conversation in conversations or normalized in texts or authors.get(post.author_key, 0) >= 2:
+        story = screen.story_key(post)
+        if (
+            conversation in conversations
+            or normalized in texts
+            or (story and story in stories)
+            or authors.get(post.author_key, 0) >= 2
+        ):
             continue
         selected.append(post)
         conversations.add(conversation)
         texts.add(normalized)
+        if story:
+            stories.add(story)
         authors[post.author_key] = authors.get(post.author_key, 0) + 1
         if len(selected) >= delivery_limit(config):
             break

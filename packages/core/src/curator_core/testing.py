@@ -20,6 +20,7 @@ def conn(tmp_path, monkeypatch):
     # Never use developer/provider credentials from local dotenv files in tests.
     for key in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMMA_URL", "GEMMA_TOKEN"):
         monkeypatch.setenv(key, "")
+    monkeypatch.setenv("LABEL_CHECKS", "false")
     clear_settings()
     yield db.connect()
     clear_settings()

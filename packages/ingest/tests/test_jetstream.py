@@ -79,3 +79,14 @@ def test_ingest_keeps_media_references(conn):
     row = conn.execute("SELECT embed_kind, media FROM posts").fetchone()
     assert row["embed_kind"] == "images"
     assert json.loads(row["media"])[0]["alt"] == "Benchmark plot"
+
+
+def test_ingest_stores_text_signature_for_campaign_detection(conn):
+    now = int(time.time())
+    b = jetstream.Batch()
+    jetstream.handle_event(post_evt("did:a", "1", "Claim your FREE airdrop now: https://a.example", now), b, set())
+    jetstream.handle_event(post_evt("did:b", "2", "claim your free AIRDROP now!! https://b.example", now), b, set())
+    jetstream.handle_event(post_evt("did:c", "3", "gm", now), b, set())
+    jetstream.flush(conn, b)
+    sigs = [r[0] for r in conn.execute("SELECT text_sig FROM posts ORDER BY uri")]
+    assert sigs[0] == sigs[1] and sigs[0] is not None and sigs[2] is None
