@@ -525,3 +525,35 @@ def test_contributions_are_restored_only_from_verified_bluesky_posts(conn, monke
     ]
     monkeypatch.setattr("curator_web.appview.get_posts", lambda uris: [])
     assert client.get("/api/social-state").json()["contributions"] == {}
+
+
+def test_comments_are_loaded_for_feed_posts_only(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    monkeypatch.setattr(
+        "curator_web.appview.get_thread",
+        lambda value: {
+            "post": {"uri": value, "replyCount": 3},
+            "replies": [
+                {
+                    "post": {
+                        "uri": "at://did:plc:other/app.bsky.feed.post/reply",
+                        "author": {"did": "did:plc:other", "handle": "other.example", "displayName": "Other"},
+                        "record": {"text": "Hello!"},
+                    }
+                },
+                {"$type": "app.bsky.feed.defs#blockedPost"},
+            ],
+        },
+    )
+    client = client_for()
+    result = client.get("/api/comments", params={"post_key": post_key})
+    assert result.status_code == 200
+    assert result.json()["total"] == 3
+    assert result.json()["items"][0]["text"] == "Hello!"
+    assert result.json()["items"][0]["author"] == "Other"
+    assert len(result.json()["items"]) == 1
+    assert client.get("/api/comments", params={"post_key": "bluesky:at://unknown"}).status_code == 404
+    html = client.get("/me").text
+    assert "Show comments" in html
+    assert 'id="feedback-original"' in html

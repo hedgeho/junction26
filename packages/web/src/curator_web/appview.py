@@ -32,3 +32,11 @@ def get_posts(uris: list[str]) -> list[dict]:
             r.raise_for_status()
             out += r.json().get("posts", [])
     return out
+
+
+def get_thread(uri: str) -> dict:
+    """Fetch the public direct replies available from Bluesky's thread endpoint."""
+    with client() as c:
+        response = c.get("/xrpc/app.bsky.feed.getPostThread", params={"uri": uri, "depth": 1, "parentHeight": 0})
+        response.raise_for_status()
+        return response.json().get("thread", {})

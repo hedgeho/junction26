@@ -204,6 +204,52 @@ async def post_details_api(request: Request):
     return {"items": items}
 
 
+@router.get("/api/comments")
+async def comments_api(request: Request, post_key: str):
+    did = current_did(request)
+    c = db.connect()
+    try:
+        posts = reader_posts(c, reader(request, c), did)
+    finally:
+        c.close()
+    post = next((p for p in posts if p["key"] == post_key), None)
+    if not post or post["platform"] != "bluesky" or not post_key.startswith("bluesky:at://"):
+        raise HTTPException(404, "Post unavailable")
+    uri = post_key.removeprefix("bluesky:")
+    try:
+        thread = await asyncio.to_thread(appview.get_thread, uri)
+        parent = thread.get("post") or {}
+        if parent.get("uri") != uri:
+            raise ValueError("Post unavailable")
+        items = []
+        for entry in thread.get("replies") or []:
+            view = entry.get("post") if isinstance(entry, dict) else None
+            if not isinstance(view, dict):
+                continue
+            record = view.get("record") or {}
+            author = view.get("author") or {}
+            text = record.get("text")
+            if not isinstance(text, str) or not isinstance(view.get("uri"), str):
+                continue
+            details = post_details.bluesky_details(view, text)
+            items.append(
+                {
+                    "uri": view["uri"],
+                    "text": text,
+                    "author": details["author_name"] or "Bluesky user",
+                    "handle": details["author_handle"],
+                    "avatar": details["author_avatar"],
+                    "facets": details["facets"],
+                    "created_at": record.get("createdAt"),
+                    "is_self": author.get("did") == did,
+                }
+            )
+        total = parent.get("replyCount")
+        return {"items": items, "total": total if type(total) is int and total >= 0 else None}
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        raise HTTPException(502, "Could not load comments from Bluesky") from None
+
+
 @router.get("/api/social-state")
 async def social_state(request: Request):
     did = current_did(request)

@@ -125,6 +125,9 @@ if (feedbackPanel) {
   }
   document.getElementById('feedback-post').value = key;
   document.getElementById('feedback-context').textContent = post.querySelector('.post-text').textContent;
+  const original = document.getElementById('feedback-original');
+  const source = post.querySelector('.post-actions')?.dataset.platform === 'bluesky' && safeHttps(post.dataset.sourceUrl);
+  original.hidden = !source; if (source) original.href = source;
   feedbackPanel.hidden = false;
   button.setAttribute('aria-expanded', 'true');
   document.getElementById('feedback').focus();
@@ -259,6 +262,7 @@ function renderContribution(post, item) {
  if (!item || !['comment', 'quote'].includes(item.kind) || typeof item.text !== 'string') return;
  const target = post.querySelector(item.kind === 'comment' ? '.comment-contributions' : '.quote-contributions');
  if (item.uri && [...target.children].some(node => node.dataset.uri === item.uri)) return;
+ if (item.kind === 'comment' && item.uri) post.querySelectorAll('.comment-row').forEach(row => { if (row.dataset.uri === item.uri) row.remove(); });
  const entry = document.createElement('div'); entry.className = 'contribution';
  if (item.uri) entry.dataset.uri = item.uri;
  const label = document.createElement('span'); label.className = 'contribution-label';
@@ -337,3 +341,34 @@ if (socialDialog) {
   finally { button.disabled = false; }
  });
 }
+
+document.querySelectorAll('.comments-toggle').forEach(button => button.addEventListener('click', async () => {
+ const post = button.closest('.post'), section = post.querySelector('.comments-list');
+ if (!section.hidden) { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; return; }
+ section.hidden = false; button.setAttribute('aria-expanded', 'true'); button.textContent = 'Hide comments';
+ section.textContent = 'Loading comments?';
+ try {
+  const response = await fetch('/api/comments?' + new URLSearchParams({post_key:post.dataset.postKey}), {cache:'no-store', headers:{Accept:'application/json'}});
+  if (!response.ok || response.redirected) throw new Error();
+  const data = await response.json(); section.replaceChildren();
+  const own = post.querySelector('.comment-contributions');
+  const ownUris = new Set([...own.children].map(node => node.dataset.uri).filter(Boolean));
+  for (const item of data.items) {
+   if (ownUris.has(item.uri)) continue;
+   const row = document.createElement('article'); row.className = 'comment-row'; row.dataset.uri = item.uri;
+   const avatar = safeHttps(item.avatar);
+   if (avatar) { const img = sourceImage(avatar, ''); img.className = 'comment-avatar'; row.append(img); }
+   const body = document.createElement('div'); body.className = 'comment-body';
+   const head = document.createElement('div'); head.className = 'comment-head';
+   const name = document.createElement('strong'); name.textContent = item.author; head.append(name);
+   if (item.handle) { const handle = document.createElement('span'); handle.textContent = '@' + item.handle.replace(/^@/, ''); head.append(handle); }
+   if (item.is_self) { const self = document.createElement('span'); self.textContent = 'You'; head.append(self); }
+   const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
+   body.append(head, text); row.append(body); section.append(row);
+  }
+  if (!data.items.length) section.textContent = 'No comments yet.';
+  else if (Number.isInteger(data.total) && data.total > data.items.length) {
+   const note = document.createElement('p'); note.className = 'comments-note'; note.textContent = `Showing ${data.items.length} of ${data.total} comments available on Bluesky.`; section.append(note);
+  }
+ } catch (_) { section.textContent = 'Could not load comments. Close and open to try again.'; }
+}));
