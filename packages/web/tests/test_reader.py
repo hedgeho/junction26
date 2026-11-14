@@ -444,7 +444,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     assert "What would you like to see more of?" in page
     assert "Tell us what you want to see more of to get more posts." in page
     for action in ("Comment", "Repost", "Repost with comment", "Like", "Save"):
-        assert f'{action} on Bluesky (opens original post)' in page
+        assert f'aria-label="{action}"' in page
     assert 'aria-label="Share post"' in page
     assert "Feed feedback" in page
     assert 'action="/me/more"' in page
@@ -463,3 +463,24 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     conn.execute("UPDATE reader_settings SET requested_more_day='2000-01-01' WHERE user_id=?", (uid,))
     assert digests.delivery_limit(digests.config_for(conn, uid)) == 10
     assert len(digests.read(conn, uid)) == 10
+
+
+def test_social_actions_require_csrf_and_a_post_in_the_readers_feed(conn, monkeypatch):
+    uid = seed(conn)
+    post = digests.read(conn, uid)[0]
+    calls = []
+
+    async def interact(did, uri, action, text):
+        calls.append((did, uri, action, text))
+        return {"active": True}
+
+    monkeypatch.setattr("curator_web.social.interact", interact)
+    client = client_for()
+    data = {"post_key": post["key"], "action": "comment", "text": "My own words"}
+    assert client.post("/api/social-action", data=data).status_code == 403
+    data["csrf"] = "csrf-test"
+    assert client.post("/api/social-action", data=data).json() == {"active": True}
+    assert calls == [(DID, post["key"].removeprefix("bluesky:"), "comment", "My own words")]
+    data["post_key"] = "bluesky:at://did:plc:other/app.bsky.feed.post/not-in-feed"
+    assert client.post("/api/social-action", data=data).status_code == 400
+    assert len(calls) == 1

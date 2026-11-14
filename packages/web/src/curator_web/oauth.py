@@ -5,9 +5,8 @@ metadata; open the site at http://127.0.0.1:8000.
 Prod: confidential client. client_id is the URL of our metadata document, and
 we sign client assertions with the ES256 JWK from scripts/gen_oauth_key.py.
 
-Scopes permit only feed reads through the AppView and feed generators. No repo,
-post, like, follow, or publishing permissions are requested. Existing identity-only
-sessions must reconnect to grant feed access.
+Scopes allow feed access and user-initiated Bluesky interactions. Existing
+sessions must reconnect to grant the additional permissions.
 """
 
 import json
@@ -19,7 +18,13 @@ from atproto_oauth import JsonFileStore
 from .config import settings
 
 SCOPE = (
-    "atproto rpc:app.bsky.feed.getFeed?aud=did:web:api.bsky.app%23bsky_appview rpc:app.bsky.feed.getFeedSkeleton?aud=*"
+    "atproto repo:app.bsky.feed.like?action=create&action=delete "
+    "repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.feed.post?action=create "
+    "rpc:app.bsky.feed.getFeed?aud=did:web:api.bsky.app%23bsky_appview "
+    "rpc:app.bsky.feed.getPosts?aud=did:web:api.bsky.app%23bsky_appview "
+    "rpc:app.bsky.bookmark.createBookmark?aud=did:web:api.bsky.app%23bsky_appview "
+    "rpc:app.bsky.bookmark.deleteBookmark?aud=did:web:api.bsky.app%23bsky_appview "
+    "rpc:app.bsky.feed.getFeedSkeleton?aud=*"
 )
 
 

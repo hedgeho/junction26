@@ -7,7 +7,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label for="handle">Bluesky handle</label>
     <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true"{% endif %}>
-    <p class="help" id="login-help">Read-only access</p>
+    <p class="help" id="login-help">Read your feed and allow interactions you choose to make.</p>
     {% if error %}<p class="error" role="alert" id="login-error">{{ error }}</p>{% endif %}
     <button class="primary">Continue <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
   </form>

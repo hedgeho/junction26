@@ -225,6 +225,58 @@ document.querySelectorAll('.share-post').forEach(button => button.addEventListen
  try {
   if (navigator.share) await navigator.share({url});
   else if (navigator.clipboard) { await navigator.clipboard.writeText(url); button.title = 'Link copied'; button.setAttribute('aria-label', 'Link copied'); setTimeout(() => { button.title = 'Share post'; button.setAttribute('aria-label', 'Share post'); }, 2500); }
-  else window.open(url, '_blank', 'noopener,noreferrer');
+  else button.closest('.post').querySelector('.social-status').textContent = 'Sharing is unavailable in this browser.';
  } catch (_) { /* Sharing was cancelled or unavailable. */ }
 }));
+
+const socialDialog = document.getElementById('social-dialog');
+const socialForm = document.getElementById('social-form');
+let socialTarget = null;
+async function sendSocial(post, action, text = '') {
+ const status = post.querySelector('.social-status');
+ const body = new FormData();
+ body.set('csrf', document.querySelector('input[name="csrf"]').value);
+ body.set('post_key', post.dataset.postKey); body.set('action', action); body.set('text', text);
+ const response = await fetch('/api/social-action', {method:'POST', body});
+ const result = await response.json();
+ if (!response.ok) throw new Error(result.detail || 'Could not complete action');
+ const button = post.querySelector(`.social-interact[data-action="${action}"]`);
+ if (button?.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(result.active));
+ status.textContent = action === 'comment' ? 'Comment posted' : action === 'quote' ? 'Repost with comment posted' : '';
+}
+const blueskyCards = postCards.filter(post => post.querySelector('.post-actions')?.dataset.platform === 'bluesky');
+postCards.filter(post => !blueskyCards.includes(post)).forEach(post => { post.querySelector('.social-status').textContent = 'X interactions are not connected yet.'; });
+if (blueskyCards.length) fetch('/api/social-state', {cache:'no-store', headers:{Accept:'application/json'}})
+ .then(async response => { if (!response.ok || response.redirected) throw new Error(); return response.json(); })
+ .then(data => blueskyCards.forEach(post => {
+  const state = data.items[post.dataset.postKey.slice('bluesky:'.length)];
+  if (!state) { post.querySelector('.social-status').textContent = 'Post unavailable on Bluesky.'; return; }
+  post.querySelectorAll('.social-interact').forEach(button => {
+   button.disabled = false;
+   if (button.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(!!state[button.dataset.action]));
+  });
+ }))
+ .catch(() => blueskyCards.forEach(post => { post.querySelector('.social-status').textContent = 'Reconnect Bluesky in settings to enable interactions.'; }));
+blueskyCards.forEach(post => post.querySelectorAll('.social-interact').forEach(button => button.addEventListener('click', async () => {
+ const action = button.dataset.action;
+ if (action === 'comment' || action === 'quote') {
+  socialTarget = {post, action};
+  document.getElementById('social-title').textContent = action === 'comment' ? 'Comment' : 'Repost with comment';
+  document.getElementById('social-text').value = '';
+  socialForm.querySelector('.social-dialog-status').textContent = '';
+  socialDialog.showModal(); document.getElementById('social-text').focus(); return;
+ }
+ button.disabled = true;
+ try { await sendSocial(post, action); } catch (error) { post.querySelector('.social-status').textContent = error.message; }
+ finally { button.disabled = false; }
+})));
+if (socialDialog) {
+ document.getElementById('social-close').addEventListener('click', () => socialDialog.close());
+ socialForm.addEventListener('submit', async event => {
+  event.preventDefault(); if (!socialTarget) return;
+  const button = socialForm.querySelector('[type=submit]'); button.disabled = true;
+  try { await sendSocial(socialTarget.post, socialTarget.action, document.getElementById('social-text').value); socialDialog.close(); }
+  catch (error) { socialForm.querySelector('.social-dialog-status').textContent = error.message; }
+  finally { button.disabled = false; }
+ });
+}

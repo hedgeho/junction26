@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appview, oauth, post_details
+from . import appview, oauth, post_details, social
 
 
 async def csrf_guard(request: Request):
@@ -199,6 +199,53 @@ async def post_details_api(request: Request):
                 if value:
                     items["bluesky:" + uri][field] = value
     return {"items": items}
+
+
+@router.get("/api/social-state")
+async def social_state(request: Request):
+    did = current_did(request)
+    c = db.connect()
+    try:
+        posts = reader_posts(c, reader(request, c), did)
+    finally:
+        c.close()
+    uris = [
+        p["key"].removeprefix("bluesky:")
+        for p in posts
+        if p["platform"] == "bluesky" and p["key"].startswith("bluesky:at://")
+    ]
+    try:
+        return {"items": await social.states(did, uris) if uris else {}}
+    except Exception:  # noqa: BLE001 - sanitize OAuth and network errors
+        raise HTTPException(403, "Reconnect Bluesky in settings to grant interaction permissions") from None
+
+
+@router.post("/api/social-action")
+async def social_action(
+    request: Request,
+    post_key: str = Form(..., max_length=1000),
+    action: str = Form(..., max_length=20),
+    text: str = Form("", max_length=3000),
+):
+    did = current_did(request)
+    c = db.connect()
+    try:
+        posts = reader_posts(c, reader(request, c), did)
+        post = next((p for p in posts if p["key"] == post_key), None)
+    finally:
+        c.close()
+    if not post or post["platform"] != "bluesky" or not post_key.startswith("bluesky:at://"):
+        raise HTTPException(400, "This action is unavailable for this post")
+    try:
+        return await social.interact(did, post_key.removeprefix("bluesky:"), action, text)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            raise HTTPException(403, "Reconnect Bluesky in settings to grant interaction permissions") from None
+        raise HTTPException(502, "Bluesky could not complete this action") from None
+    except Exception:  # noqa: BLE001 - do not expose provider credentials
+        raise HTTPException(502, "Could not connect to Bluesky. Try reconnecting in settings.") from None
 
 
 @router.get("/api/curation")

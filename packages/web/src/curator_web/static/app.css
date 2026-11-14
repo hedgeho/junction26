@@ -175,3 +175,8 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .image-dialog img { display: block; max-width: calc(100vw - 80px); max-height: calc(100vh - 80px); object-fit: contain; }
 .image-close { position: fixed; right: 16px; top: 16px; width: 40px; height: 40px; padding: 10px; border: 0; background: transparent; color: white; }
 .image-close:hover { background: rgba(255,255,255,.15); }
+
+.social-action[aria-pressed="true"] { color: var(--primary); background: var(--soft); }
+.social-action:disabled { cursor: default; opacity: .4; }
+.social-status, .social-dialog-status { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.social-status:empty, .social-dialog-status:empty { display: none; }

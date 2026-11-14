@@ -128,12 +128,14 @@ def test_source_controls_require_login_and_csrf(conn):
         assert client.post(path).status_code == 403
 
 
-def test_feed_reads_never_request_write_scopes():
+def test_oauth_requests_specific_interaction_scopes():
     assert "rpc:app.bsky.feed.getFeed?" in oauth.SCOPE
     assert "rpc:app.bsky.feed.getFeedSkeleton?" in oauth.SCOPE
-    assert "repo:" not in oauth.SCOPE
+    assert "repo:app.bsky.feed.like?action=create&action=delete" in oauth.SCOPE
+    assert "repo:app.bsky.feed.repost?action=create&action=delete" in oauth.SCOPE
+    assert "repo:app.bsky.feed.post?action=create" in oauth.SCOPE
     assert "transition:" not in oauth.SCOPE
-    assert "createRecord" not in oauth.SCOPE
+    assert "repo:*" not in oauth.SCOPE
 
 
 def test_invalid_identity_is_not_imported(conn, monkeypatch):
