@@ -1,38 +1,48 @@
 import argparse
 import logging
 
+from curator_core import db
+
+from . import worker
+
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.WARNING)
     parser = argparse.ArgumentParser(prog="curator-curate")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("run", help="scoring/ranking loop, forever")
-    once = sub.add_parser("once", help="one cycle, then exit")
-    once.add_argument("--user", help="only this reader's DID")
+    sub.add_parser("run")
+    sub.add_parser("check-providers", help="Synthetic live checks using configured credentials")
+    once = sub.add_parser("once")
+    once.add_argument("--user", help="Only this reader's Bluesky DID")
     args = parser.parse_args()
+    if args.cmd == "check-providers":
+        from .config import settings
+        from .llm.gemini import GeminiScorer, PublicCandidate, PublicScoringRequest
+        from .llm.gemma import GemmaClient
 
-    from . import worker
-
-    if args.cmd == "run":
+        cfg = settings()
+        try:
+            public = GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+            public.score(
+                PublicScoringRequest(
+                    "# Interests\nCompiler research",
+                    (PublicCandidate("x:synthetic", "x", "A reproducible compiler benchmark", "", False, False),),
+                )
+            )
+            private = GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
+            private.update_profile("# Interests\nCompilers", "Prefer detailed technical results")
+            private.match(
+                {"text": "A compiler benchmark", "context": ""},
+                [{"chunk_id": "synthetic", "text": "Original compiler benchmarking thoughts"}],
+                "",
+            )
+        except Exception:  # noqa: BLE001 - never echo private provider errors
+            parser.exit(1, "Provider check failed; verify configuration and endpoint health.\n")
+        print("Gemini and Gemma checks passed.")
+    elif args.cmd == "run":
         worker.run_forever()
-        return
-
-    import anthropic
-    from curator_core import db
-
-    from .config import settings
-    from .rank import rank_user
-    from .readers import ensure_user
-
-    conn = db.connect()
-    client = anthropic.Anthropic(api_key=settings().anthropic_api_key or None)
-    if args.user:
-        ensure_user(conn, args.user)
-        if not conn.execute("SELECT 1 FROM follow_sync WHERE user_did = ?", (args.user,)).fetchone():
-            print(f"note: follows not synced yet; run `curator-ingest sync-follows {args.user}`")
-        print("scored", worker.score_user(conn, client, args.user), "ranked", rank_user(conn, args.user))
     else:
-        worker.run_cycle(conn, client)
+        worker.run_cycle(db.connect(), only_did=args.user)
 
 
 if __name__ == "__main__":

@@ -73,3 +73,47 @@ def candidates(conn, did: str, limit: int) -> list[Post]:
             added += 1
         log.debug("%s: %d candidates from %s", did, added, name)
     return list(seen.values())
+
+
+def public_candidates(conn, did: str, terms: list[str], limit: int):
+    """Recall follows and explicit topics across the full source window, plus discovery.
+
+    Crucially, followed/topic posts are not first restricted to a recent firehose slice.
+    Private interests/notes must never be passed as terms here.
+    """
+    from curator_core.sources import get_post, recent_posts
+
+    since = int(time.time()) - CANDIDATE_WINDOW_H * 3600
+    share = max(1, math.ceil(limit / 3))
+    followed = conn.execute(
+        """SELECT p.uri FROM posts p JOIN follows f ON f.subject_did=p.author_did
+        WHERE f.user_did=? AND p.indexed_at>? ORDER BY p.indexed_at DESC LIMIT ?""",
+        (did, since, share),
+    )
+    pools = [["bluesky:" + r[0] for r in followed]]
+    query = _fts_query(terms)
+    if query:
+        matched = conn.execute(
+            """SELECT p.uri FROM posts_fts JOIN posts p ON p.rowid=posts_fts.rowid
+            WHERE posts_fts MATCH ? AND p.indexed_at>? ORDER BY bm25(posts_fts) LIMIT ?""",
+            (query, since, share),
+        )
+        pools.append(["bluesky:" + r[0] for r in matched])
+        normalized = conn.execute(
+            """SELECT p.platform,p.native_id FROM social_posts_fts
+            JOIN social_posts p ON p.rowid=social_posts_fts.rowid
+            WHERE social_posts_fts MATCH ? AND p.observed_at>? AND p.deleted=0
+            ORDER BY bm25(social_posts_fts) LIMIT ?""",
+            (query, since, share),
+        )
+        pools.append([f"{r[0]}:{r[1]}" for r in normalized])
+    # Discovery backfills unused quota, while deterministic dedup preserves source identity.
+    pools.append([p.key for p in recent_posts(conn, since, limit)])
+    seen = {}
+    for pool in pools:
+        for key in pool:
+            if len(seen) >= limit:
+                break
+            if key not in seen and (post := get_post(conn, key)) is not None:
+                seen[key] = post
+    return list(seen.values())

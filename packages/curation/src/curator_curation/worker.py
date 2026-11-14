@@ -1,92 +1,129 @@
-"""Curation worker: candidates -> LLM scores -> ranked feed, per reader, on a loop.
+"""Single-host coordinator. Provider calls happen outside database transactions."""
 
-Nothing here runs in the request path. getFeedSkeleton only reads feed_items,
-so a slow or failing LLM call means a stale feed, never a slow one.
-"""
-
+import json
 import logging
 import time
+from datetime import UTC, datetime
 
-import anthropic
 from curator_core import db
 
-from .candidates import candidates
+from . import digests, jobs, profiles
+from .candidates import public_candidates
 from .config import settings
-from .llm import scorer
-from .rank import rank_global, rank_user
-from .readers import active_preferences
+from .llm.gemini import SCORER_VERSION, GeminiScorer, PublicCandidate, PublicScoringRequest
+from .llm.gemma import GemmaClient
 
 log = logging.getLogger(__name__)
 
 
-def eligible_users(conn) -> list[str]:
-    week_ago = int(time.time()) - 7 * 86400
-    rows = conn.execute("SELECT did FROM users WHERE prompt != '' AND last_seen_at > ?", (week_ago,)).fetchall()
-    return [r["did"] for r in rows]
+def scorer_version() -> str:
+    return f"{SCORER_VERSION}:{settings().gemini_model}"
 
 
-def drop_orphan_scores(conn) -> None:
-    """Scores for posts ingest has pruned or seen deleted."""
-    with db.tx(conn):
-        conn.execute("DELETE FROM scores WHERE NOT EXISTS (SELECT 1 FROM posts p WHERE p.uri = scores.post_uri)")
-
-
-def feedback_examples(conn, did: str, event_suffix: str, n: int = 8) -> list[str]:
-    rows = conn.execute(
-        """SELECT p.text FROM interactions i JOIN posts p ON p.uri = i.post_uri
-           WHERE i.user_did = ? AND i.event LIKE ? ORDER BY i.created_at DESC LIMIT ?""",
-        (did, f"%{event_suffix}", n),
-    ).fetchall()
-    return [r["text"] for r in rows]
-
-
-def score_user(conn, client: anthropic.Anthropic, did: str) -> int:
+def score_user(conn, scorer, did: str) -> int:
     cfg = settings()
-    user = conn.execute("SELECT prompt FROM users WHERE did = ?", (did,)).fetchone()
-    prefs = [dict(p) for p in active_preferences(conn, did) if p["category"] != "search_term"]
-    profile = scorer.profile_block(
-        user["prompt"],
-        prefs,
-        more=feedback_examples(conn, did, "requestMore"),
-        less=feedback_examples(conn, did, "requestLess"),
-    )
-    followed = {r["subject_did"] for r in conn.execute("SELECT subject_did FROM follows WHERE user_did = ?", (did,))}
-    posts = candidates(conn, did, cfg.candidates_per_cycle)
-    now = int(time.time())
-    scored = 0
-    for i in range(0, len(posts), cfg.score_batch_size):
-        batch = posts[i : i + cfg.score_batch_size]
-        try:
-            results = scorer.score_batch(client, profile, batch, followed)
-        except anthropic.APIError as e:
-            log.error("scoring failed for %s: %s", did, e)
-            break
+    uid = profiles.bootstrap(conn, did)
+    profile = profiles.head(conn, uid)
+    if not profile:
+        return 0
+    version = scorer_version()
+    config = digests.config_for(conn, uid)
+    terms = json.loads(profile["search_terms"])
+    pool = [
+        p
+        for p in public_candidates(conn, did, terms, cfg.candidate_pool_size)
+        if p.author_key not in digests.blocked(config)
+    ]
+    followed = {r[0] for r in conn.execute("SELECT subject_did FROM follows WHERE user_did=?", (did,))}
+    # Public explicit retrieval terms and follows only. Private notes never drive external discovery.
+    pool.sort(key=lambda p: (p.author_id not in followed, -sum(t.casefold() in p.text.casefold() for t in terms)))
+    unscored = [
+        p
+        for p in pool
+        if not conn.execute(
+            """SELECT 1 FROM assessments_v2 WHERE user_id=? AND post_key=?
+        AND profile_revision=? AND content_hash=? AND scorer_version=?""",
+            (uid, p.key, profile["id"], p.content_hash, version),
+        ).fetchone()
+    ][: cfg.candidates_per_cycle]
+    total = 0
+    for start in range(0, len(unscored), cfg.score_batch_size):
+        batch = unscored[start : start + cfg.score_batch_size]
+        day = datetime.now(UTC).date().isoformat()
+        budget_key = f"scoring-budget:{uid}:{day}"
         with db.tx(conn):
-            conn.executemany(
-                "INSERT OR REPLACE INTO scores VALUES (?, ?, ?, ?, ?, ?)",
-                [(did, batch[r.i]["uri"], r.score / 10, r.reason, cfg.scorer_model, now) for r in results],
-            )
-        scored += len(results)
-    return scored
+            used = int(db.kv_get(conn, budget_key) or "0")
+            if used + len(batch) > cfg.daily_scoring_cap:
+                break
+            db.kv_set(conn, budget_key, str(used + len(batch)))
+        request = PublicScoringRequest(
+            profiles.markdown(conn, uid),
+            tuple(
+                PublicCandidate(p.key, p.platform, p.text, p.context, bool(p.parent_id), bool(p.quote_id))
+                for p in batch
+            ),
+        )
+        result = scorer.score(request)
+        expected = {p.key for p in batch}
+        ids = [r.post_key for r in result.items]
+        if len(ids) != len(expected) or set(ids) != expected:
+            raise ValueError("invalid assessment coverage")
+        with db.tx(conn):
+            if profiles.head(conn, uid)["id"] != profile["id"]:
+                break
+            for r, post in ((r, next(p for p in batch if p.key == r.post_key)) for r in result.items):
+                conn.execute(
+                    "INSERT OR REPLACE INTO assessments_v2 VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        uid,
+                        post.key,
+                        profile["id"],
+                        post.content_hash,
+                        version,
+                        r.decision,
+                        r.relevance,
+                        r.substance,
+                        r.opportunity,
+                        int(time.time()),
+                    ),
+                )
+                total += 1
+    return total
 
 
-def run_cycle(conn, client: anthropic.Anthropic) -> None:
-    drop_orphan_scores(conn)
-    log.info("global fallback feed: %d items", rank_global(conn))
-    for did in eligible_users(conn):
+def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
+    cfg = settings()
+    if gemma is None and cfg.gemma_url and cfg.gemma_token:
+        gemma = GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
+    if gemma:
+        for _ in range(10):
+            if not jobs.process_one(conn, gemma):
+                break
+    if scorer is None and cfg.gemini_api_key:
+        scorer = GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+    users = conn.execute(
+        "SELECT did FROM users" + (" WHERE did=?" if only_did else ""), (only_did,) if only_did else ()
+    ).fetchall()
+    for user in users:
         try:
-            n = score_user(conn, client, did)
-            m = rank_user(conn, did)
-            log.info("%s: scored %d new, feed has %d", did, n, m)
-        except Exception:
-            log.exception("curation failed for %s", did)
+            uid = profiles.bootstrap(conn, user["did"])
+            current = profiles.head(conn, uid)
+            if not current:
+                continue
+            config = digests.config_for(conn, uid)
+            last = digests.latest(conn, uid)
+            if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
+                continue
+            if scorer is None:
+                continue
+            score_user(conn, scorer, user["did"])
+            digests.build(conn, uid, scorer_version(), gemma)
+        except Exception:  # noqa: BLE001 - sanitize external provider errors at the boundary
+            log.warning("curation cycle failed for a reader; retry next cycle")
 
 
 def run_forever() -> None:
-    cfg = settings()
     conn = db.connect()
-    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key or None)
     while True:
-        started = time.monotonic()
-        run_cycle(conn, client)
-        time.sleep(max(0, cfg.curate_interval_s - (time.monotonic() - started)))
+        run_cycle(conn)
+        time.sleep(settings().curate_interval_s)

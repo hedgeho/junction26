@@ -4,7 +4,7 @@ import asyncio
 import time
 
 from curator_core import db
-from curator_curation.rank import GLOBAL
+from curator_curation import digests, profiles
 from curator_curation.readers import ensure_user
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -46,19 +46,20 @@ async def get_feed_skeleton(
     offset = int(cursor) if cursor and cursor.isdigit() else 0
 
     def read():
+        if not did:
+            return []
         c = db.connect()
-        owner = GLOBAL
-        if did:
-            ensure_user(c, did)  # touch last_seen_at so curation and follow sync keep running
-            if c.execute("SELECT 1 FROM feed_items WHERE user_did = ? LIMIT 1", (did,)).fetchone():
-                owner = did
-        return c.execute(
-            "SELECT post_uri, reason FROM feed_items WHERE user_did = ? AND position >= ? ORDER BY position LIMIT ?",
-            (owner, offset, limit),
-        ).fetchall()
+        try:
+            ensure_user(c, did)
+            uid = profiles.bootstrap(c, did)
+            # This adapter only emits Bluesky references, never generated feedContext.
+            items = [p for p in digests.read(c, uid) if p["platform"] == "bluesky"]
+            return items[offset : offset + limit]
+        finally:
+            c.close()
 
     rows = await asyncio.to_thread(read)
-    body = {"feed": [{"post": r["post_uri"], "feedContext": (r["reason"] or "")[:2000]} for r in rows]}
+    body = {"feed": [{"post": r["key"].removeprefix("bluesky:"), "feedContext": ""} for r in rows]}
     if len(rows) == limit:
         body["cursor"] = str(offset + limit)
     return body
@@ -71,12 +72,22 @@ async def send_interactions(request: Request, authorization: str | None = Header
         raise HTTPException(401)
     payload = await request.json()
     now = int(time.time())
-    rows = [(did, i.get("item"), i.get("event", ""), now) for i in payload.get("interactions", [])]
+    interactions = payload.get("interactions", [])
+    if not isinstance(interactions, list) or len(interactions) > 100:
+        raise HTTPException(400)
+    rows = [(did, i.get("item"), i.get("event", ""), now) for i in interactions if isinstance(i, dict)]
 
     def write():
         c = db.connect()
-        with db.tx(c):
-            c.executemany("INSERT INTO interactions VALUES (?, ?, ?, ?)", rows)
+        try:
+            uid = profiles.reader_id(c, did)
+            with db.tx(c):
+                c.executemany("INSERT INTO interactions VALUES (?, ?, ?, ?)", rows)
+                for _, uri, event, _ in rows:
+                    if isinstance(uri, str) and isinstance(event, str) and event.endswith("requestLess"):
+                        c.execute("INSERT OR REPLACE INTO dismissed_posts VALUES (?,?,?)", (uid, "bluesky:" + uri, now))
+        finally:
+            c.close()
 
     await asyncio.to_thread(write)
     return {}

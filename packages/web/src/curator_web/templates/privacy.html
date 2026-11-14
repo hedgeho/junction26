@@ -1,8 +1,8 @@
-{% extends "base.html" %}
-{% block body %}
+{% extends "base.html" %}{% block body %}
 <h1>Privacy</h1>
-<p>This feed stores public Bluesky posts for up to 48 hours to rank them, and honours deletions.
-For people who sign in, it stores their DID, handle, the feed description and feedback they write,
-and the feed interactions the Bluesky app sends (such as "show more/less").
-Post text and the reader's description are sent to Anthropic's API to score relevance.</p>
+<p>The application stores your account identity, explicit feedback, versioned configuration, private note snapshots and selected source references. The social data pipeline supplies public source posts and handles their retention and deletion.</p>
+<p>Gemini receives public candidate text and your explicit public filtering configuration. Private note text and private configuration are processed with self-hosted Gemma on Modal, outside the Gemini path. The application host and Modal process this data in the cloud; processing is not on-device.</p>
+<p>Models do not modify or publish your posts or original notes. The reader displays source posts and verified original note passages. Configuration is available separately in settings.</p>
+<p>You can remove imported note snapshots in settings. Profile history and feedback remain stored on the application host. Provider and backup retention must be configured by the deployment operator; this demo does not promise automatic account erasure.</p>
+<a href="/me">Back</a>
 {% endblock %}

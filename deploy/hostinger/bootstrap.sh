@@ -22,11 +22,13 @@ if [ ! -f "$DIR/.env" ]; then
         -e "s/^PUBLISHER_DID=.*/PUBLISHER_DID=did:plc:g5dlzj7xez24l7mt4narpmks/" \
         -e '/^HOSTNAME=/d' \
         "$DIR/src/deploy/.env.example" > "$DIR/.env"
-    echo "created $DIR/.env: set ANTHROPIC_API_KEY there, then deploy again" >&2
+    echo "created $DIR/.env: set Gemini and Gemma configuration there, then deploy again" >&2
 fi
 chmod 600 "$DIR/.env"
 
-if ! grep -q '^ANTHROPIC_API_KEY=.' "$DIR/.env"; then
-    echo "ANTHROPIC_API_KEY is empty in $DIR/.env; edit it with: ssh -t hostinger nano $DIR/.env" >&2
-    exit 2
-fi
+for required in GEMINI_API_KEY GEMINI_MODEL GEMMA_URL GEMMA_TOKEN; do
+    if ! grep -q "^${required}=." "$DIR/.env"; then
+        echo "$required is empty in $DIR/.env; update the host configuration before deployment" >&2
+        exit 2
+    fi
+done

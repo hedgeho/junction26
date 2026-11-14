@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Curator</h1>
-<p>A Bluesky feed curated for you by an LLM, from a description you write in plain language.</p>
+<h1>Your attention, on your terms.</h1>
+<p>A finite daily selection of original posts, connected to your own writing.</p>
 <form method="post" action="/login">
-  <input name="handle" placeholder="you.bsky.social" required>
-  <button>Sign in with Bluesky</button>
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Bluesky handle <input name="handle" required maxlength="253" placeholder="you.bsky.social"></label>
+<button>Sign in</button>
 </form>
-<p class="why">Feed: <code>{{ feed_uri }}</code></p>
+<p class="why">Bluesky identifies your account. The reader supports Bluesky and X posts supplied by the data pipeline.</p>
+<a href="/privacy">Privacy</a>
 {% endblock %}

@@ -10,6 +10,7 @@ ownership is in packages/core/README.md.
 """
 
 import sqlite3
+import time
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
@@ -22,9 +23,20 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30, isolation_level=None, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=30000")
+    # Initial journal-mode negotiation can return SQLITE_BUSY without honoring
+    # busy_timeout when several fresh processes open the database together.
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            break
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
+                conn.close()
+                raise
+            time.sleep(0.05)
+    conn.execute("PRAGMA synchronous=NORMAL")
     migrate(conn)
     return conn
 

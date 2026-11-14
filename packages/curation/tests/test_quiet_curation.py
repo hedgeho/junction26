@@ -1,0 +1,294 @@
+import json
+import time
+from types import SimpleNamespace
+
+import pytest
+from curator_core.testing import add_user, insert_post
+from curator_curation import digests, jobs, notes, profiles, worker
+from curator_curation.llm.gemini import GeminiScorer, PublicCandidate, PublicScoringRequest
+from curator_curation.llm.schemas import Assessment, Assessments, ChunkMatch, Matches, ProfileProposal
+
+DID = "did:plc:reader"
+
+
+class FakeGemma:
+    def update_profile(self, current, feedback):
+        return ProfileProposal(markdown=current + "\n" + feedback, search_terms=["compilers"])
+
+    def match(self, post, chunks, private_profile):
+        return (
+            Matches(items=[ChunkMatch(chunk_id=chunks[0]["chunk_id"], relevance=0.9)]) if chunks else Matches(items=[])
+        )
+
+
+class FakeScorer:
+    def __init__(self):
+        self.requests = []
+
+    def score(self, request):
+        self.requests.append(request)
+        return Assessments(
+            items=[
+                Assessment(post_key=p.post_key, decision="include", relevance=0.9, substance=0.8, opportunity=0.7)
+                for p in request.candidates
+            ]
+        )
+
+
+def setup(conn):
+    add_user(conn, DID, "Practical compilers, not launch hype")
+    uid = profiles.bootstrap(conn, DID)
+    uri = insert_post(conn, "did:plc:author", "one", "A concrete compiler evaluation with reproducible results")
+    return uid, "bluesky:" + uri
+
+
+def test_quiet_feedback_is_idempotent_and_revisioned(conn):
+    uid, _ = setup(conn)
+    original = profiles.head(conn, uid)["id"]
+    job = jobs.enqueue(conn, uid, "public", "Less fundraising; still interested in founders' decisions", "submission-1")
+    assert job == jobs.enqueue(conn, uid, "public", "different accidental replay", "submission-1")
+    assert jobs.process_one(conn, FakeGemma())
+    state = conn.execute("SELECT * FROM feedback_jobs WHERE id=?", (job,)).fetchone()
+    assert state["state"] == "applied"
+    assert state["applied_revision"] != original
+    assert "Practical compilers" in profiles.markdown(conn, uid)
+    assert "still interested" in profiles.markdown(conn, uid)
+    assert not jobs.process_one(conn, FakeGemma())
+
+
+def test_profile_compare_and_swap_and_exact_unicode(conn):
+    uid, _ = setup(conn)
+    parent = profiles.head(conn, uid)["id"]
+    body = "# Interests\n\nSuomi \U0001f98b\n"
+    revision = profiles.save(conn, uid, "public", body, parent)
+    with pytest.raises(profiles.RevisionConflict):
+        profiles.save(conn, uid, "public", "stale edit", parent)
+    assert profiles.head(conn, uid)["id"] == revision
+    assert profiles.markdown(conn, uid) == body
+
+
+def test_job_crash_recovery_does_not_apply_twice(conn):
+    uid, _ = setup(conn)
+    job = jobs.enqueue(conn, uid, "public", "more compilers", "recover")
+    parent = profiles.head(conn, uid)["id"]
+    rev = profiles.save(conn, uid, "public", "# Already applied", parent, origin="feedback:" + job)
+    assert jobs.process_one(conn, FakeGemma())
+    assert profiles.head(conn, uid)["id"] == rev
+    assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
+
+
+def test_provider_failure_preserves_profile_and_sanitizes_error(conn):
+    uid, _ = setup(conn)
+    original = profiles.markdown(conn, uid)
+    jid = jobs.enqueue(conn, uid, "private", "private sentinel", "fail")
+
+    class Broken:
+        def update_profile(self, *args):
+            raise RuntimeError("sensitive provider body")
+
+    for _ in range(3):
+        jobs.process_one(conn, Broken())
+    row = conn.execute("SELECT state,error_code FROM feedback_jobs WHERE id=?", (jid,)).fetchone()
+    assert tuple(row) == ("failed", "update_failed")
+    assert profiles.markdown(conn, uid) == original
+
+
+def test_private_notes_and_private_feedback_never_enter_public_requests(conn):
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Private source", "PRIVATE_SENTINEL original writing \U0001f98b")
+    jobs.enqueue(conn, uid, "private", "PRIVATE_INTEREST_SENTINEL", "private")
+    jobs.process_one(conn, FakeGemma())
+    scorer = FakeScorer()
+    worker.run_cycle(conn, scorer, FakeGemma())
+    assert len(scorer.requests) == 1
+    payload = scorer.requests[0].payload()
+    assert "PRIVATE_SENTINEL" not in payload
+    assert "PRIVATE_INTEREST_SENTINEL" not in payload
+    data = json.loads(payload)
+    assert set(data) == {"explicit_profile", "posts"}
+    assert set(data["posts"][0]) == {"post_key", "platform", "text", "context", "is_reply", "is_quote"}
+    assert digests.read(conn, uid)[0]["notes"][0]["text"] == "PRIVATE_SENTINEL original writing \U0001f98b"
+
+
+def test_profile_change_rescores_existing_content_and_daily_snapshot_is_stable(conn):
+    uid, _ = setup(conn)
+    scorer = FakeScorer()
+    worker.run_cycle(conn, scorer, FakeGemma())
+    first = digests.latest(conn, uid)["id"]
+    worker.run_cycle(conn, scorer, FakeGemma())
+    assert len(scorer.requests) == 1
+    assert digests.latest(conn, uid)["id"] == first
+    parent = profiles.head(conn, uid)["id"]
+    profiles.save(conn, uid, "public", "# Only deep compiler evaluations", parent)
+    assert digests.read(conn, uid) == []
+    worker.run_cycle(conn, scorer, FakeGemma())
+    assert len(scorer.requests) == 2
+    assert digests.latest(conn, uid)["id"] != first
+
+
+def test_source_edit_deletion_blocks_and_dismissal_apply_to_existing_digest(conn):
+    uid, key = setup(conn)
+    scorer = FakeScorer()
+    worker.run_cycle(conn, scorer)
+    assert len(digests.read(conn, uid)) == 1
+    conn.execute("UPDATE reader_settings SET blocked_authors=? WHERE user_id=?", ('["bluesky:did:plc:author"]', uid))
+    assert digests.read(conn, uid) == []
+    conn.execute("UPDATE reader_settings SET blocked_authors='[]' WHERE user_id=?", (uid,))
+    conn.execute("UPDATE posts SET text='Changed after assessment' WHERE uri=?", (key.removeprefix("bluesky:"),))
+    assert digests.read(conn, uid) == []
+    conn.execute("UPDATE reader_settings SET refresh_requested=1 WHERE user_id=?", (uid,))
+    worker.run_cycle(conn, scorer)
+    assert digests.read(conn, uid)[0]["text"] == "Changed after assessment"
+    conn.execute("DELETE FROM posts WHERE uri=?", (key.removeprefix("bluesky:"),))
+    assert digests.read(conn, uid) == []
+
+
+def test_limit_deduplication_and_empty_selection(conn):
+    uid, _ = setup(conn)
+    for i in range(5):
+        insert_post(conn, "did:plc:other" + str(i), str(i), "The identical cross-posted technical announcement")
+    conn.execute("UPDATE reader_settings SET daily_limit=2 WHERE user_id=?", (uid,))
+    worker.run_cycle(conn, FakeScorer())
+    assert len(digests.read(conn, uid)) == 2
+    assert len({p["text"] for p in digests.read(conn, uid)}) == 2
+    conn.execute("DELETE FROM assessments_v2")
+    digests.build(conn, uid, worker.scorer_version())
+    assert digests.read(conn, uid) == []
+
+
+def test_note_deletion_and_cross_user_ownership(conn):
+    uid, _ = setup(conn)
+    note = notes.import_note(conn, uid, "Original", "Exact original caf\u00e9 \U0001f98b writing")
+    worker.run_cycle(conn, FakeScorer(), FakeGemma())
+    assert digests.read(conn, uid)[0]["notes"]
+    notes.delete_note(conn, "someone-else", note)
+    assert digests.read(conn, uid)[0]["notes"]
+    notes.delete_note(conn, uid, note)
+    assert digests.read(conn, uid)[0]["notes"] == []
+    assert not conn.execute("SELECT 1 FROM note_chunks").fetchone()
+    assert not conn.execute("SELECT 1 FROM note_matches").fetchone()
+
+
+def test_invalid_model_matches_never_become_source_text(conn):
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Original", "Original words only")
+
+    class Invented(FakeGemma):
+        def match(self, *args):
+            return Matches(items=[ChunkMatch(chunk_id="invented wording", relevance=1)])
+
+    worker.run_cycle(conn, FakeScorer(), Invented())
+    assert digests.read(conn, uid)[0]["notes"] == []
+
+
+def test_gemini_rejects_duplicate_missing_or_foreign_results(monkeypatch):
+    request = PublicScoringRequest("# Explicit", (PublicCandidate("x:1", "x", "text", "", False, False),))
+    model = object.__new__(GeminiScorer)
+    model.model = "test-model"
+
+    def respond(**kwargs):
+        return SimpleNamespace(
+            text=json.dumps(
+                {
+                    "items": [
+                        {
+                            "post_key": "x:wrong",
+                            "decision": "include",
+                            "relevance": 0.9,
+                            "substance": 0.8,
+                            "opportunity": 0.7,
+                        }
+                    ]
+                }
+            )
+        )
+
+    model.client = SimpleNamespace(models=SimpleNamespace(generate_content=respond))
+    with pytest.raises(ValueError, match="coverage"):
+        model.score(request)
+
+
+def test_normalized_x_and_bluesky_share_classification_and_rendering(conn):
+    uid, _ = setup(conn)
+    conn.execute(
+        """INSERT INTO social_posts VALUES
+        ('x','123','author-x','Human on X','Another original compiler finding','https://x.com/i/status/123',
+         NULL,?,NULL,NULL,NULL,'',0)""",
+        (int(time.time()),),
+    )
+    scorer = FakeScorer()
+    worker.run_cycle(conn, scorer)
+    assert {p["platform"] for p in digests.read(conn, uid)} == {"bluesky", "x"}
+    assert {p.platform for p in scorer.requests[0].candidates} == {"bluesky", "x"}
+    conn.execute("UPDATE social_posts SET deleted=1 WHERE platform='x' AND native_id='123'")
+    assert {p["platform"] for p in digests.read(conn, uid)} == {"bluesky"}
+
+
+def test_note_understanding_updates_private_profile_without_copying_job_payload(conn):
+    uid, _ = setup(conn)
+    public_before = profiles.markdown(conn, uid)
+    private_note = "PRIVATE_SOURCE_ONLY with detailed compiler ideas"
+    notes.import_note(conn, uid, "Source", private_note)
+    job = conn.execute("SELECT * FROM feedback_jobs WHERE source_chunk_id IS NOT NULL").fetchone()
+    assert job["kind"] == "private" and job["feedback"] == ""
+    gemma = FakeGemma()
+    jobs.process_one(conn, gemma)
+    assert private_note in profiles.markdown(conn, uid, "private")
+    assert profiles.markdown(conn, uid) == public_before
+
+
+def test_profile_update_during_scoring_discards_inflight_result(conn):
+    uid, _ = setup(conn)
+
+    class ChangedProfile(FakeScorer):
+        def score(self, request):
+            profiles.save(conn, uid, "public", "# New intent", profiles.head(conn, uid)["id"])
+            return super().score(request)
+
+    assert worker.score_user(conn, ChangedProfile(), DID) == 0
+    assert not conn.execute("SELECT 1 FROM assessments_v2").fetchone()
+
+
+def test_note_removal_during_inference_cannot_reintroduce_private_profile_data(conn):
+    uid, _ = setup(conn)
+    note = notes.import_note(conn, uid, "Remove while processing", "private original")
+
+    class Removed(FakeGemma):
+        def update_profile(self, current, feedback):
+            notes.delete_note(conn, uid, note)
+            return super().update_profile(current, feedback)
+
+    jobs.process_one(conn, Removed())
+    assert profiles.head(conn, uid, "private") is None
+
+
+def test_refresh_race_preserves_new_settings_request(conn):
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Source", "Original note")
+    worker.score_user(conn, FakeScorer(), DID)
+
+    class ChangedDuringMatching(FakeGemma):
+        def match(self, *args):
+            conn.execute("UPDATE reader_settings SET version=version+1,refresh_requested=1 WHERE user_id=?", (uid,))
+            return super().match(*args)
+
+    assert digests.build(conn, uid, worker.scorer_version(), ChangedDuringMatching()) is None
+    assert digests.config_for(conn, uid)["refresh_requested"] == 1
+
+
+def test_recall_finds_followed_and_topic_posts_beyond_recent_firehose_slice(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    older = insert_post(conn, "did:plc:followed", "old", "Yesterday's specialist discussion", age_s=3600)
+    conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:followed"))
+    conn.execute(
+        """INSERT INTO social_posts VALUES ('x','older','author','Human','Unique compiler topic',
+        'https://x.com/i/status/older',NULL,?,NULL,NULL,NULL,'',0)""",
+        (int(time.time()) - 7200,),
+    )
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    keys = {p.key for p in public_candidates(conn, DID, ["Unique compiler"], 6)}
+    assert "bluesky:" + older in keys
+    assert "x:older" in keys

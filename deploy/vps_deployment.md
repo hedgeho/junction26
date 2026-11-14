@@ -15,7 +15,10 @@ x-curator: &curator
     - HOSTNAME=feed.ilia.fi
     - PUBLISHER_DID=did:plc:g5dlzj7xez24l7mt4narpmks
     - KEEP_LANGS=["en"]
-    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    - GEMINI_API_KEY=${GEMINI_API_KEY}
+    - GEMINI_MODEL=${GEMINI_MODEL}
+    - GEMMA_URL=${GEMMA_URL}
+    - GEMMA_TOKEN=${GEMMA_TOKEN}
     - SESSION_SECRET=${CURATOR_SESSION_SECRET}
 
 services:
@@ -74,7 +77,7 @@ hook checks this.
 ## 5. `.env.example`
 
 ```sh
-# services/curator: also reads ANTHROPIC_API_KEY (shared with doorss)
+# services/curator: configure Gemini and private Gemma using deploy/.env.example
 CURATOR_SESSION_SECRET=   # openssl rand -hex 32
 ```
 

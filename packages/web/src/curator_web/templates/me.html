@@ -1,38 +1,41 @@
 {% extends "base.html" %}
 {% block body %}
-<form method="post" action="/logout" style="float:right"><button>Sign out</button></form>
-<h1>@{{ user.handle or user.did }}</h1>
-
-<h2>What do you want to see?</h2>
-<form method="post" action="/me/prompt">
-  <textarea name="prompt" placeholder="e.g. Technical posts about programming languages and compilers. Thoughtful takes on AI policy, not hype. No US politics.">{{ user.prompt }}</textarea>
-  <button>Save</button>
-</form>
-
-<h2>Feedback</h2>
+<nav><a href="/settings">Settings</a> ? <a href="/privacy">Privacy</a></nav>
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Sign out</button></form>
+<h1>Your daily selection</h1>
 <form method="post" action="/me/feedback">
-  <textarea name="text" placeholder="More posts from researchers, fewer product announcements. Also interested in Finnish tech scene."></textarea>
-  <button>Update my profile</button>
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ submission_key }}">
+<label for="feedback">What would you like more or less of?</label>
+<textarea id="feedback" name="text" required maxlength="8000" placeholder="Topics, exceptions, or a change in direction."></textarea>
+<label><input type="checkbox" name="kind" value="private"> Keep this feedback private</label>
+<p class="why">Filtering preferences are used with Gemini. Private feedback and notes are processed with Gemma on our cloud infrastructure.</p>
+<button>Update</button>
 </form>
-
-<h3>Profile</h3>
-{% for p in prefs %}
-<form method="post" action="/me/prefs/{{ p.id }}/toggle" class="{{ '' if p.active else 'off' }}">
-  <b>{{ p.category }}</b> {{ p.summary }} — {{ p.content }} <button>{{ 'disable' if p.active else 'enable' }}</button>
-</form>
-{% else %}
-<p class="why">Nothing yet. Feedback above turns into editable preferences here.</p>
-{% endfor %}
-
-<h2>Your feed</h2>
-<p class="why">Pin it in the Bluesky app: <code>{{ feed_uri }}</code></p>
+{% if job %}<p id="job-status" role="status" data-job="{{ job.id }}">{{ {'queued':'Queued','processing':'Updating','applied':'Updated','failed':'Update failed. Please try again.'}.get(job.state, 'Queued') }}</p>{% endif %}
 {% for post in posts %}
-<div class="post">
-  <b>{{ post.author.displayName or post.author.handle }}</b> <span class="why">@{{ post.author.handle }}</span>
-  <div>{{ post.record.text }}</div>
-  <div class="why">{{ reasons.get(post.uri) or '' }} · ♥ {{ post.likeCount }}</div>
-</div>
-{% else %}
-<p class="why">No curated posts yet. The worker runs every few minutes once you've saved a description.</p>
-{% endfor %}
+<article class="post">
+<div class="why">{{ post.platform }} ? {{ post.author }}</div>
+<div class="source-text">{{ post.text }}</div>
+<a href="{{ post.url }}" target="_blank" rel="noopener noreferrer">Original post</a>
+{% for note in post.notes %}<aside><p class="why">From your notes ? {{ note.title }}</p><blockquote class="source-text">{{ note.text }}</blockquote></aside>{% endfor %}
+<form method="post" action="/me/dismiss"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="post_key" value="{{ post.key }}"><button>Dismiss</button></form>
+</article>
+{% else %}<p>No matching posts yet. Add your interests above; your selection will appear after processing.</p>{% endfor %}
+{% if posts %}<p>You're done for now.</p>{% endif %}
+<form method="post" action="/me/refresh"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Refresh selection</button></form>
+<script>
+const stateLabels = {queued: 'Queued', processing: 'Updating', applied: 'Updated', failed: 'Update failed. Please try again.'};
+const statusNode = document.getElementById('job-status');
+if (statusNode && ['Queued', 'Updating'].includes(statusNode.textContent)) {
+  const timer = setInterval(async () => {
+    try {
+      const response = await fetch('/api/jobs/' + statusNode.dataset.job);
+      if (!response.ok) { clearInterval(timer); return; }
+      const value = await response.json();
+      statusNode.textContent = stateLabels[value.state] || 'Queued';
+      if (['applied', 'failed'].includes(value.state)) clearInterval(timer);
+    } catch (_) { clearInterval(timer); }
+  }, 3000);
+}
+</script>
 {% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block body %}
+<a href="/me">Back to your selection</a><h1>Settings</h1>
+<form method="post" action="/settings/delivery">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Daily maximum <input type="number" name="daily_limit" min="1" max="50" value="{{ config.daily_limit }}" required></label>
+<label>Timezone <input name="timezone" value="{{ config.timezone }}" required></label>
+<label>Blocked author IDs, one per line (bluesky:did:? or x:?)</label>
+<textarea name="blocked_authors">{{ config.blocked_authors }}</textarea><button>Save delivery settings</button>
+</form>
+<details><summary>Configuration files</summary>
+<p>These files contain model-maintained configuration. Public filtering preferences are sent to Gemini; the private file stays in the Gemma processing path.</p>
+{% for doc in docs %}
+<h2>{{ doc.kind }} configuration</h2><a href="/settings/profile/{{ doc.kind }}">Download Markdown</a>
+<form method="post" action="/settings/profile/{{ doc.kind }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ doc.revision }}"><textarea name="body" maxlength="24000">{{ doc.body }}</textarea><button>Save file</button></form>
+{% for revision in history if revision.kind == doc.kind %}
+<form method="post" action="/settings/restore/{{ revision.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="expected" value="{{ doc.revision }}"><button>Restore revision {{ revision.id[:8] }}</button></form>
+{% endfor %}
+{% endfor %}
+</details>
+<h2>Private notes</h2><p>Import a read-only snapshot. The original is never changed. Removing a snapshot removes its displayed matches.</p>
+<form method="post" action="/settings/notes"><input type="hidden" name="csrf" value="{{ csrf }}"><label>Source title <input name="title" maxlength="200" required></label><label>Original Markdown or plain text</label><textarea name="text" maxlength="200000" required></textarea><button>Add snapshot</button></form>
+{% for note in notes %}<form method="post" action="/settings/notes/{{ note.id }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}">{{ note.title }} <button>Remove snapshot</button></form>{% endfor %}
+{% endblock %}

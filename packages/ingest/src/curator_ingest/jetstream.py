@@ -124,6 +124,7 @@ def flush(conn, batch: Batch) -> None:
             batch.posts,
         )
         conn.executemany("DELETE FROM posts WHERE uri = ?", batch.deletes)
+        conn.executemany("UPDATE social_posts SET deleted=1 WHERE platform='bluesky' AND native_id=?", batch.deletes)
         for col, counts in (("likes", batch.likes), ("reposts", batch.reposts), ("replies", batch.replies)):
             conn.executemany(
                 f"UPDATE posts SET {col} = {col} + ? WHERE uri = ?",

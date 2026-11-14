@@ -1,62 +1,49 @@
-# junction26: personal, LLM-curated Bluesky feeds
+# Quiet Curator
 
-One published feed generator serves every reader their own ranked feed. A small website is
-where readers describe what they want and give feedback. Architecture, options and costs are
-in [DESIGN.md](DESIGN.md).
+A finite daily selection of original social posts, matched to the reader's interests and their own original notes. Feedback silently updates Markdown configuration. The main interface displays no generated prose.
 
-## Layout and ownership
+## Architecture
 
-```
-packages/
-  core/       shared contract: settings, SQLite + migrations, row types   (both)
-  ingest/     Jetstream → posts/FTS, follow sync, retention                (ingest + deploy owner)
-  curation/   candidates → Claude scoring → ranking → feed_items           (curation + web owner)
-  web/        feed generator XRPC endpoints + website + OAuth              (curation + web owner)
-deploy/       Dockerfile, dev compose, .env.example, vps_deployment notes  (ingest + deploy owner)
-scripts/      publish_feed.py, gen_oauth_key.py                            (ingest + deploy owner)
-```
+- `core`: shared SQLite schema, migrations and platform-neutral source read contract.
+- `ingest`: Bluesky Jetstream, follows, retention and normalized Bluesky/X import.
+- `curation`: versioned public/private Markdown profiles, feedback jobs, Gemini filtering, private Gemma matching and daily digests.
+- `web`: Bluesky identity login, source-only reader, feedback status and secondary settings.
+- `deploy/modal`: authenticated Gemma serving. Hostinger owns application state and calls Modal for inference.
 
-The packages talk only through SQLite tables. Ingest writes facts about Bluesky; curation
-writes opinions about them. The contract between the two halves is in
-[packages/core/README.md](packages/core/README.md).
+Dependencies remain `web -> curation -> core` and `ingest -> core`. Curation never modifies or publishes source posts or original notes. X import/classification/rendering are supported; an X API collector and X login are not included.
 
-Dependencies point one way: `web → curation → core` and `ingest → core`. CI runs each
-package's tests with only its own dependencies installed, so an import across the line fails.
+Gemini receives public posts and explicit filtering preferences. Private notes and inferred interests stay in the application/Modal processing boundary. Cloud inference is not on-device processing.
 
 ## Develop
 
 ```sh
-cp deploy/.env.example .env           # set ANTHROPIC_API_KEY
+cp deploy/.env.example .env
 uv sync --all-packages
-uv run curator-ingest run             # terminal 1: Jetstream + follow sync
-uv run curator-curate run             # terminal 2: scoring loop
-uv run curator-web                    # terminal 3: http://127.0.0.1:8000 (use the IP, not localhost)
-uv run pytest                         # everything
-uv run --exact --package curator-ingest --with pytest pytest packages/ingest   # one package, as CI runs it
+uv run curator-ingest run
+uv run curator-curate run
+uv run curator-web
 ```
 
-Other commands:
+Run processes in separate terminals. Open `http://127.0.0.1:8000` for development OAuth. Configure providers using `.env.example` and `deploy/modal/README.md`; model-dependent work remains pending without credentials. Set `GEMINI_MODEL` to an available event-account model.
 
-- `curator-ingest sync-follows <did>`: refresh one reader's follows now.
-- `curator-ingest rates 60`: measure live Jetstream event rates.
-- `curator-curate once --user <did>`: run one scoring cycle for one reader.
-
-Add a dependency to a single package with `uv add --package curator-curation <dep>`.
-
-## Schema changes
-
-Add a new numbered file to `packages/core/src/curator_core/migrations/`. Never edit an
-applied migration. Migrations run automatically when any process connects.
-
-## Deploy
+Sign in through Bluesky, enter interests, and wait for processing. Settings provide optional Markdown access, version restore, delivery limits/timezone/blocks and private note import/removal. Notes are immutable snapshots; import a new snapshot and remove the old one when updating a note.
 
 ```sh
-docker build -f deploy/Dockerfile .                                  # all packages, one image
-docker build -f deploy/Dockerfile --build-arg PACKAGE=curator-ingest .   # slim, ingest only
-docker compose -f deploy/docker-compose.yml up                       # local, all three processes
+uv run curator-curate once --user did:plc:example
+uv run curator-curate check-providers
+uv run curator-ingest import-posts candidates.json
+uv run python -m pytest
+uv run --exact --package curator-curation python -m pytest packages/curation
+uv run python -m ruff check .
+uv run python -m ruff format --check .
 ```
 
-Production goes through `~/personal/vps_deployment`; see
-[deploy/vps_deployment.md](deploy/vps_deployment.md). To publish the feed record:
-`BSKY_PDS=https://pds.ilia.fi BSKY_HANDLE=... BSKY_APP_PASSWORD=... uv run python scripts/publish_feed.py`,
-then set `PUBLISHER_DID`.
+`check-providers` performs synthetic live requests using configured credentials. Other tests mock model responses. See `packages/core/README.md` for the import contract. Add numbered migrations; never edit deployed migrations. Coordinate schema and deploy changes with the pipeline owner.
+
+## Deployment
+
+Hostinger instructions remain in `deploy/hostinger/README.md`. SQLite and profile files stay on one host; never share its WAL file via Modal Volumes. Modal persists model weights only. Configure HTTPS, a strong session secret and a 512 KiB proxy body limit.
+
+The optional Bluesky feed projects only Bluesky digest items, with no generated reasons or popular fallback. Existing publishing scripts register the feed record; no social-post or notes publishing workflow exists.
+
+`TECHNICAL_PLAN.md` records scope. `DESIGN.md` describes implemented behavior and remaining limits. Live model quality, GPU fit and production deployment require separate smoke checks.

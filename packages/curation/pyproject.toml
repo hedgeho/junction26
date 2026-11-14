@@ -1,9 +1,15 @@
 [project]
 name = "curator-curation"
 version = "0.1.0"
-description = "Candidate generation, Claude scoring and ranking"
+description = "Quiet profiles, Gemini filtering and private Gemma matching"
 requires-python = ">=3.12"
-dependencies = ["curator-core", "anthropic>=2.8.0", "pydantic>=2.14.3"]
+dependencies = [
+    "curator-core",
+    "pydantic>=2.14.3",
+    "google-genai>=3.3.0",
+    "httpx>=0.28.1",
+    "tzdata>=2026.6",
+]
 
 [project.scripts]
 curator-curate = "curator_curation.__main__:main"

@@ -36,7 +36,7 @@ No GitHub write credentials live on the box.
 
 Secrets live only on the box, in `/opt/junction26/.env` (mode 600). That's outside the build
 context, so they never reach the image or git. `SESSION_SECRET` is generated on first deploy;
-set `ANTHROPIC_API_KEY` yourself:
+set `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMMA_URL` and `GEMMA_TOKEN` yourself (see `deploy/modal/README.md`):
 
 ```sh
 ssh -t hostinger nano /opt/junction26/.env

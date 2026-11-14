@@ -27,6 +27,8 @@ services:
     command: ["curator-web"]
     labels:
       - traefik.enable=true
+      - traefik.http.middlewares.junction26-limit.buffering.maxRequestBodyBytes=524288
+      - traefik.http.routers.junction26.middlewares=junction26-limit
       - traefik.http.routers.junction26.rule=Host(`feed.ilia.fi`)
       - traefik.http.routers.junction26.entrypoints=websecure
       - traefik.http.routers.junction26.tls.certresolver=letsencrypt
