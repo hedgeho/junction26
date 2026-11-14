@@ -255,6 +255,22 @@ document.querySelectorAll('.share-post').forEach(button => button.addEventListen
 const socialDialog = document.getElementById('social-dialog');
 const socialForm = document.getElementById('social-form');
 let socialTarget = null;
+function renderContribution(post, item) {
+ if (!item || !['comment', 'quote'].includes(item.kind) || typeof item.text !== 'string') return;
+ const target = post.querySelector(item.kind === 'comment' ? '.comment-contributions' : '.quote-contributions');
+ if (item.uri && [...target.children].some(node => node.dataset.uri === item.uri)) return;
+ const entry = document.createElement('div'); entry.className = 'contribution';
+ if (item.uri) entry.dataset.uri = item.uri;
+ const label = document.createElement('span'); label.className = 'contribution-label';
+ label.textContent = item.kind === 'comment' ? 'Your comment' : 'Your quote post';
+ const content = document.createElement('div'); content.textContent = item.text;
+ entry.append(label, content); target.append(entry);
+}
+function setRepostState(post, active) {
+ const option = post.querySelector('.repost-choice[data-action="repost"]');
+ option.setAttribute('aria-pressed', String(active)); option.textContent = active ? 'Undo repost' : 'Repost';
+ post.querySelector('.repost-menu-open').classList.toggle('is-reposted', active);
+}
 async function sendSocial(post, action, text = '') {
  const status = post.querySelector('.social-status');
  const body = new FormData();
@@ -265,6 +281,8 @@ async function sendSocial(post, action, text = '') {
  if (!response.ok) throw new Error(result.detail || 'Could not complete action');
  const button = post.querySelector(`.social-interact[data-action="${action}"]`);
  if (button?.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(result.active));
+ if (action === 'repost') setRepostState(post, result.active);
+ if (action === 'comment' || action === 'quote') renderContribution(post, {kind:action, text, uri:result.record_uri});
  status.textContent = action === 'comment' ? 'Comment posted' : action === 'quote' ? 'Repost with comment posted' : '';
 }
 const blueskyCards = postCards.filter(post => post.querySelector('.post-actions')?.dataset.platform === 'bluesky');
@@ -274,6 +292,9 @@ if (blueskyCards.length) fetch('/api/social-state', {cache:'no-store', headers:{
  .then(data => blueskyCards.forEach(post => {
   const state = data.items[post.dataset.postKey.slice('bluesky:'.length)];
   if (!state) { post.querySelector('.social-status').textContent = 'Post unavailable on Bluesky.'; return; }
+  post.querySelector('.repost-menu-open').disabled = false;
+  setRepostState(post, !!state.repost);
+  (data.contributions?.[post.dataset.postKey.slice('bluesky:'.length)] || []).forEach(item => renderContribution(post, item));
   post.querySelectorAll('.social-interact').forEach(button => {
    button.disabled = false;
    if (button.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(!!state[button.dataset.action]));
@@ -282,6 +303,8 @@ if (blueskyCards.length) fetch('/api/social-state', {cache:'no-store', headers:{
  .catch(() => blueskyCards.forEach(post => { post.querySelector('.social-status').textContent = 'Reconnect Bluesky in settings to enable interactions.'; }));
 blueskyCards.forEach(post => post.querySelectorAll('.social-interact').forEach(button => button.addEventListener('click', async () => {
  const action = button.dataset.action;
+ const menu = post.querySelector('.repost-menu');
+ menu.hidden = true; post.querySelector('.repost-menu-open').setAttribute('aria-expanded', 'false');
  if (action === 'comment' || action === 'quote') {
   socialTarget = {post, action};
   document.getElementById('social-title').textContent = action === 'comment' ? 'Comment' : 'Repost with comment';
@@ -293,6 +316,17 @@ blueskyCards.forEach(post => post.querySelectorAll('.social-interact').forEach(b
  try { await sendSocial(post, action); } catch (error) { post.querySelector('.social-status').textContent = error.message; }
  finally { button.disabled = false; }
 })));
+document.querySelectorAll('.repost-control').forEach(control => {
+ const opener = control.querySelector('.repost-menu-open'), menu = control.querySelector('.repost-menu');
+ opener.addEventListener('click', () => {
+  const open = menu.hidden;
+  document.querySelectorAll('.repost-menu').forEach(other => { other.hidden = true; other.parentElement.querySelector('.repost-menu-open').setAttribute('aria-expanded', 'false'); });
+  menu.hidden = !open; opener.setAttribute('aria-expanded', String(open));
+  if (open) menu.querySelector('button').focus();
+ });
+ document.addEventListener('click', event => { if (!control.contains(event.target)) { menu.hidden = true; opener.setAttribute('aria-expanded', 'false'); } });
+ control.addEventListener('keydown', event => { if (event.key === 'Escape' && !menu.hidden) { menu.hidden = true; opener.setAttribute('aria-expanded', 'false'); opener.focus(); event.stopPropagation(); } });
+});
 if (socialDialog) {
  document.getElementById('social-close').addEventListener('click', () => socialDialog.close());
  socialForm.addEventListener('submit', async event => {

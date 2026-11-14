@@ -4,21 +4,24 @@
 {% if posts and curation_status.state != 'ready' %}<div class="notice" role="status"><span id="curation-pending">{{ curation_status.label }}</span><a href="/settings#services">Details</a></div>{% endif %}
 {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}">
-  <div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
+  <div class="quote-contributions" aria-label="Your quote posts"></div>
+  <div class="post-original"><div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
   <div class="source-text post-text">{{ post.text }}</div>
   <div class="post-embeds"></div>
   {% for note in post.notes %}<aside class="note-match"><span class="meta">{{ note.title }}</span><blockquote class="source-text">{{ note.text }}</blockquote></aside>{% endfor %}
+  </div>
   {% set platform_name = 'Bluesky' if post.platform == 'bluesky' else 'X' %}
   <div class="post-actions" data-platform="{{ post.platform }}">
     <div class="social-actions" aria-label="Actions on {{ platform_name }}">
       <span class="action-platform">{{ platform_name }}</span>
-      {% for action, label, path in [('comment', 'Comment', 'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H5l1.6-3.2A8.5 8.5 0 1 1 21 11.5Z'), ('repost', 'Repost', 'M17 3l4 4-4 4M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4M21 13v2a2 2 0 0 1-2 2H3'), ('quote', 'Repost with comment', 'M4 6h12M13 3l3 3-3 3M20 13H8m3-3-3 3 3 3M19 18h2M20 17v2'), ('like', 'Like', 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z'), ('save', 'Save', 'M6 3h12v18l-6-4-6 4Z')] %}
+      {% for action, label, path in [('comment', 'Comment', 'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H5l1.6-3.2A8.5 8.5 0 1 1 21 11.5Z'), ('like', 'Like', 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z'), ('save', 'Save', 'M6 3h12v18l-6-4-6 4Z')] %}
       <button type="button" class="social-action social-interact" data-action="{{ action }}" aria-label="{{ label }}{% if post.platform != 'bluesky' %} (not available){% endif %}" title="{{ label }}{% if post.platform != 'bluesky' %} (not available){% endif %}" disabled{% if action in ['like', 'repost', 'save'] %} aria-pressed="false"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="{{ path }}"/></svg></button>
       {% endfor %}
+      <div class="repost-control"><button type="button" class="social-action repost-menu-open" aria-label="Repost options" aria-expanded="false" aria-haspopup="true" title="Repost" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3l4 4-4 4M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4M21 13v2a2 2 0 0 1-2 2H3"/></svg></button><div class="repost-menu" hidden><button type="button" class="social-interact repost-choice" data-action="repost" aria-pressed="false" disabled>Repost</button><button type="button" class="social-interact repost-choice" data-action="quote" disabled>Quote post</button></div></div>
       <button type="button" class="social-action share-post" data-url="{{ post.url }}" aria-label="Share post" title="Share post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7"/></svg></button>
     </div>
     <button type="button" class="feedback-action feedback-open" aria-label="Shape your feed using post by {{ post.author }}" aria-expanded="false" aria-controls="feedback-panel" title="Shape your feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Shape your feed</span></button>
-  </div><p class="social-status" role="status" aria-live="polite"></p>
+  </div><p class="social-status" role="status" aria-live="polite"></p><div class="comment-contributions" aria-label="Your comments" aria-live="polite"></div>
 </article>
 {% else %}
 <section class="empty" aria-label="Feed status">

@@ -18,7 +18,7 @@ def test_social_interactions_use_user_session_and_source_reference(monkeypatch, 
         if request.method == "GET":
             return httpx.Response(200, json={"posts": [{"uri": URI, "cid": "cid123", "viewer": {}, "record": {}}]})
         calls.append((request.url.path, json.loads(request.content), request.headers.get("atproto-proxy")))
-        return httpx.Response(200, json={})
+        return httpx.Response(200, json={"uri": f"at://{DID}/app.bsky.feed.post/new"})
 
     real_client = httpx.AsyncClient
     monkeypatch.setattr(
@@ -31,7 +31,10 @@ def test_social_interactions_use_user_session_and_source_reference(monkeypatch, 
             return SimpleNamespace(pds_endpoint="https://pds.example", httpx_auth=None)
 
     monkeypatch.setattr(social.oauth, "client", lambda: OAuth())
-    assert asyncio.run(social.interact(DID, URI, action, "My words")) == {"active": True}
+    result = asyncio.run(social.interact(DID, URI, action, "My words"))
+    assert result["active"] is True
+    if action in ("comment", "quote"):
+        assert result["record_uri"] == f"at://{DID}/app.bsky.feed.post/new"
     path, body, proxy = calls[0]
     ref = {"uri": URI, "cid": "cid123"}
     if action == "save":

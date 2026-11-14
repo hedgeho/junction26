@@ -3,6 +3,7 @@
 import asyncio
 import hmac
 import json
+import logging
 import secrets
 import time
 import uuid
@@ -19,6 +20,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import appview, oauth, post_details, social
+
+log = logging.getLogger(__name__)
 
 
 async def csrf_guard(request: Request):
@@ -207,6 +210,13 @@ async def social_state(request: Request):
     c = db.connect()
     try:
         posts = reader_posts(c, reader(request, c), did)
+        records = [
+            dict(row)
+            for row in c.execute(
+                "SELECT source_uri,record_uri,kind FROM social_contributions WHERE user_did=? ORDER BY created_at,rowid",
+                (did,),
+            )
+        ]
     finally:
         c.close()
     uris = [
@@ -215,7 +225,31 @@ async def social_state(request: Request):
         if p["platform"] == "bluesky" and p["key"].startswith("bluesky:at://")
     ]
     try:
-        return {"items": await social.states(did, uris) if uris else {}}
+        items = await social.states(did, uris) if uris else {}
+        relevant = [r for r in records if r["source_uri"] in items]
+        contributions = {}
+        if relevant:
+            try:
+                views = await asyncio.to_thread(appview.get_posts, [r["record_uri"] for r in relevant])
+            except (httpx.HTTPError, ValueError):
+                views = []
+            by_uri = {v.get("uri"): v for v in views if isinstance(v, dict)}
+            for row in relevant:
+                view = by_uri.get(row["record_uri"], {})
+                record = view.get("record") or {}
+                if (view.get("author") or {}).get("did") != did or not isinstance(record.get("text"), str):
+                    continue
+                subject = (
+                    ((record.get("reply") or {}).get("parent") or {}).get("uri")
+                    if row["kind"] == "comment"
+                    else ((record.get("embed") or {}).get("record") or {}).get("uri")
+                )
+                if subject != row["source_uri"]:
+                    continue
+                contributions.setdefault(row["source_uri"], []).append(
+                    {"kind": row["kind"], "text": record["text"], "uri": row["record_uri"]}
+                )
+        return {"items": items, "contributions": contributions}
     except Exception:  # noqa: BLE001 - sanitize OAuth and network errors
         raise HTTPException(403, "Reconnect Bluesky in settings to grant interaction permissions") from None
 
@@ -237,7 +271,20 @@ async def social_action(
     if not post or post["platform"] != "bluesky" or not post_key.startswith("bluesky:at://"):
         raise HTTPException(400, "This action is unavailable for this post")
     try:
-        return await social.interact(did, post_key.removeprefix("bluesky:"), action, text)
+        result = await social.interact(did, post_key.removeprefix("bluesky:"), action, text)
+        if action in ("comment", "quote") and result.get("record_uri"):
+            try:
+                c = db.connect()
+                try:
+                    c.execute(
+                        "INSERT OR IGNORE INTO social_contributions VALUES (?,?,?,?,unixepoch())",
+                        (did, post_key.removeprefix("bluesky:"), result["record_uri"], action),
+                    )
+                finally:
+                    c.close()
+            except Exception:  # noqa: BLE001 - the post already succeeded; do not invite a retry
+                log.warning("Could not save the reference to a completed social post")
+        return result
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     except httpx.HTTPStatusError as exc:

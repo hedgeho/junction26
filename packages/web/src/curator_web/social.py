@@ -84,4 +84,9 @@ async def interact(did: str, uri: str, action: str, text: str = "") -> dict:
         headers = {"atproto-proxy": APPVIEW} if action == "save" else {}
         result = await client.post(base + method, json=payload, headers=headers)
         result.raise_for_status()
-        return {"active": active}
+        output = {"active": active}
+        if action in ("comment", "quote"):
+            record_uri = result.json().get("uri")
+            if isinstance(record_uri, str) and record_uri.startswith(f"at://{did}/app.bsky.feed.post/"):
+                output["record_uri"] = record_uri
+        return output

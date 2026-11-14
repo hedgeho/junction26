@@ -176,7 +176,8 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .image-close { position: fixed; right: 16px; top: 16px; width: 40px; height: 40px; padding: 10px; border: 0; background: transparent; color: white; }
 .image-close:hover { background: rgba(255,255,255,.15); }
 
-.social-action[aria-pressed="true"] { color: var(--primary); background: var(--soft); }
+.social-action[aria-pressed="true"] { color: var(--primary); }
+.social-action[aria-pressed="true"] svg { fill: currentColor; }
 .social-action:disabled { cursor: default; opacity: .4; }
 .social-status, .social-dialog-status { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
 .social-status:empty, .social-dialog-status:empty { display: none; }
@@ -196,3 +197,14 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .feedback-panel .feedback-send { margin-top: 14px; }
 .feedback-send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 @media (max-width: 480px) { .feedback-panel { padding: 24px; } }
+
+.repost-control { position: relative; }
+.repost-menu { position: absolute; z-index: 5; left: 0; top: 100%; min-width: 145px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 10px 30px #1d2d241c; }
+.repost-menu[hidden] { display: none; }
+.repost-choice { display: flex; width: 100%; min-height: 36px; justify-content: flex-start; padding: 7px 10px; border: 0; background: transparent; font-size: 12px; }
+.repost-menu-open.is-reposted { color: var(--primary); }
+.comment-contributions:not(:empty) { margin-top: 14px; padding-left: 16px; border-left: 2px solid var(--line); }
+.contribution { margin-top: 12px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.contribution-label { display: block; color: var(--muted); font-size: 11px; font-weight: 600; }
+.quote-contributions:not(:empty) { margin-bottom: 12px; }
+.post:has(.quote-contributions:not(:empty)) .post-original { padding: 14px; border: 1px solid var(--line); border-radius: 10px; }

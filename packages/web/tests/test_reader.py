@@ -443,8 +443,11 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     page = client.get("/me").text
     assert "What would you like to see more of?" in page
     assert "Tell us what you want to see more of to get more posts." in page
-    for action in ("Comment", "Repost", "Repost with comment", "Like", "Save"):
+    for action in ("Comment", "Like", "Save"):
         assert f'aria-label="{action}"' in page
+    assert 'aria-label="Repost options"' in page
+    assert 'data-action="repost"' in page
+    assert 'data-action="quote"' in page
     assert 'aria-label="Share post"' in page
     assert "Shape your feed" in page
     assert 'id="feedback-panel"' in page
@@ -488,3 +491,37 @@ def test_social_actions_require_csrf_and_a_post_in_the_readers_feed(conn, monkey
     data["post_key"] = "bluesky:at://did:plc:other/app.bsky.feed.post/not-in-feed"
     assert client.post("/api/social-action", data=data).status_code == 400
     assert len(calls) == 1
+
+
+def test_contributions_are_restored_only_from_verified_bluesky_posts(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    source = post_key.removeprefix("bluesky:")
+    posted = f"at://{DID}/app.bsky.feed.post/myreply"
+
+    async def interact(did, uri, action, text):
+        return {"active": True, "record_uri": posted}
+
+    async def states(did, uris):
+        return {source: {"like": False, "repost": False, "save": False}}
+
+    monkeypatch.setattr("curator_web.social.interact", interact)
+    monkeypatch.setattr("curator_web.social.states", states)
+    monkeypatch.setattr(
+        "curator_web.appview.get_posts",
+        lambda uris: [
+            {
+                "uri": posted,
+                "author": {"did": DID},
+                "record": {"text": "My reply", "reply": {"parent": {"uri": source}}},
+            }
+        ],
+    )
+    client = client_for()
+    data = {"csrf": "csrf-test", "post_key": post_key, "action": "comment", "text": "My reply"}
+    assert client.post("/api/social-action", data=data).json()["record_uri"] == posted
+    assert client.get("/api/social-state").json()["contributions"][source] == [
+        {"kind": "comment", "text": "My reply", "uri": posted}
+    ]
+    monkeypatch.setattr("curator_web.appview.get_posts", lambda uris: [])
+    assert client.get("/api/social-state").json()["contributions"] == {}
