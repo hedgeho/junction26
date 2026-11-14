@@ -501,3 +501,14 @@ def test_decision_scorer_rejects_missing_or_invalid_answers():
     wrong_type["want"] = SimpleNamespace(type="score", score=1.0)
     with pytest.raises(ValueError):
         decision_scorer(lambda **kwargs: SimpleNamespace(answers=wrong_type)).score(request)
+
+
+def test_failed_batches_return_their_scoring_budget(conn):
+    uid, _ = setup(conn)
+
+    class Down:
+        def score(self, request):
+            raise RuntimeError("provider down")
+
+    worker.run_cycle(conn, Down())
+    assert int(conn.execute("SELECT value FROM kv WHERE key=?", (worker.budget_key(uid),)).fetchone()[0]) == 0

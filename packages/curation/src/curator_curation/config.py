@@ -28,7 +28,7 @@ class CurationSettings(CoreSettings):
     minimum_relevance: float = 0.65  # Generative backend scale
     decision_minimum_relevance: float = 0.4  # Decisions backend: grade/3, combined with want >= 0.5
     decision_concurrency: int = 4  # Per-post Decisions requests in flight per scoring batch
-    decision_tokens_per_minute: int = 45000  # Shared by scoring and triage; Gemini free tier allows 50k; 0 = unlimited
+    decision_tokens_per_minute: int = 500000  # Input tokens per process, scoring and triage combined; 0 = unlimited
     social_slots: int = 3  # Digest positions reserved for followed authors that pass the filter
     serendipity_share: float = 0.1  # Digest share for substantive, clean posts just outside the profile
     background_score_interval_s: int = 600  # Score new candidates ahead of refreshes this often

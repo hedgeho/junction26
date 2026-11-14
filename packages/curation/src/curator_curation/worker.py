@@ -144,6 +144,9 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
             except Exception:  # noqa: BLE001 - isolate provider failures
                 errors += 1
                 log.warning("Scoring batch failed; retry next cycle")
+                with db.tx(conn):
+                    used = int(db.kv_get(conn, budget) or "0")
+                    db.kv_set(conn, budget, str(max(0, used - len(batch))))
                 continue
             with db.tx(conn):
                 if digests.revision(profiles.head(conn, uid)) != profile_revision:
