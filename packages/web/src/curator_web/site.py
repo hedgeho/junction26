@@ -262,6 +262,44 @@ async def comments_api(request: Request, post_key: str, parent_uri: str = ""):
                     "reply_count": details["reply_count"],
                 }
             )
+        try:
+            states = await social.states(did, [item["uri"] for item in items]) if items else {}
+        except Exception:  # noqa: BLE001 - comments remain readable if account state is unavailable
+            states = {}
+        for item in items:
+            item["state"] = states.get(item["uri"])
+        if items:
+            c = db.connect()
+            try:
+                quote_rows = [
+                    dict(row)
+                    for row in c.execute(
+                        "SELECT source_uri,record_uri FROM social_contributions WHERE user_did=? AND kind='quote' ORDER BY created_at,rowid",
+                        (did,),
+                    )
+                    if row["source_uri"] in {item["uri"] for item in items}
+                ]
+            finally:
+                c.close()
+            if quote_rows:
+                try:
+                    views = await asyncio.to_thread(appview.get_posts, [row["record_uri"] for row in quote_rows])
+                except (httpx.HTTPError, ValueError):
+                    views = []
+                by_uri = {view.get("uri"): view for view in views if isinstance(view, dict)}
+                by_source = {item["uri"]: item for item in items}
+                for row in quote_rows:
+                    view = by_uri.get(row["record_uri"], {})
+                    record = view.get("record") or {}
+                    subject = ((record.get("embed") or {}).get("record") or {}).get("uri")
+                    if (
+                        (view.get("author") or {}).get("did") == did
+                        and subject == row["source_uri"]
+                        and isinstance(record.get("text"), str)
+                    ):
+                        by_source[subject].setdefault("quotes", []).append(
+                            {"uri": row["record_uri"], "text": record["text"]}
+                        )
         total = parent.get("replyCount")
         return {"items": items, "total": total if type(total) is int and total >= 0 else None}
     except (httpx.HTTPError, ValueError, TypeError, AttributeError):
@@ -324,6 +362,7 @@ async def social_action(
     post_key: str = Form(..., max_length=1000),
     action: str = Form(..., max_length=20),
     text: str = Form("", max_length=3000),
+    target_uri: str = Form("", max_length=1000),
 ):
     did = current_did(request)
     c = db.connect()
@@ -335,14 +374,20 @@ async def social_action(
     if not post or post["platform"] != "bluesky" or not post_key.startswith("bluesky:at://"):
         raise HTTPException(400, "This action is unavailable for this post")
     try:
-        result = await social.interact(did, post_key.removeprefix("bluesky:"), action, text)
+        root_uri = post_key.removeprefix("bluesky:")
+        target = target_uri or root_uri
+        if target != root_uri:
+            branch = await asyncio.to_thread(appview.get_thread, target)
+            if (branch.get("post") or {}).get("uri") != target or not thread_contains_ancestor(branch, root_uri):
+                raise ValueError("Post is not in this thread")
+        result = await social.interact(did, target, action, text)
         if action in ("comment", "quote") and result.get("record_uri"):
             try:
                 c = db.connect()
                 try:
                     c.execute(
                         "INSERT OR IGNORE INTO social_contributions VALUES (?,?,?,?,unixepoch())",
-                        (did, post_key.removeprefix("bluesky:"), result["record_uri"], action),
+                        (did, target, result["record_uri"], action),
                     )
                 finally:
                     c.close()

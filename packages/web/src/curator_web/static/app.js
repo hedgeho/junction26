@@ -280,7 +280,7 @@ function renderContribution(post, item) {
  if (!item || !['comment', 'quote'].includes(item.kind) || typeof item.text !== 'string') return;
  if (item.kind === 'comment') {
   const previous = ownComments.get(post) || [];
-  if (!item.uri || !previous.some(comment => comment.uri === item.uri)) previous.push({ ...item, author:'You', is_self:true });
+  if (!item.uri || !previous.some(comment => comment.uri === item.uri)) previous.push({ ...item, author:'You', is_self:true, reply_count:0, state:{like:false, repost:false, save:false} });
   ownComments.set(post, previous);
   const toggle = post.querySelector('.comments-toggle'); if (toggle) toggle.hidden = false;
   if (!post.querySelector('.comments-list').hidden) renderComments(post);
@@ -361,7 +361,7 @@ if (socialDialog) {
  socialForm.addEventListener('submit', async event => {
   event.preventDefault(); if (!socialTarget) return;
   const button = socialForm.querySelector('[type=submit]'); button.disabled = true;
-  try { await sendSocial(socialTarget.post, socialTarget.action, document.getElementById('social-text').value); socialDialog.close(); }
+  try { const value = document.getElementById('social-text').value; if (socialTarget.submit) await socialTarget.submit(value); else await sendSocial(socialTarget.post, socialTarget.action, value); socialDialog.close(); }
   catch (error) { socialForm.querySelector('.social-dialog-status').textContent = error.message; }
   finally { button.disabled = false; }
  });
@@ -421,21 +421,95 @@ function makeComment(post, item, parentUri) {
  }
  const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
  body.append(head, text); row.append(body); wrapper.append(row);
- if (item.uri && item.reply_count > 0) {
-  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'thread-more'; toggle.textContent = `Show replies (${item.reply_count})`; toggle.setAttribute('aria-expanded', 'false');
+ if (item.uri) {
+  let replies = [];
+  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'thread-more'; toggle.hidden = !(item.reply_count > 0); toggle.textContent = `Show replies (${item.reply_count || 0})`; toggle.setAttribute('aria-expanded', 'false');
   const children = document.createElement('div'); children.className = 'thread-children'; children.hidden = true;
-  toggle.addEventListener('click', async () => {
-   if (!children.hidden) { children.hidden = true; toggle.setAttribute('aria-expanded', 'false'); toggle.textContent = `Show replies (${item.reply_count})`; return; }
-   children.hidden = false; toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = 'Hide replies';
-   children.textContent = 'Loading replies?';
+  async function openReplies() {
+   children.hidden = false; toggle.hidden = false; toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = 'Hide replies';
+   if (replies.length) renderCommentBatch(post, children, replies, item.uri, null); else children.textContent = 'Loading replies?';
    try {
     const response = await fetch('/api/comments?' + new URLSearchParams({post_key:post.dataset.postKey, parent_uri:item.uri}), {cache:'no-store', headers:{Accept:'application/json'}});
     if (!response.ok || response.redirected) throw new Error();
-    const data = await response.json(); renderCommentBatch(post, children, data.items, item.uri, data.total);
-   } catch (_) { children.textContent = 'Could not load replies. Close and open to try again.'; }
+    const data = await response.json();
+    for (const own of replies) if (!data.items.some(reply => own.uri && reply.uri === own.uri)) data.items.push(own);
+    replies = data.items; renderCommentBatch(post, children, replies, item.uri, data.total);
+   } catch (_) {
+    if (replies.length) renderCommentBatch(post, children, replies, item.uri, null);
+    else children.textContent = 'Could not load replies. Close and open to try again.';
+   }
+  }
+  toggle.addEventListener('click', () => {
+   if (!children.hidden) { children.hidden = true; toggle.setAttribute('aria-expanded', 'false'); toggle.textContent = `Show replies (${item.reply_count || 0})`; }
+   else openReplies();
   });
-  body.append(toggle, children);
+  const quotes = document.createElement('div'); quotes.className = 'comment-quotes';
+  function addQuote(quote) {
+   if (quote.uri && [...quotes.children].some(node => node.dataset.uri === quote.uri)) return;
+   const entry = document.createElement('div'); entry.className = 'contribution'; if (quote.uri) entry.dataset.uri = quote.uri;
+   const label = document.createElement('span'); label.className = 'contribution-label'; label.textContent = 'Your quote post';
+   const content = document.createElement('div'); content.textContent = quote.text; entry.append(label, content); quotes.append(entry);
+   row.classList.add('quoted-comment');
+  }
+  (item.quotes || []).forEach(addQuote); wrapper.prepend(quotes);
+  const actions = document.createElement('div'); actions.className = 'comment-actions';
+  const paths = {
+   comment:'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H5l1.6-3.2A8.5 8.5 0 1 1 21 11.5Z',
+   repost:'M17 3l4 4-4 4M3 11V9a2 2 0 0 1 2-2h16M7 21l-4-4 4-4M21 13v2a2 2 0 0 1-2 2H3',
+   like:'M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z',
+   save:'M6 3h12v18l-6-4-6 4Z', share:'M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7'
+  };
+  function iconButton(action, label) {
+   const button = document.createElement('button'); button.type = 'button'; button.className = 'social-action'; button.title = label; button.setAttribute('aria-label', label);
+   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', paths[action]); svg.append(path); button.append(svg); return button;
+  }
+  const message = document.createElement('p'); message.className = 'social-status'; message.setAttribute('role', 'status');
+  async function interact(action, text = '') {
+   const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
+   payload.set('post_key', post.dataset.postKey); payload.set('target_uri', item.uri); payload.set('action', action); payload.set('text', text);
+   const response = await fetch('/api/social-action', {method:'POST', body:payload}); const result = await response.json();
+   if (!response.ok) throw new Error(result.detail || 'Could not complete action');
+   message.textContent = ''; return result;
+  }
+  function compose(action) {
+   socialTarget = {post, action, submit:async value => {
+    const result = await interact(action, value);
+    if (action === 'comment') {
+     replies.push({uri:result.record_uri, text:value, author:'You', is_self:true, reply_count:0, state:{like:false, repost:false, save:false}});
+     item.reply_count = (item.reply_count || 0) + 1; openReplies();
+    } else addQuote({uri:result.record_uri, text:value});
+   }};
+   document.getElementById('social-title').textContent = action === 'comment' ? 'Comment' : 'Repost with comment';
+   document.getElementById('social-text').value = ''; socialForm.querySelector('.social-dialog-status').textContent = '';
+   socialDialog.showModal(); document.getElementById('social-text').focus();
+  }
+  const comment = iconButton('comment', 'Reply'); comment.disabled = !item.state; comment.addEventListener('click', () => compose('comment')); actions.append(comment);
+  const repostControl = document.createElement('div'); repostControl.className = 'repost-control';
+  const repost = iconButton('repost', 'Repost options'); repost.classList.add('repost-menu-open'); repost.disabled = !item.state; repost.setAttribute('aria-expanded', 'false'); repost.setAttribute('aria-haspopup', 'true'); repost.classList.toggle('is-reposted', !!item.state?.repost);
+  const menu = document.createElement('div'); menu.className = 'repost-menu'; menu.hidden = true;
+  const direct = document.createElement('button'); direct.type = 'button'; direct.className = 'repost-choice'; direct.textContent = item.state?.repost ? 'Undo repost' : 'Repost';
+  const quote = document.createElement('button'); quote.type = 'button'; quote.className = 'repost-choice'; quote.textContent = 'Quote post';
+  function closeMenu() { menu.hidden = true; repost.setAttribute('aria-expanded', 'false'); }
+  repost.addEventListener('click', () => { menu.hidden = !menu.hidden; repost.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) direct.focus(); });
+  repostControl.addEventListener('focusout', event => { if (!repostControl.contains(event.relatedTarget)) closeMenu(); });
+  repostControl.addEventListener('keydown', event => { if (event.key === 'Escape' && !menu.hidden) { closeMenu(); repost.focus(); event.stopPropagation(); } });
+  direct.addEventListener('click', async () => { closeMenu(); repost.disabled = true; try { const result = await interact('repost'); item.state.repost = result.active; repost.classList.toggle('is-reposted', result.active); direct.textContent = result.active ? 'Undo repost' : 'Repost'; } catch (error) { message.textContent = error.message; } finally { repost.disabled = false; } });
+  quote.addEventListener('click', () => { closeMenu(); compose('quote'); }); menu.append(direct, quote); repostControl.append(repost, menu); actions.append(repostControl);
+  for (const [action, label] of [['like', 'Like'], ['save', 'Save']]) {
+   const button = iconButton(action, label); button.disabled = !item.state; button.setAttribute('aria-pressed', String(!!item.state?.[action]));
+   button.addEventListener('click', async () => { button.disabled = true; try { const result = await interact(action); item.state[action] = result.active; button.setAttribute('aria-pressed', String(result.active)); } catch (error) { message.textContent = error.message; } finally { button.disabled = false; } }); actions.append(button);
+  }
+  const share = iconButton('share', 'Share'); share.addEventListener('click', async () => {
+   const parts = /^at:\/\/(did:[^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(item.uri);
+   if (!parts) { message.textContent = 'Sharing is unavailable for this post.'; return; }
+   const url = 'https://bsky.app/profile/' + encodeURIComponent(parts[1]) + '/post/' + encodeURIComponent(parts[2]);
+   try { if (navigator.share) await navigator.share({url}); else if (navigator.clipboard) { await navigator.clipboard.writeText(url); message.textContent = 'Link copied'; } else message.textContent = 'Sharing is unavailable in this browser.'; } catch (_) { /* Cancelled. */ }
+  }); actions.append(share);
+  if (!item.state) message.textContent = 'Reconnect Bluesky in settings to enable interactions.';
+  body.append(actions, message, toggle, children);
  }
+
  return wrapper;
 }
 function renderComments(post) {

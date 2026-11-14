@@ -662,3 +662,58 @@ def test_feedback_panel_explains_the_curation_pipeline(conn):
     assert "Private notes are not used for discovery" in html
     assert "your notes are not sent to Gemini" in html
     assert 'name="post_key" id="feedback-post"' in html
+
+
+def test_reply_actions_are_scoped_to_the_displayed_thread(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    root = post_key.removeprefix("bluesky:")
+    reply = "at://did:plc:other/app.bsky.feed.post/reply"
+    ancestor = {"post": {"uri": root}}
+    monkeypatch.setattr("curator_web.appview.get_thread", lambda uri: {"post": {"uri": uri}, "parent": ancestor})
+    calls = []
+
+    async def interact(did, uri, action, text):
+        calls.append((did, uri, action, text))
+        return {"active": True, "record_uri": f"at://{did}/app.bsky.feed.post/new"}
+
+    monkeypatch.setattr("curator_web.social.interact", interact)
+    client = client_for()
+    data = {"csrf": "csrf-test", "post_key": post_key, "target_uri": reply, "action": "comment", "text": "My response"}
+    assert client.post("/api/social-action", data=data).status_code == 200
+    assert calls == [(DID, reply, "comment", "My response")]
+    assert conn.execute("SELECT source_uri FROM social_contributions WHERE user_did=?", (DID,)).fetchone()[0] == reply
+    ancestor["post"]["uri"] = "at://did:plc:other/app.bsky.feed.post/unrelated"
+    assert client.post("/api/social-action", data=data).status_code == 400
+    assert len(calls) == 1
+    data.pop("csrf")
+    assert client.post("/api/social-action", data=data).status_code == 403
+
+
+def test_comment_interaction_states_are_optional(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    reply = "at://did:plc:other/app.bsky.feed.post/reply"
+    monkeypatch.setattr(
+        "curator_web.appview.get_thread",
+        lambda uri: {
+            "post": {"uri": uri},
+            "replies": [{"post": {"uri": reply, "author": {}, "record": {"text": "Hi"}}}],
+        },
+    )
+
+    async def states(did, uris):
+        assert uris == [reply]
+        return {reply: {"like": True, "repost": False, "save": True}}
+
+    monkeypatch.setattr("curator_web.social.states", states)
+    client = client_for()
+    item = client.get("/api/comments", params={"post_key": post_key}).json()["items"][0]
+    assert item["state"] == {"like": True, "repost": False, "save": True}
+
+    async def unavailable(did, uris):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr("curator_web.social.states", unavailable)
+    item = client.get("/api/comments", params={"post_key": post_key}).json()["items"][0]
+    assert item["text"] == "Hi" and item["state"] is None
