@@ -4,13 +4,13 @@ import time
 
 from curator_core import db
 
-from . import digests, profiles
+from . import digests
 from .config import settings
 
 LABELS = {
     "not_configured": "Filtering is not configured.",
     "offline": "Filtering is offline.",
-    "failed": "Filtering failed. Try refreshing.",
+    "failed": "Filtering temporarily unavailable. Retrying.",
     "processing": "Filtering posts...",
     "ready": "Ready",
 }
@@ -18,9 +18,7 @@ LABELS = {
 
 def filtering_status(conn, uid):
     cfg = settings()
-    if not profiles.head(conn, uid):
-        code = "ready"
-    elif not cfg.gemini_api_key or not cfg.gemini_model:
+    if not cfg.gemini_api_key or not cfg.gemini_model:
         code = "not_configured"
     elif db.kv_get(conn, "curation-state:" + uid) == "failed":
         code = "failed"

@@ -12,11 +12,9 @@ uv run curator-web
 
 Open the loopback IP in development as described in the root README. No publication/write-to-notes APIs exist. Note removal deletes the imported snapshot and derived matches, not an external original. Profile and feedback retention/account erasure are not automated in this demo.
 
-## Agora: For You source
+## Agora sources
 
-Sign in at `http://127.0.0.1:8000` (`uv run python -m curator_web`) to grant read-only feed access. First sign-in opens setup; existing users can use **Settings > Bluesky > Reconnect**. The source is **For You by spacecowboy17**, pulled using each reader's OAuth session. No Bluesky app password or feed service token is needed. Pulling candidates does not bypass Gemini classification: run `uv run python -m curator_curation run` with configured providers to build the daily selection.
-
-There is no public fallback when For You requires authentication. The adapter pulls one page on login, stale reader open or explicit refresh; it is not an unattended collector.
+Sign in with Bluesky and run the ingest and curation workers. Candidate recall combines posts from followed accounts, public topic matches and recent discovery from the ingested Bluesky and X sources. The discovery pool is not the signed-in user's Bluesky feed. Gemini evaluates candidate batches concurrently; source posts remain visible while filtering runs. No interests are required to start.
 
 ## Notes: local or Google Drive
 
@@ -39,6 +37,6 @@ Scans are bounded to 500 Markdown files, 200,000 characters per file, 10 MB in t
 
 Local processes read `.env` from their working directory. Start both from the repository root, with provider settings in the root `.env`; `deploy/.env` is not loaded automatically. Environment changes require restarting both processes.
 
-Before a reader has a public profile, Agora displays the first 10 original posts in their authenticated For You snapshot (or their chosen delivery limit). This requires no model call or invented interests. Feedback is queued with the original post, and Gemma can create the first public profile from that feedback. Once a public profile exists, a filtered selection requires `GEMINI_API_KEY`, `GEMINI_MODEL`, and a running `uv run python -m curator_curation run` process sharing the same `.env` and `DATA_DIR` as web. Settings exposes fixed service states: not configured, offline, processing, failed or ready. Private note/feedback processing requires `GEMMA_URL` and `GEMMA_TOKEN`; unprocessed feedback remains saved without pretending an update is running.
+Before feedback, Agora uses a neutral baseline for Gemini filtering and shows up to the delivery limit of real candidates while processing. Feedback can create a public profile for subsequent filtering. Gemini requires `GEMINI_API_KEY`, `GEMINI_MODEL`, and the running curation worker sharing the web app's `.env` and `DATA_DIR`. Private note and feedback processing requires `GEMMA_URL` and `GEMMA_TOKEN`.
 
 The reader uses shared local `static/app.css` and `static/app.js`, with fingerprinted URLs so updates are visible without a hard refresh. Optional notes controls stay hidden/disabled until selected. Browser errors render in the app, failed sign-in/folder forms preserve input, submission buttons show progress, and feedback dialogs support keyboard focus, Escape and per-post draft isolation. Configuration stays collapsed in Settings.

@@ -120,7 +120,7 @@ def test_profile_change_rescores_existing_content_and_daily_snapshot_is_stable(c
     assert digests.latest(conn, uid)["id"] == first
     parent = profiles.head(conn, uid)["id"]
     profiles.save(conn, uid, "public", "# Only deep compiler evaluations", parent)
-    assert digests.read(conn, uid) == []
+    assert digests.read(conn, uid)  # Real candidates remain available while rescoring.
     worker.run_cycle(conn, scorer, FakeGemma())
     assert len(scorer.requests) == 2
     assert digests.latest(conn, uid)["id"] != first
@@ -292,3 +292,31 @@ def test_recall_finds_followed_and_topic_posts_beyond_recent_firehose_slice(conn
     keys = {p.key for p in public_candidates(conn, DID, ["Unique compiler"], 6)}
     assert "bluesky:" + older in keys
     assert "x:older" in keys
+
+
+def test_baseline_scoring_runs_batches_concurrently(conn, monkeypatch):
+    import threading
+
+    from curator_core.config import clear_settings
+
+    monkeypatch.setenv("SCORE_BATCH_SIZE", "1")
+    monkeypatch.setenv("SCORE_CONCURRENCY", "2")
+    clear_settings()
+    add_user(conn, DID)
+    uid = profiles.bootstrap(conn, DID)
+    for n in range(2):
+        insert_post(conn, "did:plc:human", str(n), f"Original source post {n}")
+    barrier = threading.Barrier(2, timeout=5)
+
+    class ParallelScorer(FakeScorer):
+        def score(self, request):
+            barrier.wait()
+            return super().score(request)
+
+    scorer = ParallelScorer()
+    assert profiles.head(conn, uid) is None
+    assert worker.score_user(conn, scorer, DID) == 2
+    assert len(scorer.requests) == 2
+    assert all("without assuming" in request.explicit_profile for request in scorer.requests)
+    assert conn.execute("SELECT count(*) FROM assessments_v2 WHERE user_id=?", (uid,)).fetchone()[0] == 2
+    clear_settings()

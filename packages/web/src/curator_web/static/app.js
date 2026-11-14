@@ -29,23 +29,28 @@ document.querySelectorAll('time[datetime]').forEach(node => {
  const date = new Date(node.dateTime);
  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric'}).format(date);
 });
-async function pollStatus(url, node, isDone, render) {
- let attempts = 0;
- const timer = setInterval(async () => {
-  if (++attempts > 40) { clearInterval(timer); node.textContent = 'Still processing. Refresh shortly.'; return; }
+function pollStatus(url, node, isDone, render) {
+ let delay = 3000;
+ async function poll() {
   try {
    const response = await fetch(url, {cache:'no-store', headers:{Accept:'application/json'}});
-   if (!response.ok) {clearInterval(timer); node.textContent = 'Refresh to check the latest status.'; return;}
+   if (!response.ok || response.redirected) throw new Error('status unavailable');
    const result = await response.json();
+   delay = 3000;
    render(result);
-   if (isDone(result)) clearInterval(timer);
-  } catch (_) { clearInterval(timer); node.textContent = 'Connection lost. Refresh to retry.'; }
- }, 3000);
+   if (isDone(result)) return;
+  } catch (_) { delay = Math.min(delay * 2, 30000); }
+  setTimeout(poll, delay);
+ }
+ setTimeout(poll, delay);
 }
 const pending = document.getElementById('curation-pending');
-if (pending) pollStatus('/api/curation', pending, result => result.state !== 'processing', result => {
- if (result.state === 'ready') location.reload();
- else pending.textContent = result.label;
+if (pending) pollStatus('/api/curation', pending, result => result.state === 'ready', result => {
+ if (result.state === 'ready') {
+  const dialog = document.getElementById('feedback-dialog');
+  if (dialog?.open) dialog.addEventListener('close', () => location.reload(), {once:true});
+  else location.reload();
+ } else pending.textContent = result.label;
 });
 const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {

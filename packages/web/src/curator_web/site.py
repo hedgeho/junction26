@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appview, bluesky_feed, oauth
+from . import appview, oauth
 
 
 async def csrf_guard(request: Request):
@@ -56,7 +56,7 @@ def reader(request: Request, conn) -> str:
 
 
 def reader_posts(conn, uid, did):
-    if not note_folders.setup_done(conn, uid) or not bluesky_feed.status(conn, did):
+    if not note_folders.setup_done(conn, uid):
         return []
     return digests.read(conn, uid)
 
@@ -110,7 +110,6 @@ async def oauth_callback(request: Request):
             pass
     finally:
         c.close()
-    await bluesky_feed.sync(did, force=True, initialize=True)
     return redirect(destination)
 
 
@@ -142,7 +141,6 @@ async def me(request: Request):
         await asyncio.to_thread(note_folders.sync, c, uid)
     finally:
         c.close()
-    await bluesky_feed.sync(current_did(request))
     c = db.connect()
     try:
         uid = reader(request, c)
@@ -158,7 +156,6 @@ async def me(request: Request):
                 "user": user,
                 "posts": reader_posts(c, uid, current_did(request)),
                 "job": dict(pending) if pending else None,
-                "feed_status": bluesky_feed.status(c, current_did(request)),
                 "curation_status": health.filtering_status(c, uid),
                 "submission_key": uuid.uuid4().hex,
                 "feedback_available": bool(curation_settings().gemma_url and curation_settings().gemma_token),
@@ -222,7 +219,6 @@ def job_status(request: Request, job_id: str):
 
 @router.post("/me/refresh")
 async def refresh(request: Request):
-    await bluesky_feed.sync(current_did(request), force=True)
     c = db.connect()
     try:
         c.execute(
@@ -287,7 +283,6 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
                 "notes_state": folder["state"] if folder else "",
                 "folder_error": folder_error,
                 "history": history,
-                "feed_status": bluesky_feed.status(c, current_did(request)),
                 "curation_status": health.filtering_status(c, uid),
             },
         )
@@ -388,8 +383,7 @@ async def connect_bluesky(request: Request):
 
 @router.post("/settings/bluesky/sync")
 async def sync_bluesky(request: Request):
-    await bluesky_feed.sync(current_did(request), force=True, initialize=True)
-    return redirect("/settings")
+    return await refresh(request)
 
 
 @router.get("/setup", response_class=HTMLResponse)
@@ -413,7 +407,6 @@ def setup_view(request: Request, error: str | None = None, status_code: int = 20
                 "notes_enabled": submitted_folder is not None or bool(folder),
                 "drive_viewer": drive_notes.viewer_email(),
                 "error": error,
-                "feed_status": bluesky_feed.status(c, current_did(request)),
                 "curation_status": health.filtering_status(c, uid),
             },
         )
@@ -429,15 +422,11 @@ def finish_setup(request: Request, enabled: str = Form(""), folder: str = Form("
     error = None
     try:
         uid = reader(request, c)
-        source = bluesky_feed.status(c, current_did(request))
-        if not source or source["state"] != "ready":
-            error = "Connect Bluesky before opening the feed."
-        else:
-            try:
-                note_folders.configure(c, uid, folder if enabled == "yes" else None)
-                db.kv_set(c, "setup:" + uid, "done")
-            except ValueError as exc:
-                error = str(exc)
+        try:
+            note_folders.configure(c, uid, folder if enabled == "yes" else None)
+            db.kv_set(c, "setup:" + uid, "done")
+        except ValueError as exc:
+            error = str(exc)
     finally:
         c.close()
     if error:

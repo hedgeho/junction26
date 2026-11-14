@@ -3,9 +3,8 @@
 {% block body %}
 <div class="page-heading"><h1>Settings</h1></div>
 <section class="settings-section">
-  <div class="connection-top"><div><h2>Bluesky</h2><p class="connection-info"><a href="https://bsky.app/profile/spacecowboy17.bsky.social/feed/for-you" target="_blank" rel="noopener noreferrer">For You by spacecowboy17 &#8599;</a></p></div>{% if feed_status and feed_status.state == 'ready' %}<span class="badge">Connected</span>{% endif %}</div>
-  {% if not feed_status or feed_status.state != 'ready' %}<p class="status">{{ {'loading':'Loading','auth_required':'Reconnect required','failed':'Update failed'}.get(feed_status.state, 'Not connected') if feed_status else 'Not connected' }}</p>{% endif %}
-  <div class="row"><form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reconnect</button></form><form method="post" action="/settings/bluesky/sync"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Sync feed</button></form>{% if feed_status and feed_status.state == 'ready' %}<span class="meta">{{ feed_status.post_count }} posts loaded</span>{% endif %}</div>
+  <div class="connection-top"><h2>Bluesky</h2><span class="badge">Connected</span></div>
+  <div class="row"><form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reconnect</button></form></div>
 </section>
 <section class="settings-section" id="notes"><h2>Notes</h2>
   <form method="post" action="/settings/notes/folder"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="checkbox"><input type="checkbox" name="enabled" value="yes" data-toggle="notes-fields" {% if notes_enabled %}checked{% endif %}>Connect notes</label>

@@ -48,8 +48,8 @@ def test_feed_original_text_deduplication_and_reader_scoping(conn, monkeypatch):
     assert bluesky_feed.status(conn, DID)["post_count"] == 1
     own = public_candidates(conn, DID, [], 20)
     other = public_candidates(conn, OTHER, [], 20)
-    assert [p.author_id for p in own] == ["did:plc:writer"]
-    assert [p.author_id for p in other] == ["did:plc:someone"]
+    assert {p.author_id for p in own} == {"did:plc:writer", "did:plc:someone", "did:plc:firehose"}
+    assert {p.author_id for p in other} == {p.author_id for p in own}
 
 
 def test_authentication_notice_does_not_become_a_candidate(conn, monkeypatch):
@@ -150,7 +150,7 @@ def test_snapshot_replaces_membership_without_treating_omissions_as_source_delet
     run_sync(conn, monkeypatch, payload())
     run_sync(conn, monkeypatch, {"feed": []})
     assert bluesky_feed.status(conn, DID)["state"] == "ready"
-    assert not public_candidates(conn, DID, [], 20)
+    assert public_candidates(conn, DID, [], 20)
     assert conn.execute("SELECT 1 FROM social_posts").fetchone()
 
 
@@ -176,7 +176,7 @@ def test_for_you_keeps_x_candidates_and_honors_source_tombstones(conn, monkeypat
             }
         ],
     )
-    assert [post.platform for post in public_candidates(conn, DID, [], 20)] == ["bluesky", "x"]
+    assert {post.platform for post in public_candidates(conn, DID, [], 20)} == {"bluesky", "x"}
     conn.execute("UPDATE social_posts SET deleted=1 WHERE platform='bluesky'")
     assert [post.platform for post in public_candidates(conn, DID, [], 20)] == ["x"]
 

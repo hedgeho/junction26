@@ -1,8 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <div class="toolbar"><div><h1>Today</h1>{% if posts %}<div class="toolbar-meta">{{ posts|length }} posts</div>{% endif %}</div><form method="post" action="/me/refresh"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="icon" aria-label="Refresh feed" title="Refresh feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/></svg></button></form></div>
-{% if feed_status and feed_status.state != 'ready' %}<div class="notice" role="status"><span>{% if feed_status.state == 'auth_required' %}Bluesky needs to reconnect.{% elif feed_status.state == 'failed' %}Feed update failed.{% else %}Loading posts&hellip;{% endif %}</span><a href="/settings">Manage connection</a></div>{% endif %}
-{% if posts and curation_status.state in ['not_configured', 'offline', 'failed'] %}<div class="notice" role="status"><span>{{ curation_status.label }}</span><a href="/settings#services">Details</a></div>{% endif %}
+{% if posts and curation_status.state != 'ready' %}<div class="notice" role="status"><span id="curation-pending">{{ curation_status.label }}</span><a href="/settings#services">Details</a></div>{% endif %}
 {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}">
   <div class="post-head"><div><div class="author">{{ post.author }}</div><div class="meta"><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
@@ -13,12 +12,10 @@
 {% else %}
 <section class="empty" aria-label="Feed status">
   <svg class="empty-icon" viewBox="0 0 28 28" aria-hidden="true"><rect x="5" y="4" width="18" height="20" rx="4"/><path d="M10 10h8M10 14h8M10 18h4"/></svg>
-  {% if feed_status and feed_status.state == 'ready' and not feed_status.post_count %}<h2>No posts yet.</h2>
-  {% elif curation_status.state in ['not_configured', 'offline', 'failed'] %}
-    <h2>{{ curation_status.label }}</h2><p>{% if feed_status and feed_status.state == 'ready' %}Bluesky connected &middot; {{ feed_status.post_count }} posts loaded{% else %}Check your source connection in Settings.{% endif %}</p><a href="/settings#services">Service details</a>
+  {% if curation_status.state in ['not_configured', 'offline', 'failed'] %}
+    <h2 id="curation-pending">{{ curation_status.label }}</h2><a href="/settings#services">Service details</a>
   {% elif curation_status.state == 'processing' %}
     <h2 id="curation-pending" role="status">Filtering posts...</h2><p>Your selection will appear here.</p>
-  {% elif feed_status and feed_status.state == 'ready' and feed_status.post_count %}<h2>No matching posts today.</h2>
   {% else %}<h2>No posts yet.</h2>{% endif %}
 </section>
 {% endfor %}

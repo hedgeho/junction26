@@ -11,9 +11,15 @@ from curator_core import db
 from curator_core.sources import get_post
 
 from . import notes, profiles
+from .candidates import public_candidates
 from .config import settings
 
 log = logging.getLogger(__name__)
+BASELINE_REVISION = "baseline-v1"
+
+
+def revision(profile):
+    return profile["id"] if profile else BASELINE_REVISION
 
 
 def day_key(config) -> str:
@@ -37,12 +43,12 @@ def blocked(config) -> set[str]:
 def build(conn, uid, scorer_version: str, gemma=None) -> str | None:
     profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
-    if not profile or not config:
+    if not config:
         return None
     rows = conn.execute(
         """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
         AND decision='include' AND relevance>=?""",
-        (uid, profile["id"], scorer_version, settings().minimum_relevance),
+        (uid, revision(profile), scorer_version, settings().minimum_relevance),
     ).fetchall()
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
     previous = {
@@ -90,11 +96,11 @@ def build(conn, uid, scorer_version: str, gemma=None) -> str | None:
     with db.tx(conn):
         current = profiles.head(conn, uid)
         current_config = config_for(conn, uid)
-        if current["id"] != profile["id"] or current_config["version"] != config["version"]:
+        if revision(current) != revision(profile) or current_config["version"] != config["version"]:
             return None
         conn.execute(
             "INSERT INTO digest_runs VALUES (?,?,?,?,?,?)",
-            (run_id, uid, day_key(config), profile["id"], config["version"], int(time.time())),
+            (run_id, uid, day_key(config), revision(profile), config["version"], int(time.time())),
         )
         conn.executemany(
             "INSERT INTO digest_items VALUES (?,?,?,?)",
@@ -108,14 +114,11 @@ def read(conn, uid) -> list[dict]:
     run = latest(conn, uid)
     profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
-    if not profile:
-        return initial_feed(conn, uid, config)
-    if not run or not profile or run["profile_revision"] != profile["id"]:
+    if not config:
         return []
+    if not run or run["profile_revision"] != revision(profile) or config["refresh_requested"]:
+        return initial_feed(conn, uid, config)
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
-    account = conn.execute("SELECT bluesky_did FROM reader_accounts WHERE id=?", (uid,)).fetchone()
-    did = account["bluesky_did"] if account else None
-    connected = did and conn.execute("SELECT 1 FROM bluesky_feed_sync WHERE user_did=?", (did,)).fetchone()
     out = []
     for item in conn.execute("SELECT * FROM digest_items WHERE run_id=? ORDER BY position", (run["id"],)):
         post = get_post(conn, item["post_key"])
@@ -124,14 +127,6 @@ def read(conn, uid) -> list[dict]:
             or post.key in dismissed
             or post.content_hash != item["content_hash"]
             or post.author_key in blocked(config)
-        ):
-            continue
-        if (
-            connected
-            and post.platform == "bluesky"
-            and not conn.execute(
-                "SELECT 1 FROM bluesky_feed_posts WHERE user_did=? AND post_key=?", (did, post.key)
-            ).fetchone()
         ):
             continue
         # Explicit source-only DTO. Never expose assessment/profile/generated metadata.
@@ -154,13 +149,12 @@ def initial_feed(conn, uid, config) -> list[dict]:
     if not account or not config:
         return []
     dismissed = {row[0] for row in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
-    rows = conn.execute(
-        "SELECT post_key FROM bluesky_feed_posts WHERE user_did=? ORDER BY position", (account["bluesky_did"],)
-    )
+    profile = profiles.head(conn, uid)
+    terms = json.loads(profile["search_terms"]) if profile else []
+    candidates = public_candidates(conn, account["bluesky_did"], terms, settings().candidate_pool_size)
     posts = []
-    for row in rows:
-        post = get_post(conn, row["post_key"])
-        if not post or post.key in dismissed or post.author_key in blocked(config):
+    for post in candidates:
+        if post.key in dismissed or post.author_key in blocked(config):
             continue
         posts.append(
             {

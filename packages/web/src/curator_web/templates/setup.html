@@ -3,8 +3,7 @@
 {% block body %}
 <div class="page-heading"><h1>Setup</h1><p class="muted">Connect your sources.</p></div>
 <section class="settings-section">
-  <div class="connection-top"><div class="connection"><span class="connection-symbol" aria-hidden="true"><svg class="small-icon" viewBox="0 0 24 24"><path d="m12 12-5-7C3 1 2 6 4 10c1 2 4 2 8 2Zm0 0 5-7c4-4 5 1 3 5-1 2-4 2-8 2Zm0 0c-7-2-9 5-5 6 2 1 4-3 5-6Zm0 0c7-2 9 5 5 6-2 1-4-3-5-6Z"/></svg></span><div><div class="connection-name">{{ handle or did }}</div><p class="connection-info">For You by spacecowboy17</p></div></div>{% if feed_status and feed_status.state == 'ready' %}<span class="badge">Connected</span>{% endif %}</div>
-  {% if feed_status and feed_status.state == 'ready' %}<p class="status">{{ feed_status.post_count }} posts loaded</p>{% else %}<p class="status">{% if feed_status and feed_status.state == 'failed' %}Could not load your feed.{% else %}Feed access required.{% endif %}</p><form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reconnect Bluesky</button></form>{% endif %}
+  <div class="connection-top"><div class="connection"><span class="connection-symbol" aria-hidden="true"><svg class="small-icon" viewBox="0 0 24 24"><path d="m12 12-5-7C3 1 2 6 4 10c1 2 4 2 8 2Zm0 0 5-7c4-4 5 1 3 5-1 2-4 2-8 2Zm0 0c-7-2-9 5-5 6 2 1 4-3 5-6Zm0 0c7-2 9 5 5 6-2 1-4-3-5-6Z"/></svg></span><div><div class="connection-name">{{ handle or did }}</div><p class="connection-info">Bluesky</p></div></div><span class="badge">Connected</span></div>
 </section>
 <form method="post" action="/setup">
   <input type="hidden" name="csrf" value="{{ csrf }}">

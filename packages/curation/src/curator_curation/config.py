@@ -11,6 +11,7 @@ class CurationSettings(CoreSettings):
     gemma_model: str = "google/gemma-3-1b-it"
     inference_timeout_s: float = 120
     score_batch_size: int = 20
+    score_concurrency: int = 3
     curate_interval_s: int = 60
     candidates_per_cycle: int = 200
     candidate_pool_size: int = 2000
