@@ -17,3 +17,31 @@ def test_feed_endpoints(conn):
     r = client.get("/xrpc/app.bsky.feed.getFeedSkeleton", params={"feed": feed_uri}, headers=bad_auth)
     assert r.status_code == 200  # invalid token = anonymous, gets an empty feed
     assert client.post("/xrpc/app.bsky.feed.sendInteractions", json={}, headers=bad_auth).status_code == 401
+
+
+def test_feed_serves_reader_digest(conn, monkeypatch):
+    from curator_core.testing import add_user, insert_post
+    from curator_curation import worker
+    from curator_curation.llm.schemas import Assessment, Assessments
+    from curator_web import feedauth
+
+    did = "did:plc:reader"
+
+    class Scorer:
+        def score(self, request):
+            return Assessments(
+                items=[
+                    Assessment(post_key=p.post_key, decision="include", relevance=0.9, substance=0.8, opportunity=0.7)
+                    for p in request.candidates
+                ]
+            )
+
+    async def requester(*_):
+        return did
+
+    add_user(conn, did, "compilers")
+    uri = insert_post(conn, "did:plc:author", "one", "A concrete compiler evaluation with reproducible results")
+    worker.run_cycle(conn, scorer=Scorer())
+    monkeypatch.setattr(feedauth, "requester_did", requester)
+    r = TestClient(create_app()).get("/xrpc/app.bsky.feed.getFeedSkeleton", params={"feed": settings().feed_uri})
+    assert r.json() == {"feed": [{"post": uri, "feedContext": ""}]}

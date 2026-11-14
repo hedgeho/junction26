@@ -1,4 +1,4 @@
-"""Feed generator XRPC endpoints. getFeedSkeleton only reads feed_items."""
+"""Feed generator XRPC endpoints. getFeedSkeleton serves the Bluesky posts of the reader's current digest."""
 
 import asyncio
 import time
