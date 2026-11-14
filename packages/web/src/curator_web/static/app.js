@@ -276,8 +276,27 @@ const socialForm = document.getElementById('social-form');
 let socialTarget = null;
 const ownComments = new Map();
 const deletedComments = new Set();
+const deletedQuotes = new Set();
+async function deleteContribution(post, uri, parentUri, kind) {
+ const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
+ payload.set('post_key', post.dataset.postKey); payload.set('comment_uri', uri); payload.set('parent_uri', parentUri); payload.set('kind', kind);
+ const response = await fetch('/api/comment/delete', {method:'POST', body:payload});
+ const result = await response.json();
+ if (!response.ok) throw new Error(result.detail || 'Could not delete your post');
+}
+function quoteDeleteButton(post, uri, parentUri, onDeleted) {
+ if (!uri) return null;
+ const button = document.createElement('button'); button.type = 'button'; button.className = 'comment-delete'; button.textContent = 'Delete'; button.setAttribute('aria-label', 'Delete your quote post');
+ button.addEventListener('click', async () => {
+  if (!window.confirm('Delete your quote post from Bluesky?')) return;
+  button.disabled = true;
+  try { await deleteContribution(post, uri, parentUri, 'quote'); deletedQuotes.add(uri); onDeleted(); }
+  catch (error) { post.querySelector('.social-status').textContent = error.message; button.disabled = false; }
+ });
+ return button;
+}
 function renderContribution(post, item) {
- if (!item || !['comment', 'quote'].includes(item.kind) || typeof item.text !== 'string') return;
+ if (!item || !['comment', 'quote'].includes(item.kind) || typeof item.text !== 'string' || deletedQuotes.has(item.uri)) return;
  if (item.kind === 'comment') {
   const previous = ownComments.get(post) || [];
   if (!item.uri || !previous.some(comment => comment.uri === item.uri)) previous.push({ ...item, author:'You', is_self:true, reply_count:0, state:{like:false, repost:false, save:false} });
@@ -292,12 +311,16 @@ function renderContribution(post, item) {
  if (item.uri) entry.dataset.uri = item.uri;
  const label = document.createElement('span'); label.className = 'contribution-label'; label.textContent = 'Your quote post';
  const content = document.createElement('div'); content.textContent = item.text;
- entry.append(label, content); target.append(entry);
+ const remove = quoteDeleteButton(post, item.uri, post.dataset.postKey.slice('bluesky:'.length), () => entry.remove());
+ entry.append(label, content); if (remove) entry.append(remove); target.append(entry);
 }
 function setRepostState(post, active) {
  const option = post.querySelector('.repost-choice[data-action="repost"]');
  option.setAttribute('aria-pressed', String(active)); option.textContent = active ? 'Undo repost' : 'Repost';
  post.querySelector('.repost-menu-open').classList.toggle('is-reposted', active);
+ const target = post.querySelector('.quote-contributions'); let marker = target.querySelector('.direct-repost');
+ if (active && !marker) { marker = document.createElement('div'); marker.className = 'contribution contribution-label direct-repost'; marker.textContent = 'You reposted'; target.prepend(marker); }
+ if (!active && marker) marker.remove();
 }
 async function sendSocial(post, action, text = '') {
  const status = post.querySelector('.social-status');
@@ -401,11 +424,7 @@ function makeComment(post, item, parentUri) {
    if (!window.confirm('Delete your comment from Bluesky?')) return;
    remove.disabled = true;
    try {
-    const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
-    payload.set('post_key', post.dataset.postKey); payload.set('comment_uri', item.uri); payload.set('parent_uri', parentUri);
-    const response = await fetch('/api/comment/delete', {method:'POST', body:payload});
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || 'Could not delete your comment');
+    await deleteContribution(post, item.uri, parentUri, 'comment');
     deletedComments.add(item.uri);
     ownComments.set(post, (ownComments.get(post) || []).filter(comment => comment.uri !== item.uri));
     wrapper.remove();
@@ -445,13 +464,18 @@ function makeComment(post, item, parentUri) {
   });
   const quotes = document.createElement('div'); quotes.className = 'comment-quotes';
   function addQuote(quote) {
+   if (deletedQuotes.has(quote.uri)) return;
    if (quote.uri && [...quotes.children].some(node => node.dataset.uri === quote.uri)) return;
    const entry = document.createElement('div'); entry.className = 'contribution'; if (quote.uri) entry.dataset.uri = quote.uri;
    const label = document.createElement('span'); label.className = 'contribution-label'; label.textContent = 'Your quote post';
-   const content = document.createElement('div'); content.textContent = quote.text; entry.append(label, content); quotes.append(entry);
+   const content = document.createElement('div'); content.textContent = quote.text;
+   const remove = quoteDeleteButton(post, quote.uri, item.uri, () => { entry.remove(); row.classList.toggle('quoted-comment', !!quotes.children.length || !!item.state?.repost); });
+   entry.append(label, content); if (remove) entry.append(remove); quotes.append(entry);
    row.classList.add('quoted-comment');
   }
   (item.quotes || []).forEach(addQuote); wrapper.prepend(quotes);
+  const directMarker = document.createElement('div'); directMarker.className = 'contribution-label'; directMarker.textContent = 'You reposted'; directMarker.hidden = !item.state?.repost; wrapper.prepend(directMarker);
+  row.classList.toggle('quoted-comment', !!quotes.children.length || !!item.state?.repost);
   const actions = document.createElement('div'); actions.className = 'comment-actions';
   const paths = {
    comment:'M21 11.5a8.5 8.5 0 0 1-8.5 8.5H5l1.6-3.2A8.5 8.5 0 1 1 21 11.5Z',
@@ -494,7 +518,7 @@ function makeComment(post, item, parentUri) {
   repost.addEventListener('click', () => { menu.hidden = !menu.hidden; repost.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) direct.focus(); });
   repostControl.addEventListener('focusout', event => { if (!repostControl.contains(event.relatedTarget)) closeMenu(); });
   repostControl.addEventListener('keydown', event => { if (event.key === 'Escape' && !menu.hidden) { closeMenu(); repost.focus(); event.stopPropagation(); } });
-  direct.addEventListener('click', async () => { closeMenu(); repost.disabled = true; try { const result = await interact('repost'); item.state.repost = result.active; repost.classList.toggle('is-reposted', result.active); direct.textContent = result.active ? 'Undo repost' : 'Repost'; } catch (error) { message.textContent = error.message; } finally { repost.disabled = false; } });
+  direct.addEventListener('click', async () => { closeMenu(); repost.disabled = true; try { const result = await interact('repost'); item.state.repost = result.active; repost.classList.toggle('is-reposted', result.active); directMarker.hidden = !result.active; row.classList.toggle('quoted-comment', result.active || !!quotes.children.length); direct.textContent = result.active ? 'Undo repost' : 'Repost'; } catch (error) { message.textContent = error.message; } finally { repost.disabled = false; } });
   quote.addEventListener('click', () => { closeMenu(); compose('quote'); }); menu.append(direct, quote); repostControl.append(repost, menu); actions.append(repostControl);
   for (const [action, label] of [['like', 'Like'], ['save', 'Save']]) {
    const button = iconButton(action, label); button.disabled = !item.state; button.setAttribute('aria-pressed', String(!!item.state?.[action]));

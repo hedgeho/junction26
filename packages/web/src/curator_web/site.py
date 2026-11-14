@@ -410,7 +410,10 @@ async def delete_comment(
     post_key: str = Form(..., max_length=1000),
     comment_uri: str = Form(..., max_length=1000),
     parent_uri: str = Form("", max_length=1000),
+    kind: str = Form("comment", max_length=20),
 ):
+    if kind not in ("comment", "quote"):
+        raise HTTPException(400, "Invalid post type")
     did = current_did(request)
     c = db.connect()
     try:
@@ -430,7 +433,10 @@ async def delete_comment(
                 branch, source_uri
             ):
                 raise ValueError("Comment is not in this thread")
-        await social.delete_comment(did, target_parent, comment_uri)
+        if kind == "quote":
+            await social.delete_quote(did, target_parent, comment_uri)
+        else:
+            await social.delete_comment(did, target_parent, comment_uri)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     except httpx.HTTPStatusError as exc:
@@ -443,8 +449,8 @@ async def delete_comment(
         c = db.connect()
         try:
             c.execute(
-                "DELETE FROM social_contributions WHERE user_did=? AND source_uri=? AND record_uri=? AND kind='comment'",
-                (did, source_uri, comment_uri),
+                "DELETE FROM social_contributions WHERE user_did=? AND source_uri=? AND record_uri=? AND kind=?",
+                (did, target_parent, comment_uri, kind),
             )
         finally:
             c.close()

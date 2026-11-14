@@ -740,3 +740,25 @@ def test_settings_configuration_files_use_purpose_based_names(conn):
         )
         assert response.status_code == 303
         assert profiles.markdown(conn, uid, kind) == f"# Updated {slug}"
+
+
+def test_delete_quote_on_reply_removes_only_its_stored_reference(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    root = post_key.removeprefix("bluesky:")
+    reply = "at://did:plc:other/app.bsky.feed.post/reply"
+    quote = f"at://{DID}/app.bsky.feed.post/quote"
+    conn.execute("INSERT INTO social_contributions VALUES (?,?,?,?,unixepoch())", (DID, reply, quote, "quote"))
+    monkeypatch.setattr(
+        "curator_web.appview.get_thread", lambda uri: {"post": {"uri": uri}, "parent": {"post": {"uri": root}}}
+    )
+    calls = []
+
+    async def delete(did, source, uri):
+        calls.append((did, source, uri))
+
+    monkeypatch.setattr("curator_web.social.delete_quote", delete)
+    data = {"csrf": "csrf-test", "post_key": post_key, "parent_uri": reply, "comment_uri": quote, "kind": "quote"}
+    assert client_for().post("/api/comment/delete", data=data).json() == {"deleted": True}
+    assert calls == [(DID, reply, quote)]
+    assert not conn.execute("SELECT 1 FROM social_contributions WHERE record_uri=?", (quote,)).fetchone()

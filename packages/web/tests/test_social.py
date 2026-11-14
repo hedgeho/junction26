@@ -109,3 +109,40 @@ def test_delete_comment_checks_owner_and_parent_before_deleting(monkeypatch):
     with pytest.raises(ValueError):
         asyncio.run(social.delete_comment(DID, URI, "at://did:plc:other/app.bsky.feed.post/reply"))
     assert len(calls) == 1
+
+
+def test_delete_quote_checks_target_and_reads_without_oauth(monkeypatch):
+    calls = []
+    quote_uri = f"at://{DID}/app.bsky.feed.post/quote"
+    subject = {"uri": URI}
+    client_auth = []
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(
+                200, json={"uri": quote_uri, "cid": "quote-cid", "value": {"embed": {"record": subject}}}
+            )
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={})
+
+    real_client = httpx.AsyncClient
+
+    def client(**kwargs):
+        client_auth.append(kwargs.get("auth"))
+        return real_client(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(social.httpx, "AsyncClient", client)
+    auth = object()
+
+    class OAuth:
+        async def restore(self, did):
+            return SimpleNamespace(pds_endpoint="https://pds.example", httpx_auth=auth)
+
+    monkeypatch.setattr(social.oauth, "client", lambda: OAuth())
+    asyncio.run(social.delete_quote(DID, URI, quote_uri))
+    assert client_auth == [None, auth]
+    assert calls == [{"repo": DID, "collection": "app.bsky.feed.post", "rkey": "quote", "swapRecord": "quote-cid"}]
+    subject["uri"] = "at://did:plc:other/app.bsky.feed.post/other"
+    with pytest.raises(ValueError):
+        asyncio.run(social.delete_quote(DID, URI, quote_uri))
+    assert len(calls) == 1

@@ -93,7 +93,7 @@ async def interact(did: str, uri: str, action: str, text: str = "") -> dict:
         return output
 
 
-async def delete_comment(did: str, source_uri: str, record_uri: str) -> None:
+async def delete_post(did: str, source_uri: str, record_uri: str, kind: str) -> None:
     prefix = f"at://{did}/app.bsky.feed.post/"
     if not record_uri.startswith(prefix):
         raise ValueError("You can only delete your own comments")
@@ -103,12 +103,28 @@ async def delete_comment(did: str, source_uri: str, record_uri: str) -> None:
     session = await oauth.client().restore(did)
     base = session.pds_endpoint.rstrip("/") + "/xrpc/"
     params = {"repo": did, "collection": "app.bsky.feed.post", "rkey": rkey}
-    async with httpx.AsyncClient(auth=session.httpx_auth, timeout=20, follow_redirects=False) as client:
+    # Public records can be read without requesting an additional OAuth read permission.
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
         response = await client.get(base + "com.atproto.repo.getRecord", params=params)
         response.raise_for_status()
         record = response.json()
-        parent = ((record.get("value") or {}).get("reply") or {}).get("parent") or {}
-        if record.get("uri") != record_uri or parent.get("uri") != source_uri or not record.get("cid"):
-            raise ValueError("This comment does not belong to this post")
+    value = record.get("value") or {}
+    if kind == "comment":
+        subject = ((value.get("reply") or {}).get("parent") or {}).get("uri")
+    elif kind == "quote":
+        subject = ((value.get("embed") or {}).get("record") or {}).get("uri")
+    else:
+        raise ValueError("Invalid post type")
+    if record.get("uri") != record_uri or subject != source_uri or not record.get("cid"):
+        raise ValueError("This post does not belong to this conversation")
+    async with httpx.AsyncClient(auth=session.httpx_auth, timeout=20, follow_redirects=False) as client:
         result = await client.post(base + "com.atproto.repo.deleteRecord", json={**params, "swapRecord": record["cid"]})
         result.raise_for_status()
+
+
+async def delete_comment(did: str, source_uri: str, record_uri: str) -> None:
+    await delete_post(did, source_uri, record_uri, "comment")
+
+
+async def delete_quote(did: str, source_uri: str, record_uri: str) -> None:
+    await delete_post(did, source_uri, record_uri, "quote")
