@@ -18,6 +18,10 @@ jobs:
           network: |
             default: deny
             presets: [github, ghcr, pypi]
+            connections:
+              - tls:
+                  serverNamePatterns: [pkg-containers.githubusercontent.com]
+                  ports: [443]
 
       - uses: actions/checkout@v4
 
