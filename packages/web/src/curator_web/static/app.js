@@ -124,7 +124,6 @@ if (feedbackPanel) {
    form.reset(); feedbackInput.value = feedbackDrafts.get(key) || '';
   }
   document.getElementById('feedback-post').value = key;
-  document.getElementById('feedback-context').textContent = post.querySelector('.post-text').textContent;
   const original = document.getElementById('feedback-original');
   const source = post.querySelector('.post-actions')?.dataset.platform === 'bluesky' && safeHttps(post.dataset.sourceUrl);
   original.hidden = !source; if (source) original.href = source;
@@ -135,6 +134,18 @@ if (feedbackPanel) {
  document.getElementById('feedback-close').addEventListener('click', closeFeedback);
  document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !feedbackPanel.hidden && !document.querySelector('dialog[open]')) closeFeedback();
+ });
+}
+const algorithmDialog = document.getElementById('algorithm-info-dialog');
+const algorithmOpen = document.getElementById('algorithm-info-open');
+if (algorithmDialog && algorithmOpen) {
+ algorithmOpen.addEventListener('click', () => algorithmDialog.showModal());
+ document.getElementById('algorithm-info-close').addEventListener('click', () => algorithmDialog.close());
+ algorithmDialog.addEventListener('close', () => algorithmOpen.focus());
+ algorithmDialog.addEventListener('click', event => {
+  if (event.target !== algorithmDialog) return;
+  const rect = algorithmDialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) algorithmDialog.close();
  });
 }
 // Source text stays unchanged; facets supply destinations for displayed substrings.

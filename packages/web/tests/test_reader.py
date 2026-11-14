@@ -648,3 +648,17 @@ def test_deleting_nested_comment_checks_the_branch(conn, monkeypatch):
     ancestor["post"]["uri"] = "at://did:plc:other/app.bsky.feed.post/unrelated"
     assert client.post("/api/comment/delete", data=data).status_code == 400
     assert len(calls) == 1
+
+
+def test_feedback_panel_explains_the_curation_pipeline(conn):
+    seed(conn)
+    html = client_for().get("/me").text
+    assert 'id="algorithm-info-open"' in html
+    assert 'id="algorithm-info-dialog"' in html
+    assert 'aria-controls="algorithm-info-dialog"' in html
+    assert "ABOUT THIS POST" not in html
+    assert 'id="feedback-context"' not in html
+    assert 'class="feedback-submit"' in html
+    assert "Private notes are not used for discovery" in html
+    assert "your notes are not sent to Gemini" in html
+    assert 'name="post_key" id="feedback-post"' in html
