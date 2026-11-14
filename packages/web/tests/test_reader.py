@@ -178,7 +178,7 @@ def test_missing_filtering_configuration_is_explicit_not_fake_progress(conn, mon
     assert "Filtering is not configured." in client.get("/me").text
     setup = client.get("/setup").text
     assert ">Connected</span>" in setup
-    assert "GEMINI_API_KEY" in client.get("/settings").text
+    assert "Service status" not in client.get("/settings").text
     assert client.get("/setup").headers["cache-control"] == "no-store"
 
 
@@ -717,3 +717,26 @@ def test_comment_interaction_states_are_optional(conn, monkeypatch):
     monkeypatch.setattr("curator_web.social.states", unavailable)
     item = client.get("/api/comments", params={"post_key": post_key}).json()["items"][0]
     assert item["text"] == "Hi" and item["state"] is None
+
+
+def test_settings_configuration_files_use_purpose_based_names(conn):
+    uid = seed(conn)
+    profiles.save(conn, uid, "private", "# Notes interests", None)
+    client = client_for()
+    page = client.get("/settings").text
+    assert "Feed curation" in page and "Note matching" in page
+    assert "selected for your feed" in page and "matched to curated posts" in page
+    assert "Service status" not in page and "<summary>Delivery</summary>" not in page
+    assert "/settings/profile/feed-curation" in page and "/settings/profile/note-matching" in page
+    for slug, kind in (("feed-curation", "public"), ("note-matching", "private")):
+        response = client.get(f"/settings/profile/{slug}")
+        assert response.status_code == 200
+        assert f'filename="{slug}.md"' in response.headers["content-disposition"]
+        revision = profiles.head(conn, uid, kind)["id"]
+        response = client.post(
+            f"/settings/profile/{slug}",
+            data={"csrf": "csrf-test", "body": f"# Updated {slug}", "revision": revision},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert profiles.markdown(conn, uid, kind) == f"# Updated {slug}"

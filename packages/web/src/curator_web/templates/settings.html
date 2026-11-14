@@ -13,17 +13,18 @@
     {% if folder_error %}<p class="error" role="alert" id="folder-error">{{ folder_error }}</p>{% endif %}<button>Save connection</button>
   </form>{% if folder %}<p class="status">{{ notes|length }} files{% if notes_state == 'unavailable' %} &middot; Folder unavailable{% endif %}</p>{% endif %}
 </section>
-<details class="settings-section"><summary>Delivery</summary><form method="post" action="/settings/delivery"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="daily-limit">Posts per day</label><input id="daily-limit" type="number" name="daily_limit" min="1" max="50" value="{{ config.daily_limit }}" required><label for="timezone">Timezone</label><input id="timezone" name="timezone" value="{{ config.timezone }}" required><label for="blocked">Blocked author IDs</label><textarea id="blocked" name="blocked_authors">{{ config.blocked_authors }}</textarea><button>Save delivery</button></form></details>
 <details class="settings-section" id="configuration">
 <summary>Configuration files</summary>
-<p>Model-maintained Markdown. Public filtering preferences are sent to Gemini; the private file stays in the Gemma processing path. Removing a snapshot removes its displayed matches. Configuration history may retain inferred interests.</p>{% for doc in docs %}<div class="config-doc">
-<h3>{{ doc.kind }} configuration</h3>
-<a class="text-link" href="/settings/profile/{{ doc.kind }}">Download Markdown &#8599;</a>
-<form method="post" action="/settings/profile/{{ doc.kind }}">
+<p class="help">These Markdown files are updated as Agora learns your preferences. You can inspect or edit them here.</p>
+{% for doc in docs %}<div class="config-doc">
+<h3>{{ doc.title }}</h3>
+<p class="help">{{ doc.description }}</p>
+<a class="text-link" href="/settings/profile/{{ doc.slug }}">Download Markdown &#8599;</a>
+<form method="post" action="/settings/profile/{{ doc.slug }}">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <input type="hidden" name="revision" value="{{ doc.revision }}">
-<label for="config-{{ doc.kind }}">{{ doc.kind|capitalize }} Markdown</label>
-<textarea class="config-file" id="config-{{ doc.kind }}" name="body" maxlength="24000">{{ doc.body }}</textarea>
+<label for="config-{{ doc.slug }}">{{ doc.title }} Markdown</label>
+<textarea class="config-file" id="config-{{ doc.slug }}" name="body" maxlength="24000">{{ doc.body }}</textarea>
 <button class="button secondary">Save file</button>
 </form>{% for revision in history if revision.kind == doc.kind %}<form method="post" action="/settings/restore/{{ revision.id }}">
 <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -31,6 +32,5 @@
 <button class="text-link">Restore revision {{ revision.id[:8] }}</button>
 </form>{% endfor %}</div>{% endfor %}</details>
 
-<details class="settings-section" id="services"><summary>Service status <span class="meta">{{ curation_status.label }}</span></summary><p class="status">{{ curation_status.label }}</p>{% if curation_status.state == 'not_configured' %}<p class="help">The host needs GEMINI_API_KEY and GEMINI_MODEL in .env, then the curation worker must run.</p>{% elif curation_status.state == 'offline' %}<p class="help">Start the curation worker: <code>uv run python -m curator_curation run</code></p>{% elif curation_status.state == 'failed' %}<p class="help">Check provider configuration and retry.</p>{% endif %}</details>
 <div class="settings-footer"><a class="meta" href="/privacy">Privacy</a><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-link">Sign out</button></form></div>
 {% endblock %}

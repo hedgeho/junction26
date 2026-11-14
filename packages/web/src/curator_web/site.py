@@ -580,14 +580,28 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
         folder = note_folders.folder_for(c, uid)
         docs = [
             {
-                "kind": k,
-                "revision": (profiles.head(c, uid, k) or {"id": ""})["id"],
-                "body": profiles.markdown(c, uid, k),
+                "kind": kind,
+                "slug": slug,
+                "title": title,
+                "description": description,
+                "revision": (profiles.head(c, uid, kind) or {"id": ""})["id"],
+                "body": profiles.markdown(c, uid, kind),
             }
-            for k in ("public", "private")
+            for kind, slug, title, description in (
+                (
+                    "public",
+                    "feed-curation",
+                    "Feed curation",
+                    "Guides which posts are selected for your feed. Your feedback updates this file; it is sent to Gemini for filtering.",
+                ),
+                (
+                    "private",
+                    "note-matching",
+                    "Note matching",
+                    "Guides how your notes are matched to curated posts. Notes and this file are processed by Gemma on Modal.",
+                ),
+            )
         ]
-        config = dict(digests.config_for(c, uid))
-        config["blocked_authors"] = "\n".join(json.loads(config["blocked_authors"]))
         source_notes = c.execute(
             "SELECT id,title FROM note_versions WHERE user_id=? ORDER BY created_at DESC", (uid,)
         ).fetchall()
@@ -600,7 +614,6 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
             "settings.html",
             {
                 "docs": docs,
-                "config": config,
                 "notes": source_notes,
                 "folder": submitted_folder if submitted_folder is not None else note_folders.folder_label(folder),
                 "notes_enabled": submitted_folder is not None or bool(folder),
@@ -608,7 +621,6 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
                 "notes_state": folder["state"] if folder else "",
                 "folder_error": folder_error,
                 "history": history,
-                "curation_status": health.filtering_status(c, uid),
             },
         )
     finally:
@@ -617,14 +629,16 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
 
 @router.get("/settings/profile/{kind}")
 def download_profile(request: Request, kind: str):
+    kind = {"feed-curation": "public", "note-matching": "private"}.get(kind, kind)
     if kind not in profiles.KINDS:
         raise HTTPException(404)
+    filename = {"public": "feed-curation.md", "private": "note-matching.md"}[kind]
     c = db.connect()
     try:
         body = profiles.markdown(c, reader(request, c), kind)
         return PlainTextResponse(
             body,
-            headers={"Content-Disposition": f'attachment; filename="{kind}-profile.md"', "Cache-Control": "no-store"},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
         )
     finally:
         c.close()
@@ -632,6 +646,7 @@ def download_profile(request: Request, kind: str):
 
 @router.post("/settings/profile/{kind}")
 def edit_profile(request: Request, kind: str, body: str = Form(..., max_length=24000), revision: str = Form("")):
+    kind = {"feed-curation": "public", "note-matching": "private"}.get(kind, kind)
     c = db.connect()
     try:
         # Drop derived retrieval terms on a manual edit rather than applying stale terms.
