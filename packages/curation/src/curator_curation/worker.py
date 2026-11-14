@@ -9,13 +9,14 @@ from datetime import UTC, datetime
 
 from curator_core import db
 
-from . import digests, jobs, media, note_folders, profiles, screen
+from . import digests, jobs, media, note_folders, profiles, screen, triage
 from .candidates import public_candidates
 from .config import settings
 from .llm.gemini import (
     DECISION_SCORER_VERSION,
     SCORER_VERSION,
     GeminiDecisionScorer,
+    GeminiDecisionTriager,
     GeminiScorer,
     PublicCandidate,
     PublicScoringRequest,
@@ -42,7 +43,13 @@ def make_scorer(cfg):
     raise ValueError("unsupported scoring backend")
 
 
-def score_user(conn, scorer, did: str, timing: dict | None = None) -> int:
+def make_triager(cfg):
+    if cfg.triage_enabled and cfg.scoring_backend == "decisions" and cfg.gemini_api_key:
+        return GeminiDecisionTriager(cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s)
+    return None
+
+
+def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None) -> int:
     cfg = settings()
     timing = {} if timing is None else timing
     started = time.monotonic()
@@ -112,6 +119,30 @@ def score_user(conn, scorer, did: str, timing: dict | None = None) -> int:
             model_s.append(time.monotonic() - t1)
 
     scoring_started = time.monotonic()
+    untriaged = []
+    if triager:
+        included = {
+            r[0]
+            for r in conn.execute(
+                """SELECT post_key FROM assessments_v2 WHERE user_id=? AND profile_revision=?
+                AND scorer_version=? AND decision='include'""",
+                (uid, profile_revision, version),
+            )
+        }
+        fresh = {p.key for p in unscored}
+        eligible = unscored + [p for p in pool if p.key in included and p.key not in fresh]
+        untriaged = triage.missing(conn, eligible, triager.model)
+    background = ThreadPoolExecutor(max_workers=1)
+    flagged = (
+        background.submit(
+            triage.assess,
+            triager,
+            [triage.candidate(p, media.describe([p])[0][p.key]) for p in untriaged],
+            cfg.triage_concurrency,
+        )
+        if untriaged
+        else None
+    )
     with ThreadPoolExecutor(max_workers=max(1, min(cfg.score_concurrency, 8))) as executor:
         futures = {executor.submit(run_batch, request, wanted): batch for batch, request, wanted in batches}
         for future in as_completed(futures):
@@ -149,6 +180,11 @@ def score_user(conn, scorer, did: str, timing: dict | None = None) -> int:
                         ),
                     )
                     total += 1
+    if flagged:
+        results = flagged.result()
+        triage.store(conn, untriaged, results, triager.model)
+        timing.update(triaged=len(results), triage_failed=len(untriaged) - len(results))
+    background.shutdown()
     timing.update(
         scoring_s=round(time.monotonic() - scoring_started, 3),
         batches=len(batches),
@@ -163,7 +199,7 @@ def score_user(conn, scorer, did: str, timing: dict | None = None) -> int:
     return total
 
 
-def curate_reader(conn, scorer, gemma, did: str) -> None:
+def curate_reader(conn, scorer, gemma, did: str, triager=None) -> None:
     started = time.monotonic()
     uid = None
     try:
@@ -180,7 +216,7 @@ def curate_reader(conn, scorer, gemma, did: str) -> None:
         if not public_candidates(conn, did, terms, 1):
             return
         timing = {"started_at": int(time.time())}
-        score_user(conn, scorer, did, timing)
+        score_user(conn, scorer, did, timing, triager)
         if digests.revision(profiles.head(conn, uid)) != digests.revision(current):
             return
         t = time.monotonic()
@@ -201,15 +237,15 @@ def curate_reader(conn, scorer, gemma, did: str) -> None:
         log.warning("curation cycle failed for a reader; retry next cycle")
 
 
-def _curate_in_own_connection(scorer, gemma, did: str) -> None:
+def _curate_in_own_connection(scorer, gemma, did: str, triager) -> None:
     conn = db.connect()
     try:
-        curate_reader(conn, scorer, gemma, did)
+        curate_reader(conn, scorer, gemma, did, triager)
     finally:
         conn.close()
 
 
-def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
+def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> None:
     cfg = settings()
     db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
     for row in conn.execute("SELECT user_id FROM notes_folders").fetchall():
@@ -226,6 +262,8 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
                 break
     if scorer is None and cfg.gemini_api_key:
         scorer = make_scorer(cfg)
+    if triager is None:
+        triager = make_triager(cfg)
     dids = [
         row["did"]
         for row in conn.execute(
@@ -234,10 +272,10 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None) -> None:
     ]
     if cfg.reader_concurrency <= 1 or len(dids) <= 1:
         for did in dids:
-            curate_reader(conn, scorer, gemma, did)
+            curate_reader(conn, scorer, gemma, did, triager)
         return
     with ThreadPoolExecutor(max_workers=cfg.reader_concurrency) as executor:
-        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did) for did in dids]:
+        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did, triager) for did in dids]:
             future.result()
 
 

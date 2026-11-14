@@ -15,6 +15,8 @@ class CurationSettings(CoreSettings):
     score_batch_size: int = 20
     score_concurrency: int = 3
     reader_concurrency: int = 4
+    triage_enabled: bool = True  # Shared content flags via Gemini Decisions
+    triage_concurrency: int = 8
     label_checks: bool = True  # Bluesky moderation labels via the public AppView
     max_author_posts_per_day: int = 150
     campaign_min_authors: int = 5

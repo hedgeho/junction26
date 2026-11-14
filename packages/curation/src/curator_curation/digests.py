@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from curator_core import db, media
 from curator_core.sources import get_post
 
-from . import notes, profiles, screen
+from . import notes, profiles, screen, triage
 from .candidates import public_candidates
 from .config import settings
 
@@ -76,8 +76,12 @@ def build(conn, uid, scorer_version: str) -> str | None:
             or screen.label_blocked(screen.labels_of(conn, post.key))
         ):
             continue
+        flags = triage.flags_of(conn, post)
+        if triage.hidden(flags):
+            continue
         age_h = max(0, (time.time() - post.published_at) / 3600)
         value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
+        value *= triage.penalty(flags)
         pool.append((value, post))
     pool.sort(key=lambda p: (-p[0], p[1].key))
     selected, authors, conversations, texts, stories = [], {}, set(), set(), set()
@@ -190,7 +194,12 @@ def initial_feed(conn, uid, config) -> list[dict]:
     candidates = public_candidates(conn, account["bluesky_did"], terms, settings().candidate_pool_size)
     posts = []
     for post in candidates:
-        if post.key in dismissed or post.author_key in blocked(config):
+        if (
+            post.key in dismissed
+            or post.author_key in blocked(config)
+            or screen.label_blocked(screen.labels_of(conn, post.key))
+            or triage.hidden(triage.flags_of(conn, post))
+        ):
             continue
         posts.append(post)
         if len(posts) >= delivery_limit(config):
