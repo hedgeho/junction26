@@ -185,6 +185,11 @@ function renderPostDetails(post, details) {
   const url = safeHttps(image.url), full = safeHttps(image.full_url);
   if (!url || !full) continue;
   const link = externalLink(full, ''); link.append(sourceImage(url, image.alt));
+  link.addEventListener('click', event => {
+   const dialog = document.getElementById('image-dialog'), viewer = document.getElementById('image-full');
+   if (!dialog || !viewer || typeof dialog.showModal !== 'function' || new URL(full).hostname === 'bsky.app') return;
+   event.preventDefault(); viewer.src = full; viewer.alt = image.alt || ''; dialog.showModal();
+  });
   if (!image.alt) link.setAttribute('aria-label', 'Open image');
   grid.append(link);
  }
@@ -207,3 +212,19 @@ if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Acc
  .then(response => response.ok && !response.redirected ? response.json() : null)
  .then(data => { if (data?.items) postCards.forEach(post => {const details = data.items[post.dataset.postKey]; if (details) renderPostDetails(post, details);}); })
  .catch(() => {});
+
+const imageDialog = document.getElementById('image-dialog');
+if (imageDialog) {
+ document.getElementById('image-close').addEventListener('click', () => imageDialog.close());
+ imageDialog.addEventListener('click', event => { if (event.target === imageDialog) imageDialog.close(); });
+ imageDialog.addEventListener('close', () => { document.getElementById('image-full').removeAttribute('src'); });
+}
+document.querySelectorAll('.share-post').forEach(button => button.addEventListener('click', async () => {
+ const url = safeHttps(button.dataset.url);
+ if (!url) return;
+ try {
+  if (navigator.share) await navigator.share({url});
+  else if (navigator.clipboard) { await navigator.clipboard.writeText(url); button.title = 'Link copied'; button.setAttribute('aria-label', 'Link copied'); setTimeout(() => { button.title = 'Share post'; button.setAttribute('aria-label', 'Share post'); }, 2500); }
+  else window.open(url, '_blank', 'noopener,noreferrer');
+ } catch (_) { /* Sharing was cancelled or unavailable. */ }
+}));

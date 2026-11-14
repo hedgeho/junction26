@@ -157,3 +157,21 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .more-compose textarea { min-height: 66px; flex: 1; }
 .more-compose button { flex: 0 0 auto; margin: 0; }
 @media (max-width: 420px) { .more-compose { flex-wrap: wrap; } .more-compose button { margin-left: auto; } }
+
+/* Feed controls */
+.count-edit { width: auto; height: auto; min-height: 0; padding: 0; gap: 5px; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
+.count-edit:hover { background: transparent; text-decoration: underline; text-underline-offset: 3px; }
+.count-edit svg, .social-action svg, .feedback-action svg, .image-close svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.post-actions { gap: 12px; flex-wrap: wrap; }
+.social-actions { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.action-platform { margin-right: 5px; color: var(--muted); font-size: 11px; }
+.social-action, .feedback-action { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); text-decoration: none; }
+.social-action:hover, .feedback-action:hover { background: var(--soft); color: var(--ink); }
+.feedback-action { gap: 5px; border-left: 1px solid var(--line); border-radius: 0; font-size: 11px; }
+.feedback-action svg { width: 15px; height: 15px; }
+.more-help { margin: 0 0 9px; }
+.image-dialog { width: auto; max-width: 100vw; max-height: 100vh; padding: 40px; border: 0; background: transparent; box-shadow: none; overflow: visible; }
+.image-dialog::backdrop { background: rgba(10, 15, 12, .88); }
+.image-dialog img { display: block; max-width: calc(100vw - 80px); max-height: calc(100vh - 80px); object-fit: contain; }
+.image-close { position: fixed; right: 16px; top: 16px; width: 40px; height: 40px; padding: 10px; border: 0; background: transparent; color: white; }
+.image-close:hover { background: rgba(255,255,255,.15); }

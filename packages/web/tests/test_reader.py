@@ -395,6 +395,9 @@ def test_feed_daily_limit_dialog_and_update_preserve_other_settings(conn):
     html = client.get("/me").text
     assert 'id="daily-limit-open"' in html
     assert 'id="daily-limit-dialog"' in html
+    assert 'action="/me/refresh"' not in html
+    assert "Target number of posts" not in html
+    assert 'id="image-dialog"' in html
     assert 'name="daily_limit" min="1" max="50" value="10"' in html
     assert client.post("/me/daily-limit", data={"daily_limit": 3}).status_code == 403
     for value in (0, 51):
@@ -439,6 +442,11 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     client = client_for()
     page = client.get("/me").text
     assert "What would you like to see more of?" in page
+    assert "Tell us what you want to see more of to get more posts." in page
+    for action in ("Comment", "Repost", "Repost with comment", "Like", "Save"):
+        assert f'{action} on Bluesky (opens original post)' in page
+    assert 'aria-label="Share post"' in page
+    assert "Feed feedback" in page
     assert 'action="/me/more"' in page
     assert client.post("/me/more", data={"key": "more-one", "text": "More technical research"}).status_code == 403
     data = {"csrf": "csrf-test", "key": "more-one", "text": "More technical research"}
