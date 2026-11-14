@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from curator_core import db
+from curator_core import db, media
 from curator_core.sources import get_post
 
 from . import notes, profiles
@@ -119,7 +119,7 @@ def read(conn, uid) -> list[dict]:
     if not run or run["profile_revision"] != revision(profile) or config["refresh_requested"]:
         return initial_feed(conn, uid, config)
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
-    out = []
+    posts = []
     for item in conn.execute("SELECT * FROM digest_items WHERE run_id=? ORDER BY position", (run["id"],)):
         post = get_post(conn, item["post_key"])
         if (
@@ -129,6 +129,13 @@ def read(conn, uid) -> list[dict]:
             or post.author_key in blocked(config)
         ):
             continue
+        posts.append(post)
+    return present(conn, uid, posts)[: config["daily_limit"]]
+
+
+def present(conn, uid, posts) -> list[dict]:
+    out = []
+    for post in posts:
         # Explicit source-only DTO. Never expose assessment/profile/generated metadata.
         out.append(
             {
@@ -137,7 +144,7 @@ def read(conn, uid) -> list[dict]:
                 "author": post.author_name,
                 "author_handle": post.author_handle,
                 "author_avatar": post.author_avatar,
-                "media": post.media,
+                "media": media.display(post.media, post.canonical_url),
                 "facets": post.facets,
                 "text": post.text,
                 "url": post.canonical_url,
@@ -145,7 +152,7 @@ def read(conn, uid) -> list[dict]:
                 "notes": notes.matches_for(conn, uid, post),
             }
         )
-    return out[: config["daily_limit"]]
+    return out
 
 
 def initial_feed(conn, uid, config) -> list[dict]:
@@ -160,21 +167,7 @@ def initial_feed(conn, uid, config) -> list[dict]:
     for post in candidates:
         if post.key in dismissed or post.author_key in blocked(config):
             continue
-        posts.append(
-            {
-                "key": post.key,
-                "platform": post.platform,
-                "author": post.author_name,
-                "author_handle": post.author_handle,
-                "author_avatar": post.author_avatar,
-                "media": post.media,
-                "facets": post.facets,
-                "text": post.text,
-                "url": post.canonical_url,
-                "created_at": post.created_at,
-                "notes": notes.matches_for(conn, uid, post),
-            }
-        )
+        posts.append(post)
         if len(posts) >= config["daily_limit"]:
             break
-    return posts
+    return present(conn, uid, posts)

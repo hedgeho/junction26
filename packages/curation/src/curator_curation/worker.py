@@ -4,11 +4,12 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from curator_core import db
 
-from . import digests, jobs, note_folders, profiles
+from . import digests, jobs, media, note_folders, profiles
 from .candidates import public_candidates
 from .config import settings
 from .llm.gemini import SCORER_VERSION, GeminiScorer, PublicCandidate, PublicScoringRequest
@@ -62,17 +63,23 @@ def score_user(conn, scorer, did: str) -> int:
             if used + len(batch) > cfg.daily_scoring_cap:
                 break
             db.kv_set(conn, budget_key, str(used + len(batch)))
+        described, wanted = media.describe(batch)
         request = PublicScoringRequest(
             prompt,
             tuple(
-                PublicCandidate(p.key, p.platform, p.text, p.context, bool(p.parent_id), bool(p.quote_id))
+                PublicCandidate(
+                    p.key, p.platform, p.text, p.context, bool(p.parent_id), bool(p.quote_id), described[p.key]
+                )
                 for p in batch
             ),
         )
-        batches.append((batch, request))
+        batches.append((batch, request, wanted if cfg.score_images else {}))
     errors = 0
     with ThreadPoolExecutor(max_workers=max(1, min(cfg.score_concurrency, 8))) as executor:
-        futures = {executor.submit(scorer.score, request): batch for batch, request in batches}
+        futures = {
+            executor.submit(lambda r, w: scorer.score(replace(r, images=media.fetch_images(w))), request, wanted): batch
+            for batch, request, wanted in batches
+        }
         for future in as_completed(futures):
             db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
             batch = futures[future]

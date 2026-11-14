@@ -24,10 +24,10 @@ def client_for(did=DID):
     return client
 
 
-def seed(conn):
+def seed(conn, **post_cols):
     add_user(conn, DID, "GENERATED_CONFIG_SENTINEL")
     uid = profiles.bootstrap(conn, DID)
-    uri = insert_post(conn, "did:plc:human", "1", "Original human post about compilers")
+    uri = insert_post(conn, "did:plc:human", "1", "Original human post about compilers", **post_cols)
     db.kv_set(conn, "setup:" + uid, "done")
     conn.execute("INSERT INTO bluesky_feed_sync VALUES (?,'feed','ready',unixepoch(),unixepoch(),1)", (DID,))
     conn.execute("INSERT INTO bluesky_feed_posts VALUES (?,?,0,unixepoch())", (DID, "bluesky:" + uri))
@@ -327,12 +327,10 @@ def test_post_details_only_hydrates_the_readers_displayed_posts(conn, monkeypatc
     assert data[visible["key"]]["author_handle"] == "human.bsky.social"
 
 
-def test_optional_pipeline_metadata_is_available_for_x(conn):
+def test_imported_x_media_and_author_metadata_reach_the_reader(conn):
     from curator_core.imports import import_posts
     from curator_web.post_details import imported_details
 
-    for name in ("author_handle", "author_avatar", "media", "facets"):
-        conn.execute(f"ALTER TABLE social_posts ADD COLUMN {name} TEXT")
     import_posts(
         conn,
         [
@@ -341,22 +339,46 @@ def test_optional_pipeline_metadata_is_available_for_x(conn):
                 "native_id": "123",
                 "author_id": "writer",
                 "author_name": "Writer",
+                "author_handle": "writer",
+                "author_avatar": "https://pbs.twimg.com/profile_images/1/a.jpg",
                 "text": "Original",
                 "canonical_url": "https://x.com/i/status/123",
+                "media": [
+                    {
+                        "type": "image",
+                        "thumb": "https://pbs.twimg.com/media/a.jpg",
+                        "full": "https://pbs.twimg.com/media/a.jpg?name=large",
+                        "alt": "A photo",
+                    },
+                    {"type": "link", "url": "https://example.org/a", "title": "Article"},
+                ],
             }
         ],
-    )
-    conn.execute(
-        "UPDATE social_posts SET author_handle=?,author_avatar=?,media=? WHERE native_id='123'",
-        (
-            "writer",
-            "https://example.org/avatar.png",
-            '{"images":[{"url":"https://example.org/image.png","full_url":"https://example.org/image.png","alt":"A photo"}]}',
-        ),
     )
     add_user(conn, DID)
     uid = profiles.bootstrap(conn, DID)
     post = next(item for item in digests.read(conn, uid) if item["platform"] == "x")
     details = imported_details(post)
     assert details["author_handle"] == "writer"
-    assert details["images"][0]["alt"] == "A photo"
+    assert details["author_avatar"] == "https://pbs.twimg.com/profile_images/1/a.jpg"
+    assert details["images"] == [
+        {
+            "url": "https://pbs.twimg.com/media/a.jpg",
+            "full_url": "https://pbs.twimg.com/media/a.jpg?name=large",
+            "alt": "A photo",
+        }
+    ]
+    assert details["external"]["title"] == "Article"
+
+
+def test_post_details_falls_back_to_ingested_bluesky_media(conn, monkeypatch):
+    from curator_web import appview
+
+    items = [{"type": "video", "thumb": "https://video.cdn.bsky.app/hls/did:plc:human/c/thumbnail.jpg", "alt": ""}]
+    monkeypatch.setattr("curator_curation.media.fetch_images", lambda wanted: ())
+    uid = seed(conn, media=json.dumps(items))
+    key = digests.read(conn, uid)[0]["key"]
+    monkeypatch.setattr(appview, "get_posts", lambda uris: [])
+    details = client_for().get("/api/post-details").json()["items"][key]
+    assert details["images"][0]["url"] == items[0]["thumb"]
+    assert details["images"][0]["full_url"].startswith("https://bsky.app/profile/did:plc:human/post/")

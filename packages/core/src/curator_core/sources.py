@@ -2,10 +2,12 @@
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 from urllib.parse import quote
+
+from . import media as media_refs
 
 Platform = Literal["bluesky", "x"]
 
@@ -27,12 +29,15 @@ class SocialPost:
     context: str = ""
     author_handle: str | None = None
     author_avatar: str | None = None
-    media: str | None = None
+    media: tuple[dict, ...] = field(default=(), hash=False)
     facets: str | None = None
 
     @property
     def content_hash(self) -> str:
         values = [self.text, self.author_id, self.created_at, self.parent_id, self.root_id, self.quote_id, self.context]
+        # Appended only when present so text-only posts keep their existing hashes.
+        if self.media:
+            values.append(list(self.media))
         return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode()).hexdigest()
 
     @property
@@ -68,7 +73,7 @@ def _bluesky(row) -> SocialPost:
         quote_id=row["embed_ref"] if row["embed_kind"] == "record" else None,
         author_handle=_optional(row, "author_handle"),
         author_avatar=_optional(row, "author_avatar"),
-        media=_optional(row, "media"),
+        media=tuple(media_refs.loads(row["media"])),
         facets=_optional(row, "facets"),
     )
 
@@ -94,7 +99,7 @@ def _social(row) -> SocialPost:
         context=row["context"],
         author_handle=_optional(row, "author_handle"),
         author_avatar=_optional(row, "author_avatar"),
-        media=_optional(row, "media"),
+        media=tuple(media_refs.loads(row["media"])),
         facets=_optional(row, "facets"),
     )
 

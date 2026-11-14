@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import websockets
-from curator_core import db
+from curator_core import db, media
 
 from .config import settings
 from .prune import prune
@@ -106,6 +106,7 @@ def handle_event(evt: dict, batch: Batch, keep_langs: set[str]) -> None:
                 root,
                 kind,
                 ref,
+                media.dumps(media.bluesky_media(did, rec)),
             )
         )
     elif op == "create" and coll in (LIKE, REPOST):
@@ -119,8 +120,8 @@ def flush(conn, batch: Batch) -> None:
     with db.tx(conn):
         conn.executemany(
             "INSERT OR IGNORE INTO posts(uri, cid, author_did, text, langs, created_at,"
-            " indexed_at, reply_parent, reply_root, embed_kind, embed_ref)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " indexed_at, reply_parent, reply_root, embed_kind, embed_ref, media)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             batch.posts,
         )
         conn.executemany("DELETE FROM posts WHERE uri = ?", batch.deletes)

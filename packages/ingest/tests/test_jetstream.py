@@ -1,3 +1,4 @@
+import json
 import time
 
 from curator_core import db
@@ -63,3 +64,18 @@ def test_stale_readers(conn):
     conn.execute("INSERT INTO users(did, created_at, last_seen_at) VALUES ('did:new', 0, unixepoch())")
     conn.execute("INSERT INTO users(did, created_at, last_seen_at) VALUES ('did:gone', 0, 0)")
     assert follows.stale_readers(conn) == ["did:new"]
+
+
+def test_ingest_keeps_media_references(conn):
+    now = int(time.time())
+    cid = "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy"
+    images = {
+        "$type": "app.bsky.embed.images",
+        "images": [{"alt": "Benchmark plot", "image": {"$type": "blob", "ref": {"$link": cid}}}],
+    }
+    b = jetstream.Batch()
+    jetstream.handle_event(post_evt("did:plc:a", "1", "look", now, embed=images), b, set())
+    jetstream.flush(conn, b)
+    row = conn.execute("SELECT embed_kind, media FROM posts").fetchone()
+    assert row["embed_kind"] == "images"
+    assert json.loads(row["media"])[0]["alt"] == "Benchmark plot"

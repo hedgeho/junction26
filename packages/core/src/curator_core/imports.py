@@ -3,7 +3,7 @@
 import time
 from urllib.parse import urlparse
 
-from curator_core import db
+from curator_core import db, media
 
 
 def import_posts(conn, records: list[dict]) -> int:
@@ -40,18 +40,23 @@ def import_posts(conn, records: list[dict]) -> int:
                 item.get("quote_id"),
                 context,
                 int(bool(item.get("deleted", False))),
+                media.dumps(media.clean(platform, item.get("media"))),
+                handle[:253] if isinstance(handle := item.get("author_handle"), str) and handle else None,
+                media.media_url(platform, item.get("author_avatar")),
             )
         )
     with db.tx(conn):
         conn.executemany(
             """INSERT INTO social_posts
             (platform,native_id,author_id,author_name,text,canonical_url,created_at,observed_at,
-             parent_id,root_id,quote_id,context,deleted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+             parent_id,root_id,quote_id,context,deleted,media,author_handle,author_avatar)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(platform,native_id) DO UPDATE SET
             author_id=excluded.author_id,author_name=excluded.author_name,text=excluded.text,
             canonical_url=excluded.canonical_url,created_at=excluded.created_at,observed_at=excluded.observed_at,
             parent_id=excluded.parent_id,root_id=excluded.root_id,quote_id=excluded.quote_id,
-            context=excluded.context,deleted=excluded.deleted""",
+            context=excluded.context,deleted=excluded.deleted,media=excluded.media,
+            author_handle=excluded.author_handle,author_avatar=excluded.author_avatar""",
             rows,
         )
     return len(rows)

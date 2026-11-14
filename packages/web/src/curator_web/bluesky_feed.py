@@ -4,7 +4,7 @@ import time
 from urllib.parse import quote
 
 import httpx
-from curator_core import db
+from curator_core import db, media
 from curator_core.imports import import_posts
 
 from . import oauth
@@ -54,12 +54,15 @@ def normalize_feed(payload: dict) -> list[dict]:
                 "native_id": uri,
                 "author_id": did,
                 "author_name": author.get("handle") or did,
+                "author_handle": author.get("handle"),
+                "author_avatar": author.get("avatar"),
                 "text": text,
                 "canonical_url": f"https://bsky.app/profile/{quote(did, safe=':')}/post/{quote(uri.rsplit('/', 1)[-1], safe='')}",
                 "created_at": record.get("createdAt"),
                 "parent_id": (reply.get("parent") or {}).get("uri"),
                 "root_id": (reply.get("root") or {}).get("uri"),
                 "quote_id": quoted.get("uri"),
+                "media": media.bluesky_media(did, record),
             },
         )
     return list(records.values())

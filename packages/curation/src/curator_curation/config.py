@@ -18,6 +18,9 @@ class CurationSettings(CoreSettings):
     feed_size: int = 50  # Legacy feed ranking compatibility
     minimum_relevance: float = 0.65
     daily_scoring_cap: int = 1000
+    score_images: bool = True  # Attach post images/thumbnails to Gemini scoring requests
+    max_image_bytes: int = 2_000_000
+    image_fetch_timeout_s: float = 10
 
 
 settings = cached_settings(CurationSettings)

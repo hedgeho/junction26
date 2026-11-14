@@ -106,7 +106,7 @@ def test_private_notes_and_private_feedback_never_enter_public_requests(conn):
     assert "PRIVATE_INTEREST_SENTINEL" not in payload
     data = json.loads(payload)
     assert set(data) == {"explicit_profile", "posts"}
-    assert set(data["posts"][0]) == {"post_key", "platform", "text", "context", "is_reply", "is_quote"}
+    assert set(data["posts"][0]) == {"post_key", "platform", "text", "context", "is_reply", "is_quote", "media"}
     assert digests.read(conn, uid)[0]["notes"][0]["text"] == "PRIVATE_SENTINEL original writing \U0001f98b"
 
 
@@ -213,7 +213,7 @@ def test_normalized_x_and_bluesky_share_classification_and_rendering(conn):
     conn.execute(
         """INSERT INTO social_posts VALUES
         ('x','123','author-x','Human on X','Another original compiler finding','https://x.com/i/status/123',
-         NULL,?,NULL,NULL,NULL,'',0)""",
+         NULL,?,NULL,NULL,NULL,'',0,'[]',NULL,NULL)""",
         (int(time.time()),),
     )
     scorer = FakeScorer()
@@ -284,7 +284,7 @@ def test_recall_finds_followed_and_topic_posts_beyond_recent_firehose_slice(conn
     conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:followed"))
     conn.execute(
         """INSERT INTO social_posts VALUES ('x','older','author','Human','Unique compiler topic',
-        'https://x.com/i/status/older',NULL,?,NULL,NULL,NULL,'',0)""",
+        'https://x.com/i/status/older',NULL,?,NULL,NULL,NULL,'',0,'[]',NULL,NULL)""",
         (int(time.time()) - 7200,),
     )
     for i in range(10):
@@ -320,3 +320,61 @@ def test_baseline_scoring_runs_batches_concurrently(conn, monkeypatch):
     assert all("without assuming" in request.explicit_profile for request in scorer.requests)
     assert conn.execute("SELECT count(*) FROM assessments_v2 WHERE user_id=?", (uid,)).fetchone()[0] == 2
     clear_settings()
+
+
+def test_scoring_attaches_post_images_and_reader_shows_media(conn, monkeypatch):
+    import httpx
+    from curator_core.media import bluesky_image
+    from curator_curation import media
+
+    uid, _ = setup(conn)
+    author, cid = "did:plc:artist", "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy"
+    items = [
+        {"type": "image", "thumb": bluesky_image(author, cid), "full": bluesky_image(author, cid), "alt": "IR graph"},
+        {"type": "link", "url": "https://example.com/paper", "title": "Paper", "description": "", "thumb": None},
+    ]
+    insert_post(conn, author, "pic", "Compiler pass visualized", media=json.dumps(items))
+    requested = []
+
+    def handle(request):
+        requested.append(request.url.host)
+        return httpx.Response(200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"})
+
+    original = httpx.Client
+    monkeypatch.setattr(media.httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(handle), **kw))
+    scorer = FakeScorer()
+    worker.run_cycle(conn, scorer)
+    request = scorer.requests[0]
+    candidate = next(p for p in request.candidates if p.text == "Compiler pass visualized")
+    image_ref = candidate.media[0]["image_ref"]
+    assert candidate.media[0]["alt"] == "IR graph"
+    assert candidate.media[1] == {"type": "link", "url": "https://example.com/paper", "title": "Paper"}
+    assert [(i.ref, i.data) for i in request.images] == [(image_ref, b"\xff\xd8jpeg")]
+    assert requested == ["cdn.bsky.app"]
+    parts = request.contents()
+    assert parts[-2].text == f"image_ref {image_ref}:"
+    assert parts[-1].inline_data.mime_type == "image/jpeg"
+    shown = next(p for p in digests.read(conn, uid) if p["text"] == "Compiler pass visualized")
+    assert json.loads(shown["media"]) == {
+        "images": [{"url": items[0]["thumb"], "full_url": items[0]["full"], "alt": "IR graph"}],
+        "external": {"url": "https://example.com/paper", "title": "Paper", "description": "", "image": None},
+    }
+
+
+def test_image_fetch_rejects_foreign_hosts_non_images_and_oversize(conn, monkeypatch):
+    import httpx
+    from curator_curation import media
+
+    def handle(request):
+        if request.url.path.endswith("big.jpg"):
+            return httpx.Response(200, content=b"x" * 3_000_000, headers={"content-type": "image/jpeg"})
+        return httpx.Response(200, content=b"<html>", headers={"content-type": "text/html"})
+
+    original = httpx.Client
+    monkeypatch.setattr(media.httpx, "Client", lambda **kw: original(transport=httpx.MockTransport(handle), **kw))
+    wanted = {
+        "a": ("bluesky", "https://evil.example/a.jpg"),
+        "b": ("bluesky", "https://cdn.bsky.app/page.html"),
+        "c": ("bluesky", "https://cdn.bsky.app/big.jpg"),
+    }
+    assert media.fetch_images(wanted) == ()

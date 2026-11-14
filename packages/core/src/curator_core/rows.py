@@ -19,6 +19,7 @@ class Post(TypedDict):
     reply_root: str | None
     embed_kind: str | None
     embed_ref: str | None
+    media: str  # JSON list, see curator_core.media
     likes: int
     reposts: int
     replies: int
