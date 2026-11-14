@@ -19,7 +19,7 @@ from .config import settings
 
 SCOPE = (
     "atproto repo:app.bsky.feed.like?action=create&action=delete "
-    "repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.feed.post?action=create "
+    "repo:app.bsky.feed.repost?action=create&action=delete repo:app.bsky.feed.post?action=create&action=delete "
     "rpc:app.bsky.feed.getFeed?aud=did:web:api.bsky.app%23bsky_appview "
     "rpc:app.bsky.feed.getPosts?aud=did:web:api.bsky.app%23bsky_appview "
     "rpc:app.bsky.bookmark.createBookmark?aud=did:web:api.bsky.app%23bsky_appview "

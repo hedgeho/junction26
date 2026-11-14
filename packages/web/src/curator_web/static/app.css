@@ -223,3 +223,7 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .comment-body { min-width: 0; }
 .comment-head { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 3px; font-size: 12px; }
 .comment-head span, .comments-note { color: var(--muted); }
+
+.comment-delete { min-height: 0; margin-left: auto; padding: 0 3px; border: 0; background: transparent; color: var(--muted); font-size: 11px; font-weight: 400; }
+.comment-delete:hover { background: transparent; color: var(--danger); text-decoration: underline; }
+.comment-body { flex: 1; }

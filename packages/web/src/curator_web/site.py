@@ -341,6 +341,45 @@ async def social_action(
         raise HTTPException(502, "Could not connect to Bluesky. Try reconnecting in settings.") from None
 
 
+@router.post("/api/comment/delete")
+async def delete_comment(
+    request: Request, post_key: str = Form(..., max_length=1000), comment_uri: str = Form(..., max_length=1000)
+):
+    did = current_did(request)
+    c = db.connect()
+    try:
+        posts = reader_posts(c, reader(request, c), did)
+    finally:
+        c.close()
+    if not any(p["key"] == post_key and p["platform"] == "bluesky" for p in posts) or not post_key.startswith(
+        "bluesky:at://"
+    ):
+        raise HTTPException(404, "Post unavailable")
+    source_uri = post_key.removeprefix("bluesky:")
+    try:
+        await social.delete_comment(did, source_uri, comment_uri)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            raise HTTPException(403, "Reconnect Bluesky in settings to allow deleting comments") from None
+        raise HTTPException(502, "Could not delete this comment on Bluesky") from None
+    except Exception:  # noqa: BLE001 - sanitize provider errors
+        raise HTTPException(502, "Could not delete this comment on Bluesky") from None
+    try:
+        c = db.connect()
+        try:
+            c.execute(
+                "DELETE FROM social_contributions WHERE user_did=? AND source_uri=? AND record_uri=? AND kind='comment'",
+                (did, source_uri, comment_uri),
+            )
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001 - the comment was already deleted
+        log.warning("Could not remove reference to deleted comment")
+    return {"deleted": True}
+
+
 @router.get("/api/curation")
 def curation_status(request: Request):
     c = db.connect()

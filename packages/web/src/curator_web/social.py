@@ -1,5 +1,6 @@
 """Explicit user-initiated Bluesky interactions using the user's OAuth session."""
 
+import re
 from datetime import UTC, datetime
 
 import httpx
@@ -90,3 +91,24 @@ async def interact(did: str, uri: str, action: str, text: str = "") -> dict:
             if isinstance(record_uri, str) and record_uri.startswith(f"at://{did}/app.bsky.feed.post/"):
                 output["record_uri"] = record_uri
         return output
+
+
+async def delete_comment(did: str, source_uri: str, record_uri: str) -> None:
+    prefix = f"at://{did}/app.bsky.feed.post/"
+    if not record_uri.startswith(prefix):
+        raise ValueError("You can only delete your own comments")
+    rkey = record_uri[len(prefix) :]
+    if not re.fullmatch(r"[A-Za-z0-9._~:-]{1,512}", rkey) or rkey in (".", ".."):
+        raise ValueError("Invalid comment")
+    session = await oauth.client().restore(did)
+    base = session.pds_endpoint.rstrip("/") + "/xrpc/"
+    params = {"repo": did, "collection": "app.bsky.feed.post", "rkey": rkey}
+    async with httpx.AsyncClient(auth=session.httpx_auth, timeout=20, follow_redirects=False) as client:
+        response = await client.get(base + "com.atproto.repo.getRecord", params=params)
+        response.raise_for_status()
+        record = response.json()
+        parent = ((record.get("value") or {}).get("reply") or {}).get("parent") or {}
+        if record.get("uri") != record_uri or parent.get("uri") != source_uri or not record.get("cid"):
+            raise ValueError("This comment does not belong to this post")
+        result = await client.post(base + "com.atproto.repo.deleteRecord", json={**params, "swapRecord": record["cid"]})
+        result.raise_for_status()

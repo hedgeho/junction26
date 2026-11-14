@@ -78,3 +78,34 @@ def test_undo_repost_only_deletes_own_record(monkeypatch):
     monkeypatch.setattr(social.oauth, "client", lambda: OAuth())
     assert asyncio.run(social.interact(DID, URI, "repost")) == {"active": False}
     assert calls == [{"repo": DID, "collection": "app.bsky.feed.repost", "rkey": "xyz"}]
+
+
+def test_delete_comment_checks_owner_and_parent_before_deleting(monkeypatch):
+    calls = []
+    record_uri = f"at://{DID}/app.bsky.feed.post/reply"
+    parent = {"uri": URI}
+
+    def handler(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"uri": record_uri, "cid": "mycid", "value": {"reply": {"parent": parent}}})
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        social.httpx, "AsyncClient", lambda **kwargs: real_client(transport=httpx.MockTransport(handler))
+    )
+
+    class OAuth:
+        async def restore(self, did):
+            return SimpleNamespace(pds_endpoint="https://pds.example", httpx_auth=None)
+
+    monkeypatch.setattr(social.oauth, "client", lambda: OAuth())
+    asyncio.run(social.delete_comment(DID, URI, record_uri))
+    assert calls == [{"repo": DID, "collection": "app.bsky.feed.post", "rkey": "reply", "swapRecord": "mycid"}]
+    parent["uri"] = "at://someone/else"
+    with pytest.raises(ValueError):
+        asyncio.run(social.delete_comment(DID, URI, record_uri))
+    with pytest.raises(ValueError):
+        asyncio.run(social.delete_comment(DID, URI, "at://did:plc:other/app.bsky.feed.post/reply"))
+    assert len(calls) == 1

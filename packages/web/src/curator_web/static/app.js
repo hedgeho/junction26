@@ -258,15 +258,22 @@ document.querySelectorAll('.share-post').forEach(button => button.addEventListen
 const socialDialog = document.getElementById('social-dialog');
 const socialForm = document.getElementById('social-form');
 let socialTarget = null;
+const ownComments = new Map();
+const deletedComments = new Set();
 function renderContribution(post, item) {
  if (!item || !['comment', 'quote'].includes(item.kind) || typeof item.text !== 'string') return;
- const target = post.querySelector(item.kind === 'comment' ? '.comment-contributions' : '.quote-contributions');
+ if (item.kind === 'comment') {
+  const previous = ownComments.get(post) || [];
+  if (!item.uri || !previous.some(comment => comment.uri === item.uri)) previous.push({ ...item, author:'You', is_self:true });
+  ownComments.set(post, previous);
+  if (!post.querySelector('.comments-list').hidden) renderComments(post);
+  return;
+ }
+ const target = post.querySelector('.quote-contributions');
  if (item.uri && [...target.children].some(node => node.dataset.uri === item.uri)) return;
- if (item.kind === 'comment' && item.uri) post.querySelectorAll('.comment-row').forEach(row => { if (row.dataset.uri === item.uri) row.remove(); });
  const entry = document.createElement('div'); entry.className = 'contribution';
  if (item.uri) entry.dataset.uri = item.uri;
- const label = document.createElement('span'); label.className = 'contribution-label';
- label.textContent = item.kind === 'comment' ? 'Your comment' : 'Your quote post';
+ const label = document.createElement('span'); label.className = 'contribution-label'; label.textContent = 'Your quote post';
  const content = document.createElement('div'); content.textContent = item.text;
  entry.append(label, content); target.append(entry);
 }
@@ -287,6 +294,7 @@ async function sendSocial(post, action, text = '') {
  if (button?.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(result.active));
  if (action === 'repost') setRepostState(post, result.active);
  if (action === 'comment' || action === 'quote') renderContribution(post, {kind:action, text, uri:result.record_uri});
+ if (action === 'comment') showComments(post);
  status.textContent = action === 'comment' ? 'Comment posted' : action === 'quote' ? 'Repost with comment posted' : '';
 }
 const blueskyCards = postCards.filter(post => post.querySelector('.post-actions')?.dataset.platform === 'bluesky');
@@ -342,33 +350,66 @@ if (socialDialog) {
  });
 }
 
-document.querySelectorAll('.comments-toggle').forEach(button => button.addEventListener('click', async () => {
- const post = button.closest('.post'), section = post.querySelector('.comments-list');
- if (!section.hidden) { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; return; }
+const threadComments = new Map();
+function renderComments(post) {
+ const section = post.querySelector('.comments-list');
+ const available = threadComments.get(post) || {items:[], total:null};
+ const items = [...available.items];
+ for (const own of ownComments.get(post) || []) {
+  if (!own.uri || !items.some(item => item.uri === own.uri)) items.push(own);
+ }
+ section.replaceChildren();
+ const visible = items.filter(item => !deletedComments.has(item.uri));
+ for (const item of visible) {
+  const row = document.createElement('article'); row.className = 'comment-row'; if (item.uri) row.dataset.uri = item.uri;
+  const avatar = safeHttps(item.avatar);
+  if (avatar) { const img = sourceImage(avatar, ''); img.className = 'comment-avatar'; row.append(img); }
+  const body = document.createElement('div'); body.className = 'comment-body';
+  const head = document.createElement('div'); head.className = 'comment-head';
+  const name = document.createElement('strong'); name.textContent = item.author; head.append(name);
+  if (item.handle) { const handle = document.createElement('span'); handle.textContent = '@' + item.handle.replace(/^@/, ''); head.append(handle); }
+  if (item.is_self && item.author !== 'You') { const self = document.createElement('span'); self.textContent = 'You'; head.append(self); }
+  if (item.is_self && item.uri) {
+   const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'comment-delete'; remove.textContent = 'Delete'; remove.setAttribute('aria-label', 'Delete your comment');
+   remove.addEventListener('click', async () => {
+    if (!window.confirm('Delete your comment from Bluesky?')) return;
+    remove.disabled = true;
+    try {
+     const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
+     payload.set('post_key', post.dataset.postKey); payload.set('comment_uri', item.uri);
+     const response = await fetch('/api/comment/delete', {method:'POST', body:payload});
+     const result = await response.json();
+     if (!response.ok) throw new Error(result.detail || 'Could not delete your comment');
+     deletedComments.add(item.uri);
+     ownComments.set(post, (ownComments.get(post) || []).filter(comment => comment.uri !== item.uri));
+     renderComments(post);
+    } catch (error) { post.querySelector('.social-status').textContent = error.message; remove.disabled = false; }
+   });
+   head.append(remove);
+  }
+  const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
+  body.append(head, text); row.append(body); section.append(row);
+ }
+ if (!visible.length) section.textContent = 'No comments yet.';
+ if (Number.isInteger(available.total) && available.total > available.items.length) {
+  const note = document.createElement('p'); note.className = 'comments-note'; note.textContent = `Showing ${available.items.length} of ${available.total} comments available on Bluesky.`; section.append(note);
+ }
+}
+async function showComments(post) {
+ const button = post.querySelector('.comments-toggle'), section = post.querySelector('.comments-list');
  section.hidden = false; button.setAttribute('aria-expanded', 'true'); button.textContent = 'Hide comments';
- section.textContent = 'Loading comments?';
+ if (ownComments.get(post)?.length) renderComments(post); else section.textContent = 'Loading comments?';
  try {
   const response = await fetch('/api/comments?' + new URLSearchParams({post_key:post.dataset.postKey}), {cache:'no-store', headers:{Accept:'application/json'}});
   if (!response.ok || response.redirected) throw new Error();
-  const data = await response.json(); section.replaceChildren();
-  const own = post.querySelector('.comment-contributions');
-  const ownUris = new Set([...own.children].map(node => node.dataset.uri).filter(Boolean));
-  for (const item of data.items) {
-   if (ownUris.has(item.uri)) continue;
-   const row = document.createElement('article'); row.className = 'comment-row'; row.dataset.uri = item.uri;
-   const avatar = safeHttps(item.avatar);
-   if (avatar) { const img = sourceImage(avatar, ''); img.className = 'comment-avatar'; row.append(img); }
-   const body = document.createElement('div'); body.className = 'comment-body';
-   const head = document.createElement('div'); head.className = 'comment-head';
-   const name = document.createElement('strong'); name.textContent = item.author; head.append(name);
-   if (item.handle) { const handle = document.createElement('span'); handle.textContent = '@' + item.handle.replace(/^@/, ''); head.append(handle); }
-   if (item.is_self) { const self = document.createElement('span'); self.textContent = 'You'; head.append(self); }
-   const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
-   body.append(head, text); row.append(body); section.append(row);
-  }
-  if (!data.items.length) section.textContent = 'No comments yet.';
-  else if (Number.isInteger(data.total) && data.total > data.items.length) {
-   const note = document.createElement('p'); note.className = 'comments-note'; note.textContent = `Showing ${data.items.length} of ${data.total} comments available on Bluesky.`; section.append(note);
-  }
- } catch (_) { section.textContent = 'Could not load comments. Close and open to try again.'; }
+  threadComments.set(post, await response.json()); renderComments(post);
+ } catch (_) {
+  if (ownComments.get(post)?.length) { renderComments(post); const note = document.createElement('p'); note.className = 'comments-note'; note.textContent = 'Other comments could not be loaded.'; section.append(note); }
+  else section.textContent = 'Could not load comments. Close and open to try again.';
+ }
+}
+document.querySelectorAll('.comments-toggle').forEach(button => button.addEventListener('click', () => {
+ const post = button.closest('.post'), section = post.querySelector('.comments-list');
+ if (section.hidden) showComments(post);
+ else { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; }
 }));

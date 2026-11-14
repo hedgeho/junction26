@@ -21,7 +21,7 @@
       <button type="button" class="social-action share-post" data-url="{{ post.url }}" aria-label="Share post" title="Share post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7"/></svg></button>
     </div>
     <button type="button" class="feedback-action feedback-open" aria-label="Shape your feed using post by {{ post.author }}" aria-expanded="false" aria-controls="feedback-panel" title="Shape your feed"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Shape your feed</span></button>
-  </div><p class="social-status" role="status" aria-live="polite"></p><div class="comment-contributions" aria-label="Your comments" aria-live="polite"></div>{% if post.platform == "bluesky" %}<button type="button" class="comments-toggle" aria-expanded="false">Show comments</button><section class="comments-list" aria-label="Comments" hidden></section>{% endif %}
+  </div><p class="social-status" role="status" aria-live="polite"></p>{% if post.platform == "bluesky" %}<button type="button" class="comments-toggle" aria-expanded="false">Show comments</button><section class="comments-list" aria-label="Comments" hidden></section>{% endif %}
 </article>
 {% else %}
 <section class="empty" aria-label="Feed status">

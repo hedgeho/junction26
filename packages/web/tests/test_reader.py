@@ -557,3 +557,25 @@ def test_comments_are_loaded_for_feed_posts_only(conn, monkeypatch):
     html = client.get("/me").text
     assert "Show comments" in html
     assert 'id="feedback-original"' in html
+
+
+def test_delete_comment_requires_csrf_and_feed_membership(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    record_uri = f"at://{DID}/app.bsky.feed.post/reply"
+    calls = []
+
+    async def delete(did, source, uri):
+        calls.append((did, source, uri))
+
+    monkeypatch.setattr("curator_web.social.delete_comment", delete)
+    client = client_for()
+    data = {"post_key": post_key, "comment_uri": record_uri}
+    assert client.post("/api/comment/delete", data=data).status_code == 403
+    data["csrf"] = "csrf-test"
+    data["post_key"] = "bluesky:at://another/post"
+    assert client.post("/api/comment/delete", data=data).status_code == 404
+    assert not calls
+    data["post_key"] = post_key
+    assert client.post("/api/comment/delete", data=data).json() == {"deleted": True}
+    assert calls == [(DID, post_key.removeprefix("bluesky:"), record_uri)]
