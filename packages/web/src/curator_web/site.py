@@ -199,13 +199,29 @@ async def post_details_api(request: Request):
             uri = view["uri"]
             source = post_details.bluesky_details(view, bluesky[uri]["text"])
             for field, value in source.items():
-                if value:
+                if value or (field == "reply_count" and value is not None):
                     items["bluesky:" + uri][field] = value
     return {"items": items}
 
 
+def thread_contains_ancestor(thread: dict, root_uri: str) -> bool:
+    """Accept only a visible descendant of a post in this reader's feed."""
+    node = thread
+    seen = set()
+    while isinstance(node, dict):
+        view = node.get("post") or {}
+        uri = view.get("uri")
+        if uri == root_uri:
+            return True
+        if not isinstance(uri, str) or uri in seen:
+            return False
+        seen.add(uri)
+        node = node.get("parent")
+    return False
+
+
 @router.get("/api/comments")
-async def comments_api(request: Request, post_key: str):
+async def comments_api(request: Request, post_key: str, parent_uri: str = ""):
     did = current_did(request)
     c = db.connect()
     try:
@@ -217,9 +233,10 @@ async def comments_api(request: Request, post_key: str):
         raise HTTPException(404, "Post unavailable")
     uri = post_key.removeprefix("bluesky:")
     try:
-        thread = await asyncio.to_thread(appview.get_thread, uri)
+        target = parent_uri or uri
+        thread = await asyncio.to_thread(appview.get_thread, target)
         parent = thread.get("post") or {}
-        if parent.get("uri") != uri:
+        if parent.get("uri") != target or not thread_contains_ancestor(thread, uri):
             raise ValueError("Post unavailable")
         items = []
         for entry in thread.get("replies") or []:
@@ -242,6 +259,7 @@ async def comments_api(request: Request, post_key: str):
                     "facets": details["facets"],
                     "created_at": record.get("createdAt"),
                     "is_self": author.get("did") == did,
+                    "reply_count": details["reply_count"],
                 }
             )
         total = parent.get("replyCount")
@@ -343,7 +361,10 @@ async def social_action(
 
 @router.post("/api/comment/delete")
 async def delete_comment(
-    request: Request, post_key: str = Form(..., max_length=1000), comment_uri: str = Form(..., max_length=1000)
+    request: Request,
+    post_key: str = Form(..., max_length=1000),
+    comment_uri: str = Form(..., max_length=1000),
+    parent_uri: str = Form("", max_length=1000),
 ):
     did = current_did(request)
     c = db.connect()
@@ -357,7 +378,14 @@ async def delete_comment(
         raise HTTPException(404, "Post unavailable")
     source_uri = post_key.removeprefix("bluesky:")
     try:
-        await social.delete_comment(did, source_uri, comment_uri)
+        target_parent = parent_uri or source_uri
+        if target_parent != source_uri:
+            branch = await asyncio.to_thread(appview.get_thread, target_parent)
+            if (branch.get("post") or {}).get("uri") != target_parent or not thread_contains_ancestor(
+                branch, source_uri
+            ):
+                raise ValueError("Comment is not in this thread")
+        await social.delete_comment(did, target_parent, comment_uri)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     except httpx.HTTPStatusError as exc:

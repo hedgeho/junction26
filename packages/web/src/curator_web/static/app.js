@@ -188,6 +188,11 @@ function sourceImage(url, alt) {
  return img;
 }
 function renderPostDetails(post, details) {
+ if (Number.isInteger(details.reply_count)) {
+  post.dataset.replyCount = String(details.reply_count);
+  const toggle = post.querySelector('.comments-toggle');
+  if (toggle && (details.reply_count > 0 || (ownComments.get(post) || []).length)) toggle.hidden = false;
+ }
  const name = post.querySelector('.author');
  if (details.author_name) name.textContent = details.author_name;
  const handle = post.querySelector('.author-handle');
@@ -266,6 +271,7 @@ function renderContribution(post, item) {
   const previous = ownComments.get(post) || [];
   if (!item.uri || !previous.some(comment => comment.uri === item.uri)) previous.push({ ...item, author:'You', is_self:true });
   ownComments.set(post, previous);
+  const toggle = post.querySelector('.comments-toggle'); if (toggle) toggle.hidden = false;
   if (!post.querySelector('.comments-list').hidden) renderComments(post);
   return;
  }
@@ -294,7 +300,7 @@ async function sendSocial(post, action, text = '') {
  if (button?.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(result.active));
  if (action === 'repost') setRepostState(post, result.active);
  if (action === 'comment' || action === 'quote') renderContribution(post, {kind:action, text, uri:result.record_uri});
- if (action === 'comment') showComments(post);
+ if (action === 'comment') { post.dataset.replyCount = String((Number(post.dataset.replyCount) || 0) + 1); showComments(post); }
  status.textContent = action === 'comment' ? 'Comment posted' : action === 'quote' ? 'Repost with comment posted' : '';
 }
 const blueskyCards = postCards.filter(post => post.querySelector('.post-actions')?.dataset.platform === 'bluesky');
@@ -351,6 +357,76 @@ if (socialDialog) {
 }
 
 const threadComments = new Map();
+const COMMENT_PAGE_SIZE = 3;
+function renderCommentBatch(post, container, items, parentUri, total) {
+ container.replaceChildren();
+ const visible = items.filter(item => !deletedComments.has(item.uri));
+ let shown = 0;
+ function addMore() {
+  const end = Math.min(shown + COMMENT_PAGE_SIZE, visible.length);
+  for (; shown < end; shown++) container.insertBefore(makeComment(post, visible[shown], parentUri), more);
+  more.hidden = shown >= visible.length;
+ }
+ const more = document.createElement('button'); more.type = 'button'; more.className = 'thread-more'; more.textContent = 'Show more comments';
+ more.addEventListener('click', addMore); container.append(more); addMore();
+ if (!visible.length) { const empty = document.createElement('p'); empty.className = 'comments-note'; empty.textContent = 'No comments available.'; container.prepend(empty); }
+ if (Number.isInteger(total) && total > items.length) {
+  const note = document.createElement('p'); note.className = 'comments-note'; note.textContent = `Bluesky returned ${items.length} of ${total} replies.`; container.append(note);
+ }
+}
+function makeComment(post, item, parentUri) {
+ const wrapper = document.createElement('div'); wrapper.className = 'thread-item';
+ const row = document.createElement('article'); row.className = 'comment-row'; if (item.uri) row.dataset.uri = item.uri;
+ const avatar = safeHttps(item.avatar);
+ if (avatar) { const img = sourceImage(avatar, ''); img.className = 'comment-avatar'; row.append(img); }
+ const body = document.createElement('div'); body.className = 'comment-body';
+ const head = document.createElement('div'); head.className = 'comment-head';
+ const name = document.createElement('strong'); name.textContent = item.author; head.append(name);
+ if (item.handle) { const handle = document.createElement('span'); handle.textContent = '@' + item.handle.replace(/^@/, ''); head.append(handle); }
+ if (item.is_self && item.author !== 'You') { const self = document.createElement('span'); self.textContent = 'You'; head.append(self); }
+ if (item.is_self && item.uri) {
+  const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'comment-delete'; remove.textContent = 'Delete'; remove.setAttribute('aria-label', 'Delete your comment');
+  remove.addEventListener('click', async () => {
+   if (!window.confirm('Delete your comment from Bluesky?')) return;
+   remove.disabled = true;
+   try {
+    const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
+    payload.set('post_key', post.dataset.postKey); payload.set('comment_uri', item.uri); payload.set('parent_uri', parentUri);
+    const response = await fetch('/api/comment/delete', {method:'POST', body:payload});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || 'Could not delete your comment');
+    deletedComments.add(item.uri);
+    ownComments.set(post, (ownComments.get(post) || []).filter(comment => comment.uri !== item.uri));
+    wrapper.remove();
+    if (parentUri === post.dataset.postKey.slice('bluesky:'.length)) {
+     if (post.dataset.replyCount !== undefined) {
+      const count = Math.max(0, Number(post.dataset.replyCount) - 1); post.dataset.replyCount = String(count);
+      if (!count) { post.querySelector('.comments-toggle').hidden = true; post.querySelector('.comments-list').hidden = true; }
+     }
+    }
+   } catch (error) { post.querySelector('.social-status').textContent = error.message; remove.disabled = false; }
+  });
+  head.append(remove);
+ }
+ const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
+ body.append(head, text); row.append(body); wrapper.append(row);
+ if (item.uri && item.reply_count > 0) {
+  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'thread-more'; toggle.textContent = `Show replies (${item.reply_count})`; toggle.setAttribute('aria-expanded', 'false');
+  const children = document.createElement('div'); children.className = 'thread-children'; children.hidden = true;
+  toggle.addEventListener('click', async () => {
+   if (!children.hidden) { children.hidden = true; toggle.setAttribute('aria-expanded', 'false'); toggle.textContent = `Show replies (${item.reply_count})`; return; }
+   children.hidden = false; toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = 'Hide replies';
+   children.textContent = 'Loading replies?';
+   try {
+    const response = await fetch('/api/comments?' + new URLSearchParams({post_key:post.dataset.postKey, parent_uri:item.uri}), {cache:'no-store', headers:{Accept:'application/json'}});
+    if (!response.ok || response.redirected) throw new Error();
+    const data = await response.json(); renderCommentBatch(post, children, data.items, item.uri, data.total);
+   } catch (_) { children.textContent = 'Could not load replies. Close and open to try again.'; }
+  });
+  body.append(toggle, children);
+ }
+ return wrapper;
+}
 function renderComments(post) {
  const section = post.querySelector('.comments-list');
  const available = threadComments.get(post) || {items:[], total:null};
@@ -358,42 +434,7 @@ function renderComments(post) {
  for (const own of ownComments.get(post) || []) {
   if (!own.uri || !items.some(item => item.uri === own.uri)) items.push(own);
  }
- section.replaceChildren();
- const visible = items.filter(item => !deletedComments.has(item.uri));
- for (const item of visible) {
-  const row = document.createElement('article'); row.className = 'comment-row'; if (item.uri) row.dataset.uri = item.uri;
-  const avatar = safeHttps(item.avatar);
-  if (avatar) { const img = sourceImage(avatar, ''); img.className = 'comment-avatar'; row.append(img); }
-  const body = document.createElement('div'); body.className = 'comment-body';
-  const head = document.createElement('div'); head.className = 'comment-head';
-  const name = document.createElement('strong'); name.textContent = item.author; head.append(name);
-  if (item.handle) { const handle = document.createElement('span'); handle.textContent = '@' + item.handle.replace(/^@/, ''); head.append(handle); }
-  if (item.is_self && item.author !== 'You') { const self = document.createElement('span'); self.textContent = 'You'; head.append(self); }
-  if (item.is_self && item.uri) {
-   const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'comment-delete'; remove.textContent = 'Delete'; remove.setAttribute('aria-label', 'Delete your comment');
-   remove.addEventListener('click', async () => {
-    if (!window.confirm('Delete your comment from Bluesky?')) return;
-    remove.disabled = true;
-    try {
-     const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
-     payload.set('post_key', post.dataset.postKey); payload.set('comment_uri', item.uri);
-     const response = await fetch('/api/comment/delete', {method:'POST', body:payload});
-     const result = await response.json();
-     if (!response.ok) throw new Error(result.detail || 'Could not delete your comment');
-     deletedComments.add(item.uri);
-     ownComments.set(post, (ownComments.get(post) || []).filter(comment => comment.uri !== item.uri));
-     renderComments(post);
-    } catch (error) { post.querySelector('.social-status').textContent = error.message; remove.disabled = false; }
-   });
-   head.append(remove);
-  }
-  const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
-  body.append(head, text); row.append(body); section.append(row);
- }
- if (!visible.length) section.textContent = 'No comments yet.';
- if (Number.isInteger(available.total) && available.total > available.items.length) {
-  const note = document.createElement('p'); note.className = 'comments-note'; note.textContent = `Showing ${available.items.length} of ${available.total} comments available on Bluesky.`; section.append(note);
- }
+ renderCommentBatch(post, section, items, post.dataset.postKey.slice('bluesky:'.length), available.total);
 }
 async function showComments(post) {
  const button = post.querySelector('.comments-toggle'), section = post.querySelector('.comments-list');

@@ -227,3 +227,8 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .comment-delete { min-height: 0; margin-left: auto; padding: 0 3px; border: 0; background: transparent; color: var(--muted); font-size: 11px; font-weight: 400; }
 .comment-delete:hover { background: transparent; color: var(--danger); text-decoration: underline; }
 .comment-body { flex: 1; }
+
+.comments-toggle[hidden], .thread-more[hidden], .thread-children[hidden] { display: none; }
+.thread-more { min-height: 0; padding: 2px 0; border: 0; background: transparent; color: var(--muted); font-size: 11px; }
+.thread-more:hover { background: transparent; color: var(--ink); text-decoration: underline; }
+.thread-children { margin-left: 6px; padding-left: 12px; border-left: 1px solid var(--line); }

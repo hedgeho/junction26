@@ -579,3 +579,72 @@ def test_delete_comment_requires_csrf_and_feed_membership(conn, monkeypatch):
     data["post_key"] = post_key
     assert client.post("/api/comment/delete", data=data).json() == {"deleted": True}
     assert calls == [(DID, post_key.removeprefix("bluesky:"), record_uri)]
+
+
+def test_nested_comments_require_ancestor_in_feed(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    root = post_key.removeprefix("bluesky:")
+    branch = "at://did:plc:other/app.bsky.feed.post/branch"
+    leaf = "at://did:plc:other/app.bsky.feed.post/leaf"
+    parent = {"post": {"uri": root}}
+
+    def get_thread(uri):
+        return {
+            "post": {"uri": uri, "replyCount": 1},
+            "parent": parent,
+            "replies": [
+                {
+                    "post": {
+                        "uri": leaf,
+                        "author": {"did": "did:plc:other"},
+                        "record": {"text": "A nested reply"},
+                        "replyCount": 2,
+                    }
+                }
+            ],
+        }
+
+    monkeypatch.setattr("curator_web.appview.get_thread", get_thread)
+    client = client_for()
+    result = client.get("/api/comments", params={"post_key": post_key, "parent_uri": branch})
+    assert result.status_code == 200
+    assert result.json()["items"][0]["text"] == "A nested reply"
+    assert result.json()["items"][0]["reply_count"] == 2
+    parent["post"]["uri"] = "at://did:plc:unrelated/app.bsky.feed.post/other"
+    assert client.get("/api/comments", params={"post_key": post_key, "parent_uri": branch}).status_code == 502
+
+
+def test_comment_count_is_in_hydrated_post_details(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    uri = post_key.removeprefix("bluesky:")
+    monkeypatch.setattr(
+        "curator_web.appview.get_posts", lambda uris: [{"uri": uri, "replyCount": 0, "author": {}, "record": {}}]
+    )
+    assert client_for().get("/api/post-details").json()["items"][post_key]["reply_count"] == 0
+    html = client_for().get("/me").text
+    assert 'class="comments-toggle" aria-expanded="false" hidden' in html
+
+
+def test_deleting_nested_comment_checks_the_branch(conn, monkeypatch):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    root = post_key.removeprefix("bluesky:")
+    branch = "at://did:plc:other/app.bsky.feed.post/branch"
+    comment = f"at://{DID}/app.bsky.feed.post/reply"
+    ancestor = {"post": {"uri": root}}
+    monkeypatch.setattr("curator_web.appview.get_thread", lambda uri: {"post": {"uri": uri}, "parent": ancestor})
+    calls = []
+
+    async def delete(did, source, uri):
+        calls.append((did, source, uri))
+
+    monkeypatch.setattr("curator_web.social.delete_comment", delete)
+    client = client_for()
+    data = {"csrf": "csrf-test", "post_key": post_key, "parent_uri": branch, "comment_uri": comment}
+    assert client.post("/api/comment/delete", data=data).status_code == 200
+    assert calls == [(DID, branch, comment)]
+    ancestor["post"]["uri"] = "at://did:plc:other/app.bsky.feed.post/unrelated"
+    assert client.post("/api/comment/delete", data=data).status_code == 400
+    assert len(calls) == 1

@@ -79,6 +79,9 @@ def bluesky_details(view, text):
     name = author.get("displayName") if isinstance(author.get("displayName"), str) else ""
     images, external = media(view.get("embed")) if record.get("text") == text else ([], None)
     return {
+        "reply_count": view.get("replyCount")
+        if type(view.get("replyCount")) is int and view["replyCount"] >= 0
+        else None,
         "author_name": name or handle or None,
         "author_handle": handle or None,
         "author_avatar": https_url(author.get("avatar")),
