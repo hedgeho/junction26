@@ -5,6 +5,7 @@ import threading
 import time
 
 IMAGE_TOKENS = 260
+CHARS_PER_TOKEN = 3.3
 
 
 class TokenBucket:
@@ -44,19 +45,9 @@ def bucket(model: str, tokens_per_minute: int) -> TokenBucket | None:
 
 
 def estimate(input_value, questions: dict) -> int:
-    """Rough input tokens: ~4 characters per token for text, a flat amount per image."""
-    images = (
-        sum(1 for b in input_value if isinstance(b, dict) and b.get("type") == "image")
-        if isinstance(input_value, list)
-        else 0
-    )
-    text = (
-        [b for b in input_value if not (isinstance(b, dict) and b.get("type") == "image")]
-        if isinstance(input_value, list)
-        else input_value
-    )
-    return (
-        len(json.dumps(text, ensure_ascii=False)) // 4
-        + len(json.dumps(questions, ensure_ascii=False)) // 4
-        + images * IMAGE_TOKENS
-    )
+    """Rough input tokens, erring high: ~3.3 characters per token for text, a flat amount per image."""
+    blocks = input_value if isinstance(input_value, list) else [input_value]
+    images = [b for b in blocks if isinstance(b, dict) and b.get("type") == "image"]
+    text = [b for b in blocks if b not in images]
+    chars = len(json.dumps(text, ensure_ascii=False)) + len(json.dumps(questions, ensure_ascii=False))
+    return int(chars / CHARS_PER_TOKEN) + len(images) * IMAGE_TOKENS

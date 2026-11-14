@@ -19,6 +19,7 @@ def test_bucket_waits_for_tokens_instead_of_overspending():
 
 def test_estimate_counts_text_and_images():
     blocks = [{"type": "text", "text": "x" * 400}, {"type": "image", "data": "y" * 10_000}]
-    assert ratelimit.estimate(blocks, {}) == len('[{"type": "text", "text": "' + "x" * 400 + '"}]') // 4 + 0 + 260
+    text = len('[{"type": "text", "text": "' + "x" * 400 + '"}]') + len("{}")
+    assert ratelimit.estimate(blocks, {}) == int(text / ratelimit.CHARS_PER_TOKEN) + ratelimit.IMAGE_TOKENS
     assert ratelimit.bucket("m", 0) is None
     assert ratelimit.bucket("m", 100) is ratelimit.bucket("m", 100)
