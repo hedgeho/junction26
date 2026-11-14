@@ -4,9 +4,14 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: craci
+    timeout-minutes: 10
     steps:
       - uses: cracicorp/setup@v1
         with:
@@ -21,6 +26,7 @@ jobs:
 
   test:
     runs-on: craci
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

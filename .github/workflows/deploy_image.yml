@@ -5,9 +5,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-push:
     runs-on: craci
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
@@ -30,9 +35,10 @@ jobs:
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker build -f deploy/Dockerfile \
+          docker buildx build -f deploy/Dockerfile \
             --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
             --label org.opencontainers.image.revision=${{ github.sha }} \
-            -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
-          docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
+            --cache-from type=registry,ref="$IMAGE:buildcache" \
+            --cache-to type=registry,ref="$IMAGE:buildcache",mode=max \
+            -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" \
+            --push .
