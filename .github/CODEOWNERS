@@ -1,0 +1,9 @@
+# Replace @CURATION_OWNER with your collaborator's GitHub handle.
+*                    @hedgeho
+/packages/core/      @hedgeho @CURATION_OWNER
+/packages/ingest/    @hedgeho
+/deploy/             @hedgeho
+/scripts/            @hedgeho
+/.github/            @hedgeho
+/packages/curation/  @CURATION_OWNER
+/packages/web/       @CURATION_OWNER

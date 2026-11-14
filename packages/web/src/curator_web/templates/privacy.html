@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Privacy</h1>
+<p>This feed stores public Bluesky posts for up to 48 hours to rank them, and honours deletions.
+For people who sign in, it stores their DID, handle, the feed description and feedback they write,
+and the feed interactions the Bluesky app sends (such as "show more/less").
+Post text and the reader's description are sent to Anthropic's API to score relevance.</p>
+{% endblock %}

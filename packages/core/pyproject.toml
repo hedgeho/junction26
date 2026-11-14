@@ -1,0 +1,13 @@
+[project]
+name = "curator-core"
+version = "0.1.0"
+description = "Shared contract: settings, SQLite connection, migrations, row types"
+requires-python = ">=3.12"
+dependencies = ["pydantic-settings>=2.16.3"]
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "curator_core"

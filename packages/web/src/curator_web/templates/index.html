@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Curator</h1>
+<p>A Bluesky feed curated for you by an LLM, from a description you write in plain language.</p>
+<form method="post" action="/login">
+  <input name="handle" placeholder="you.bsky.social" required>
+  <button>Sign in with Bluesky</button>
+</form>
+<p class="why">Feed: <code>{{ feed_uri }}</code></p>
+{% endblock %}

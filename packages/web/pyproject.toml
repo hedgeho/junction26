@@ -1,0 +1,20 @@
+[project]
+name = "curator-web"
+version = "0.1.0"
+description = "Feed generator XRPC endpoints and website"
+requires-python = ">=3.12"
+dependencies = ["curator-core", "curator-curation", "atproto>=0.0.75", "fastapi>=0.162.7", "httpx>=0.28.1", "itsdangerous>=2.2.0", "jinja2>=3.1.6", "python-multipart>=0.0.33", "uvicorn[standard]>=0.54.0"]
+
+[project.scripts]
+curator-web = "curator_web.__main__:main"
+
+[tool.uv.sources]
+curator-core = { workspace = true }
+curator-curation = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "curator_web"

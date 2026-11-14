@@ -1,0 +1,19 @@
+[project]
+name = "curator-curation"
+version = "0.1.0"
+description = "Candidate generation, Claude scoring and ranking"
+requires-python = ">=3.12"
+dependencies = ["curator-core", "anthropic>=2.8.0", "pydantic>=2.14.3"]
+
+[project.scripts]
+curator-curate = "curator_curation.__main__:main"
+
+[tool.uv.sources]
+curator-core = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "curator_curation"

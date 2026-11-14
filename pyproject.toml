@@ -1,0 +1,13 @@
+# Virtual uv workspace root: not a package itself. `uv sync --all-packages` installs every member.
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = ["pytest>=9.2.0", "ruff>=0.17.5"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages"]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 120

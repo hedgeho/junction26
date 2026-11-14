@@ -1,0 +1,19 @@
+[project]
+name = "curator-ingest"
+version = "0.1.0"
+description = "Jetstream ingest, follow sync and retention"
+requires-python = ">=3.12"
+dependencies = ["curator-core", "httpx>=0.28.1", "websockets>=17.4"]
+
+[project.scripts]
+curator-ingest = "curator_ingest.__main__:main"
+
+[tool.uv.sources]
+curator-core = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "curator_ingest"
