@@ -13,6 +13,7 @@ from curator_core.sources import get_post
 from . import notes, profiles, screen, triage
 from .candidates import public_candidates
 from .config import settings
+from .llm.gemini import DECISION_SCORER_VERSION
 
 log = logging.getLogger(__name__)
 BASELINE_REVISION = "baseline-v1"
@@ -50,11 +51,23 @@ def build(conn, uid, scorer_version: str) -> str | None:
     config = config_for(conn, uid)
     if not config:
         return None
+    decisions = scorer_version.startswith(DECISION_SCORER_VERSION)
+    threshold = settings().decision_minimum_relevance if decisions else settings().minimum_relevance
     rows = conn.execute(
         """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
         AND decision='include' AND relevance>=?""",
-        (uid, revision(profile), scorer_version, settings().minimum_relevance),
+        (uid, revision(profile), scorer_version, threshold),
     ).fetchall()
+    # Substantive posts the reader did not ask for but that are not unrelated; never flagged ones.
+    nearby = (
+        conn.execute(
+            """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
+            AND decision='exclude' AND relevance>=0.5 AND substance>=0.75""",
+            (uid, revision(profile), scorer_version),
+        ).fetchall()
+        if decisions
+        else []
+    )
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
     previous = {
         r[0]
@@ -64,46 +77,78 @@ def build(conn, uid, scorer_version: str) -> str | None:
             (uid, day_key(config)),
         )
     }
-    pool = []
-    for row in rows:
-        post = get_post(conn, row["post_key"])
-        if (
-            not post
-            or post.content_hash != row["content_hash"]
-            or post.author_key in blocked(config)
-            or post.key in dismissed | previous
-            or post.observed_at < time.time() - 86400
-            or screen.label_blocked(screen.labels_of(conn, post.key))
-        ):
-            continue
-        flags = triage.flags_of(conn, post)
-        if triage.hidden(flags):
-            continue
-        age_h = max(0, (time.time() - post.published_at) / 3600)
-        value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
-        value *= triage.penalty(flags)
-        pool.append((value, post))
-    pool.sort(key=lambda p: (-p[0], p[1].key))
+    account = conn.execute("SELECT bluesky_did FROM reader_accounts WHERE id=?", (uid,)).fetchone()
+    followed = {
+        "bluesky:" + r[0]
+        for r in conn.execute(
+            "SELECT subject_did FROM follows WHERE user_did=?", (account["bluesky_did"] if account else "",)
+        )
+    }
+
+    def candidates(assessments, strict):
+        out = []
+        for row in assessments:
+            post = get_post(conn, row["post_key"])
+            if (
+                not post
+                or post.content_hash != row["content_hash"]
+                or post.author_key in blocked(config)
+                or post.key in dismissed | previous
+                or post.observed_at < time.time() - 86400
+                or screen.label_blocked(screen.labels_of(conn, post.key))
+            ):
+                continue
+            flags = triage.flags_of(conn, post)
+            if triage.hidden(flags) or (strict and triage.penalty(flags) < 1):
+                continue
+            age_h = max(0, (time.time() - post.published_at) / 3600)
+            value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
+            out.append((value * triage.penalty(flags), post))
+        out.sort(key=lambda p: (-p[0], p[1].key))
+        return out
+
+    pool = candidates(rows, strict=False)
+    limit = delivery_limit(config)
     selected, authors, conversations, texts, stories = [], {}, set(), set(), set()
-    for _, post in pool:
+
+    def take(post) -> bool:
         conversation = (post.platform, post.root_id or post.parent_id or post.native_id)
         normalized = " ".join(post.text.casefold().split())
         story = screen.story_key(post)
         if (
-            conversation in conversations
+            post in selected
+            or conversation in conversations
             or normalized in texts
             or (story and story in stories)
             or authors.get(post.author_key, 0) >= 2
         ):
-            continue
+            return False
         selected.append(post)
         conversations.add(conversation)
         texts.add(normalized)
         if story:
             stories.add(story)
         authors[post.author_key] = authors.get(post.author_key, 0) + 1
-        if len(selected) >= delivery_limit(config):
+        return True
+
+    social = 0
+    for _, post in pool:
+        if social >= min(settings().social_slots, limit):
             break
+        if post.author_key in followed and take(post):
+            social += 1
+    serendipity = candidates(nearby, strict=True)
+    reserved = min(len(serendipity), int(limit * settings().serendipity_share))
+    for _, post in pool:
+        if len(selected) >= limit - reserved:
+            break
+        take(post)
+    for _, post in serendipity:
+        if len(selected) >= limit:
+            break
+        take(post)
+    rank = {post.key: i for i, (_, post) in enumerate(pool)}
+    selected.sort(key=lambda p: rank.get(p.key, len(rank)))
     run_id = uuid.uuid4().hex
     with db.tx(conn):
         current = profiles.head(conn, uid)

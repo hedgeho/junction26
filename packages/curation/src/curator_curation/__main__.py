@@ -33,7 +33,9 @@ def main() -> None:
             )
             triager = worker.make_triager(cfg)
             if triager:
-                triager.flags(PublicCandidate("x:synthetic", "x", "A reproducible compiler benchmark", "", False, False))
+                triager.flags(
+                    PublicCandidate("x:synthetic", "x", "A reproducible compiler benchmark", "", False, False)
+                )
             private = GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
             private.update_profile("# Interests\nCompilers", "Prefer detailed technical results")
             private.match(

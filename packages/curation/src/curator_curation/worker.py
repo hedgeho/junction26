@@ -37,7 +37,9 @@ def scorer_version() -> str:
 
 def make_scorer(cfg):
     if cfg.scoring_backend == "decisions":
-        return GeminiDecisionScorer(cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s)
+        return GeminiDecisionScorer(
+            cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s, cfg.decision_concurrency
+        )
     if cfg.scoring_backend == "generative":
         return GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
     raise ValueError("unsupported scoring backend")
@@ -49,7 +51,11 @@ def make_triager(cfg):
     return None
 
 
-def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None) -> int:
+def budget_key(uid: str) -> str:
+    return f"scoring-budget:{uid}:{datetime.now(UTC).date().isoformat()}"
+
+
+def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None, limit: int | None = None) -> int:
     cfg = settings()
     timing = {} if timing is None else timing
     started = time.monotonic()
@@ -76,12 +82,11 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None)
             (uid, p.key, profile_revision, p.content_hash, version),
         ).fetchone()
     ]
-    unscored, timing["screened"] = screen.screen(conn, unscored, followed, cfg.candidates_per_cycle)
+    unscored, timing["screened"] = screen.screen(conn, unscored, followed, limit or cfg.candidates_per_cycle)
     timing["candidates_s"] = round(time.monotonic() - started, 3)
     total = 0
     batches = []
-    day = datetime.now(UTC).date().isoformat()
-    budget_key = f"scoring-budget:{uid}:{day}"
+    budget = budget_key(uid)
     prompt = (
         profiles.markdown(conn, uid)
         if profile
@@ -90,10 +95,10 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None)
     for start in range(0, len(unscored), cfg.score_batch_size):
         batch = unscored[start : start + cfg.score_batch_size]
         with db.tx(conn):
-            used = int(db.kv_get(conn, budget_key) or "0")
+            used = int(db.kv_get(conn, budget) or "0")
             if used + len(batch) > cfg.daily_scoring_cap:
                 break
-            db.kv_set(conn, budget_key, str(used + len(batch)))
+            db.kv_set(conn, budget, str(used + len(batch)))
         described, wanted = media.describe(batch)
         request = PublicScoringRequest(
             prompt,
@@ -206,9 +211,10 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None) -> None:
         uid = profiles.bootstrap(conn, did)
         config = digests.config_for(conn, uid)
         last = digests.latest(conn, uid)
-        if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
-            return
         if scorer is None:
+            return
+        if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
+            score_ahead(conn, scorer, did, uid, triager)
             return
         db.kv_set(conn, "curation-state:" + uid, "processing")
         current = profiles.head(conn, uid)
@@ -235,6 +241,27 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None) -> None:
         if uid:
             db.kv_set(conn, "curation-state:" + uid, "failed")
         log.warning("curation cycle failed for a reader; retry next cycle")
+
+
+def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
+    """Score a small batch of new candidates while the digest is current, so a refresh rarely waits on models.
+
+    Paced to leave a fifth of the day's scoring allowance for refreshes.
+    """
+    cfg = settings()
+    key = "background-scored:" + uid
+    now = time.time()
+    if now - int(db.kv_get(conn, key) or "0") < cfg.background_score_interval_s:
+        return
+    db.kv_set(conn, key, str(int(now)))
+    midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    allowance = cfg.daily_scoring_cap * 0.8 * (now - midnight) / 86400
+    if int(db.kv_get(conn, budget_key(uid)) or "0") >= allowance:
+        return
+    try:
+        score_user(conn, scorer, did, None, triager, limit=cfg.score_batch_size)
+    except Exception:  # noqa: BLE001 - the current digest stays valid; retry next interval
+        log.warning("Background scoring failed for a reader; retry next interval")
 
 
 def _curate_in_own_connection(scorer, gemma, did: str, triager) -> None:

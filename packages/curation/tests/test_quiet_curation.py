@@ -442,57 +442,62 @@ def test_image_fetch_rejects_foreign_hosts_non_images_and_oversize(conn, monkeyp
     assert media.fetch_images(wanted) == ()
 
 
-def test_decision_scorer_maps_structured_results_and_public_images():
-    from curator_curation.llm.gemini import GeminiDecisionScorer, ScoringImage
-
-    seen = {}
-
-    def create(**kwargs):
-        seen.update(kwargs)
-        answers = {}
-        for name in kwargs["questions"]:
-            answers[name] = (
-                SimpleNamespace(type="choice", choice="include")
-                if name.endswith("_decision")
-                else SimpleNamespace(type="score", score=3.0)
-            )
-        return SimpleNamespace(answers=answers)
+def decision_scorer(create):
+    from curator_curation.llm.gemini import GeminiDecisionScorer
 
     scorer = object.__new__(GeminiDecisionScorer)
-    scorer.model = "gemini-decision-1"
-    scorer.timeout_s = 30
+    scorer.model, scorer.timeout_s, scorer.concurrency = "gemini-decision-1", 30, 4
     scorer.client = SimpleNamespace(decisions=SimpleNamespace(create=create))
+    return scorer
+
+
+def decision_answers(grade=3.0, want=0.9, substance=2.0, opportunity=1.0):
+    return {
+        "grade": SimpleNamespace(type="score", score=grade),
+        "want": SimpleNamespace(type="noul", noul=want),
+        "substance": SimpleNamespace(type="score", score=substance),
+        "opportunity": SimpleNamespace(type="score", score=opportunity),
+    }
+
+
+def test_decision_scorer_asks_once_per_post_with_only_its_images():
+    from curator_curation.llm.gemini import DECISION_QUESTIONS, ScoringImage
+
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        text = kwargs["input"][0]["text"]
+        return SimpleNamespace(answers=decision_answers(want=0.9 if "x:one" in text else 0.1))
+
     request = PublicScoringRequest(
         "Public preferences",
-        (PublicCandidate("x:one", "x", "Original text", "", False, False),),
+        (
+            PublicCandidate("x:one", "x", "Original text", "", False, False, ({"type": "image", "image_ref": "p0m0"},)),
+            PublicCandidate("x:two", "x", "Other text", "", False, False),
+        ),
         (ScoringImage("p0m0", "image/png", b"original-image"),),
     )
-    result = scorer.score(request)
-    assert result.items[0].post_key == "x:one"
-    assert result.items[0].decision == "include"
-    assert result.items[0].relevance == 0.75
-    assert len(seen["questions"]) == 4
-    assert "Public preferences" in seen["input"][0]["text"]
-    assert seen["input"][2]["type"] == "image"
-    assert seen["input"][2]["data"] == "b3JpZ2luYWwtaW1hZ2U="
+    result = decision_scorer(create).score(request)
+    by_key = {item.post_key: item for item in result.items}
+    assert [i.post_key for i in result.items] == ["x:one", "x:two"]
+    assert by_key["x:one"].decision == "include" and by_key["x:two"].decision == "exclude"
+    assert by_key["x:one"].relevance == 1.0 and by_key["x:one"].substance == 0.5 and by_key["x:one"].opportunity == 0.25
+    assert len(calls) == 2 and all(c["questions"] == DECISION_QUESTIONS for c in calls)
+    first = next(c for c in calls if "x:one" in c["input"][0]["text"])
+    second = next(c for c in calls if "x:two" in c["input"][0]["text"])
+    assert "Public preferences" in first["input"][0]["text"] and "Other text" not in first["input"][0]["text"]
+    assert first["input"][2] == {"type": "image", "mime_type": "image/png", "data": "b3JpZ2luYWwtaW1hZ2U="}
+    assert len(second["input"]) == 1
 
 
 def test_decision_scorer_rejects_missing_or_invalid_answers():
-    from curator_curation.llm.gemini import GeminiDecisionScorer
-
     request = PublicScoringRequest("Public", (PublicCandidate("x:one", "x", "Text", "", False, False),))
-    scorer = object.__new__(GeminiDecisionScorer)
-    scorer.model = "gemini-decision-1"
-    scorer.timeout_s = 30
-    scorer.client = SimpleNamespace(decisions=SimpleNamespace(create=lambda **kwargs: SimpleNamespace(answers={})))
     with pytest.raises(ValueError, match="coverage"):
-        scorer.score(request)
-
-    def wrong_score(**kwargs):
-        answers = {name: SimpleNamespace(type="score", score=5) for name in kwargs["questions"]}
-        answers["p0_decision"] = SimpleNamespace(type="choice", choice="include")
-        return SimpleNamespace(answers=answers)
-
-    scorer.client.decisions.create = wrong_score
+        decision_scorer(lambda **kwargs: SimpleNamespace(answers={})).score(request)
     with pytest.raises(ValueError):
-        scorer.score(request)
+        decision_scorer(lambda **kwargs: SimpleNamespace(answers=decision_answers(grade=5))).score(request)
+    wrong_type = decision_answers()
+    wrong_type["want"] = SimpleNamespace(type="score", score=1.0)
+    with pytest.raises(ValueError):
+        decision_scorer(lambda **kwargs: SimpleNamespace(answers=wrong_type)).score(request)
