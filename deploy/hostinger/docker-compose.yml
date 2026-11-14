@@ -1,0 +1,33 @@
+# Hostinger hackathon box. deploy.sh builds junction26:latest on the box, then runs this.
+# TLS and routing come from Hostinger's preinstalled Traefik (/docker/traefik, host network,
+# docker provider, `letsencrypt` resolver), configured through the labels on `web`.
+name: junction26
+
+x-curator: &curator
+  image: junction26:latest
+  pull_policy: never
+  restart: unless-stopped
+  env_file: /opt/junction26/.env
+  environment:
+    HOSTNAME: feed.ilia.fi
+  volumes:
+    - /opt/junction26/data:/app/data
+
+services:
+  ingest:
+    <<: *curator
+    command: ["curator-ingest", "run"]
+
+  curate:
+    <<: *curator
+    command: ["curator-curate", "run"]
+
+  web:
+    <<: *curator
+    command: ["curator-web"]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.junction26.rule=Host(`feed.ilia.fi`)
+      - traefik.http.routers.junction26.entrypoints=websecure
+      - traefik.http.routers.junction26.tls.certresolver=letsencrypt
+      - traefik.http.services.junction26.loadbalancer.server.port=8000
