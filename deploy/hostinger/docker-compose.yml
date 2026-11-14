@@ -1,10 +1,10 @@
-# Hostinger hackathon box. deploy.sh builds junction26:latest on the box, then runs this.
+# Hostinger hackathon box. deploy.sh pulls the CI-built image (or builds it with --local), then runs this.
 # TLS and routing come from Hostinger's preinstalled Traefik (/docker/traefik, host network,
 # docker provider, `letsencrypt` resolver), configured through the labels on `web`.
 name: junction26
 
 x-curator: &curator
-  image: junction26:latest
+  image: ghcr.io/hedgeho/junction26:${TAG:-latest}
   pull_policy: never
   restart: unless-stopped
   env_file: /opt/junction26/.env

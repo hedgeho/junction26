@@ -103,17 +103,8 @@ async def me(request: Request):
     )
 
 
-@router.post("/me/prompt")
-def save_prompt(request: Request, prompt: str = Form("")):
-    did = current_did(request)
-    db.connect().execute("UPDATE users SET prompt = ? WHERE did = ?", (prompt.strip()[:4000], did))
-    return RedirectResponse("/me", status_code=303)
-
-
-@router.post("/me/feedback")
-async def feedback(request: Request, text: str = Form(...)):
-    did = current_did(request)
-    c = db.connect()
+async def apply_profile_update(c, did: str, text: str) -> None:
+    """Run text through the profile LLM and store the resulting preference changes."""
     current = [dict(p) for p in active_preferences(c, did)]
     client = anthropic.Anthropic(api_key=curation_settings().anthropic_api_key or None)
     update = await asyncio.to_thread(profile.interpret_feedback, client, text, current)
@@ -135,6 +126,23 @@ async def feedback(request: Request, text: str = Form(...)):
             "UPDATE preferences SET active = 0 WHERE id = ? AND user_did = ?",
             [(i, did) for i in update.deactivate_ids if i in own],
         )
+
+
+@router.post("/me/prompt")
+async def save_prompt(request: Request, prompt: str = Form("")):
+    did = current_did(request)
+    prompt = prompt.strip()[:4000]
+    c = db.connect()
+    c.execute("UPDATE users SET prompt = ? WHERE did = ?", (prompt, did))
+    if prompt:
+        await apply_profile_update(c, did, f"The reader set their feed description to: {prompt}")
+    return RedirectResponse("/me", status_code=303)
+
+
+@router.post("/me/feedback")
+async def feedback(request: Request, text: str = Form(...)):
+    did = current_did(request)
+    await apply_profile_update(db.connect(), did, text)
     return RedirectResponse("/me", status_code=303)
 
 

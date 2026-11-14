@@ -32,7 +32,7 @@ uv run curator-ingest run             # terminal 1: Jetstream + follow sync
 uv run curator-curate run             # terminal 2: scoring loop
 uv run curator-web                    # terminal 3: http://127.0.0.1:8000 (use the IP, not localhost)
 uv run pytest                         # everything
-uv run --exact --package curator-ingest pytest packages/ingest   # one package, as CI runs it
+uv run --exact --package curator-ingest --with pytest pytest packages/ingest   # one package, as CI runs it
 ```
 
 Other commands:

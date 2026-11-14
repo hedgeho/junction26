@@ -1,4 +1,4 @@
-name: Build & deploy to ghcr
+name: Build & push image to ghcr
 
 on:
   push:
@@ -6,17 +6,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+  build-and-push:
+    runs-on: craci
     permissions:
       contents: read
       packages: write
 
     steps:
+      - uses: cracicorp/setup@v1
+        with:
+          network: |
+            default: deny
+            presets: [github, ghcr, pypi]
+
       - uses: actions/checkout@v4
 
       - name: Login to GHCR, build and push
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker build -f deploy/Dockerfile -t ghcr.io/${{ github.repository }}:latest .
-          docker push ghcr.io/${{ github.repository }}:latest
+          docker build -f deploy/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"

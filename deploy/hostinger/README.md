@@ -5,15 +5,32 @@ The DNS record lives in `~/personal/vps_deployment/dns/ilia_fi.tf`.
 
 ## Deploy
 
+Production runs the image CI built, so it matches the CRACI build record and SBOM for that
+commit. On push to `main`, `.github/workflows/deploy_image.yml` builds on a CRACI runner and
+pushes `ghcr.io/hedgeho/junction26:<sha>` and `:latest`. Once that run is green:
+
 ```sh
-deploy/hostinger/deploy.sh                       # uses the `hostinger` alias from ~/.ssh/config
+deploy/hostinger/deploy.sh                       # pulls the image for your HEAD commit
 deploy/hostinger/deploy.sh root@195.179.193.90   # anyone else whose key is on the box
+deploy/hostinger/deploy.sh --local               # fallback: build the working tree on the box
 ```
 
-It rsyncs the working tree (minus `.git`, `.venv`, `data`, `.env`) to `/opt/junction26/src`,
-builds `junction26:latest` on the box, and restarts compose. HTTPS comes from Hostinger's
-preinstalled Traefik (`/docker/traefik`); leave it and the Hermes agent next to it alone. No GitHub credentials live on
-the box. The first run installs Docker, enables ufw (22, 80, 443) and creates the secrets file.
+It rsyncs the working tree (minus `.git`, `.venv`, `data`, `.env`) to `/opt/junction26/src`
+for the compose file and bootstrap script, pulls (or builds) the image, records the tag in
+`src/deploy/hostinger/.env` and restarts compose. HTTPS comes from Hostinger's preinstalled
+Traefik (`/docker/traefik`); leave it and the Hermes agent next to it alone. The first run
+installs Docker, enables ufw (22, 80, 443) and creates the secrets file.
+
+### Registry login (once per box)
+
+The package is private, so the box needs a read-only token. Create a classic GitHub PAT with
+only the `read:packages` scope, then:
+
+```sh
+ssh -t hostinger 'docker login ghcr.io -u hedgeho'   # paste the PAT as the password
+```
+
+No GitHub write credentials live on the box.
 
 ## Secrets
 
