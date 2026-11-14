@@ -10,7 +10,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  validate:
+    runs-on: craci
+    timeout-minutes: 10
+    steps:
+      - uses: cracicorp/setup@v1
+        with:
+          network: |
+            default: deny
+            presets: [github, pypi]
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --all-packages --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run --frozen --with pytest pytest -q -p no:cacheprovider
+
   build-and-push:
+    needs: validate
     runs-on: craci
     timeout-minutes: 15
     permissions:

@@ -21,6 +21,15 @@ for the compose file and bootstrap script, pulls (or builds) the image, records 
 Traefik (`/docker/traefik`); leave it and the Hermes agent next to it alone. The first run
 installs Docker, enables ufw (22, 80, 443) and creates the secrets file.
 
+Production also runs `agora-autodeploy.timer`, which checks the registry once a minute.
+The image workflow runs lint and tests before publishing `latest`; the timer pulls that
+image and its matching commit tag, backs up SQLite, and starts the new image. It rolls
+back the image on startup/health failure and will not retry the same failed revision.
+Backups remain in `/opt/junction26/data/backups` and must be monitored and cleaned up
+deliberately. Compose configuration and the timer script itself still require a manual
+update on the host when they change. Inspect `systemctl status agora-autodeploy.timer`
+and `journalctl -u agora-autodeploy.service` for deployment status.
+
 ### Registry login (once per box)
 
 The package is private, so the box needs a read-only token. Create a classic GitHub PAT with
