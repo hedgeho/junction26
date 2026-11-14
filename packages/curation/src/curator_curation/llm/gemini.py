@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from google import genai
 from google.genai import types
 
+from . import ratelimit
 from .schemas import Assessment, Assessments
 
 SCORER_VERSION = "quiet-v2"
@@ -166,12 +167,15 @@ DECISION_QUESTIONS = {
 class GeminiDecisionScorer:
     """Use the Decisions API once per public post; a batch fans out concurrently."""
 
-    def __init__(self, api_key: str, model: str, timeout_s: float = 120, concurrency: int = 8):
+    def __init__(
+        self, api_key: str, model: str, timeout_s: float = 120, concurrency: int = 8, tokens_per_minute: int = 0
+    ):
         if not api_key or not model:
             raise ValueError("Gemini Decisions is not configured")
         self.model = model
         self.timeout_s = timeout_s
         self.concurrency = concurrency
+        self.limiter = ratelimit.bucket(model, tokens_per_minute)
         self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(api_version="v1beta"))
 
     def score(self, request: PublicScoringRequest) -> Assessments:
@@ -201,6 +205,8 @@ class GeminiDecisionScorer:
                     },
                 ]
             )
+        if self.limiter:
+            self.limiter.acquire(ratelimit.estimate(blocks, DECISION_QUESTIONS))
         response = self.client.decisions.create(
             model=self.model, input=blocks, questions=DECISION_QUESTIONS, timeout=self.timeout_s
         )
@@ -255,11 +261,12 @@ FLAG_CRITERIA = {
 class GeminiDecisionTriager:
     """Reader-independent content flags for one public post. Wording matches the thresholds' calibration set."""
 
-    def __init__(self, api_key: str, model: str, timeout_s: float = 120):
+    def __init__(self, api_key: str, model: str, timeout_s: float = 120, tokens_per_minute: int = 0):
         if not api_key or not model:
             raise ValueError("Gemini Decisions is not configured")
         self.model = model
         self.timeout_s = timeout_s
+        self.limiter = ratelimit.bucket(model, tokens_per_minute)
         self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(api_version="v1beta"))
 
     def flags(self, post: PublicCandidate) -> dict[str, float]:
@@ -278,8 +285,11 @@ class GeminiDecisionTriager:
             }
             for flag, (desc, negative) in FLAG_CRITERIA.items()
         }
+        payload = json.dumps(state, ensure_ascii=False)
+        if self.limiter:
+            self.limiter.acquire(ratelimit.estimate(payload, questions))
         response = self.client.decisions.create(
-            model=self.model, input=json.dumps(state, ensure_ascii=False), questions=questions, timeout=self.timeout_s
+            model=self.model, input=payload, questions=questions, timeout=self.timeout_s
         )
         answers = response.answers or {}
         out = {}

@@ -109,7 +109,7 @@ def test_decision_triager_asks_typed_flags_and_validates_answers():
         return SimpleNamespace(answers={f: SimpleNamespace(type="noul", noul=0.2) for f in kwargs["questions"]})
 
     triager = object.__new__(GeminiDecisionTriager)
-    triager.model, triager.timeout_s = "gemini-decision-1", 30
+    triager.model, triager.timeout_s, triager.limiter = "gemini-decision-1", 30, None
     triager.client = SimpleNamespace(decisions=SimpleNamespace(create=create))
     candidate = PublicCandidate("x:1", "x", "Original text", "", False, True, ({"type": "link", "title": "Headline"},))
     assert triager.flags(candidate) == {f: 0.2 for f in FLAG_CRITERIA}
@@ -135,7 +135,7 @@ def test_decision_questions_use_only_fields_the_gemini_api_accepts():
         return SimpleNamespace(answers={f: SimpleNamespace(type="noul", noul=0.2) for f in kwargs["questions"]})
 
     triager = object.__new__(GeminiDecisionTriager)
-    triager.model, triager.timeout_s = "gemini-decision-1", 30
+    triager.model, triager.timeout_s, triager.limiter = "gemini-decision-1", 30, None
     triager.client = SimpleNamespace(decisions=SimpleNamespace(create=create))
     triager.flags(PublicCandidate("x:1", "x", "Text", "", False, False))
     allowed = {"noul": NoulQuestionParam, "score": ScoreQuestionParam}

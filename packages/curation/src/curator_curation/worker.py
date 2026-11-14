@@ -38,7 +38,11 @@ def scorer_version() -> str:
 def make_scorer(cfg):
     if cfg.scoring_backend == "decisions":
         return GeminiDecisionScorer(
-            cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s, cfg.decision_concurrency
+            cfg.gemini_api_key,
+            cfg.gemini_decision_model,
+            cfg.inference_timeout_s,
+            cfg.decision_concurrency,
+            cfg.decision_tokens_per_minute,
         )
     if cfg.scoring_backend == "generative":
         return GeminiScorer(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
@@ -47,7 +51,9 @@ def make_scorer(cfg):
 
 def make_triager(cfg):
     if cfg.triage_enabled and cfg.scoring_backend == "decisions" and cfg.gemini_api_key:
-        return GeminiDecisionTriager(cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s)
+        return GeminiDecisionTriager(
+            cfg.gemini_api_key, cfg.gemini_decision_model, cfg.inference_timeout_s, cfg.decision_tokens_per_minute
+        )
     return None
 
 
@@ -124,37 +130,6 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
             model_s.append(time.monotonic() - t1)
 
     scoring_started = time.monotonic()
-    untriaged = []
-    if triager:
-        included = {
-            r[0]
-            for r in conn.execute(
-                """SELECT post_key FROM assessments_v2 WHERE user_id=? AND profile_revision=?
-                AND scorer_version=? AND decision='include'""",
-                (uid, profile_revision, version),
-            )
-        }
-        to_score = [p for batch, _, _ in batches for p in batch]
-        fresh = {p.key for p in to_score}
-        retries = [p for p in pool if p.key in included and p.key not in fresh]
-        untriaged = (
-            triage.missing(conn, to_score, triager.model)
-            + triage.missing(conn, retries, triager.model)[: cfg.score_batch_size]
-        )
-    background = ThreadPoolExecutor(max_workers=1)
-
-    def run_triage(candidates):
-        t0 = time.monotonic()
-        try:
-            return triage.assess(triager, candidates, cfg.triage_concurrency)
-        finally:
-            timing["triage_s"] = round(time.monotonic() - t0, 3)
-
-    flagged = (
-        background.submit(run_triage, [triage.candidate(p, media.describe([p])[0][p.key]) for p in untriaged])
-        if untriaged
-        else None
-    )
     with ThreadPoolExecutor(max_workers=max(1, min(cfg.score_concurrency, 8))) as executor:
         futures = {executor.submit(run_batch, request, wanted): batch for batch, request, wanted in batches}
         for future in as_completed(futures):
@@ -193,11 +168,29 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                     )
                     total += 1
     timing["relevance_s"] = round(time.monotonic() - scoring_started, 3)
-    if flagged:
-        results = flagged.result()
-        triage.store(conn, untriaged, results, triager.model)
-        timing.update(triaged=len(results), triage_failed=len(untriaged) - len(results))
-    background.shutdown()
+    if triager:
+        # Flags only matter for posts a digest could deliver, so triage follows relevance.
+        deliverable = {
+            r[0]
+            for r in conn.execute(
+                """SELECT post_key FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
+                AND (decision='include' OR (relevance>=0.5 AND substance>=0.75))""",
+                (uid, profile_revision, version),
+            )
+        }
+        untriaged = triage.missing(conn, [p for p in pool if p.key in deliverable], triager.model)
+        untriaged = untriaged[: cfg.candidates_per_cycle]
+        if untriaged:
+            t0 = time.monotonic()
+            results = triage.assess(
+                triager, [triage.candidate(p, media.describe([p])[0][p.key]) for p in untriaged], cfg.triage_concurrency
+            )
+            triage.store(conn, untriaged, results, triager.model)
+            timing.update(
+                triaged=len(results),
+                triage_failed=len(untriaged) - len(results),
+                triage_s=round(time.monotonic() - t0, 3),
+            )
     timing.update(
         scoring_s=round(time.monotonic() - scoring_started, 3),
         batches=len(batches),

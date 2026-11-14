@@ -446,7 +446,7 @@ def decision_scorer(create):
     from curator_curation.llm.gemini import GeminiDecisionScorer
 
     scorer = object.__new__(GeminiDecisionScorer)
-    scorer.model, scorer.timeout_s, scorer.concurrency = "gemini-decision-1", 30, 4
+    scorer.model, scorer.timeout_s, scorer.concurrency, scorer.limiter = "gemini-decision-1", 30, 4, None
     scorer.client = SimpleNamespace(decisions=SimpleNamespace(create=create))
     return scorer
 

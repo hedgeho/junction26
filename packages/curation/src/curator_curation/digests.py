@@ -99,7 +99,7 @@ def build(conn, uid, scorer_version: str) -> str | None:
             ):
                 continue
             flags = triage.flags_of(conn, post)
-            if triage.hidden(flags) or (strict and triage.penalty(flags) < 1):
+            if triage.hidden(flags) or (strict and (flags is None or triage.penalty(flags) < 1)):
                 continue
             age_h = max(0, (time.time() - post.published_at) / 3600)
             value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
