@@ -1,6 +1,7 @@
 import base64
 import json
 
+import pytest
 from curator_core import db
 from curator_core.testing import add_user, insert_post
 from curator_curation import digests, profiles, worker
@@ -39,10 +40,10 @@ def test_landing_page_links_to_working_sign_in_form(conn):
     assert "Resurrect the dead internet" in response.text
 
 
-def seed(conn, **post_cols):
+def seed(conn, source_text="Original human post about compilers", **post_cols):
     add_user(conn, DID, "GENERATED_CONFIG_SENTINEL")
     uid = profiles.bootstrap(conn, DID)
-    uri = insert_post(conn, "did:plc:human", "1", "Original human post about compilers", **post_cols)
+    uri = insert_post(conn, "did:plc:human", "1", source_text, **post_cols)
     db.kv_set(conn, "setup:" + uid, "done")
     conn.execute("INSERT INTO bluesky_feed_sync VALUES (?,'feed','ready',unixepoch(),unixepoch(),1)", (DID,))
     conn.execute("INSERT INTO bluesky_feed_posts VALUES (?,?,0,unixepoch())", (DID, "bluesky:" + uri))
@@ -572,17 +573,21 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
                 ]
             )
 
+    selected_keys = []
+
     class Gemma:
         def update_profile(self, current, feedback, terms=()):
             return ProfileProposal(markdown=current + "\n- [topic] Current: technical research\n", search_terms=[])
 
         def select_feed(self, posts, limit, profile, request):
             assert request and "More technical research" in request["instruction"]
-            return [post["post_key"] for post in posts][:limit]
+            selected_keys[:] = [post["post_key"] for post in reversed(posts)][:limit]
+            return selected_keys
 
     conn.execute("UPDATE reader_settings SET refresh_requested=1 WHERE user_id=?", (uid,))
     worker.run_cycle(conn, Scorer())
     assert len(digests.read(conn, uid)) == 10
+    previous_run = digests.latest(conn, uid)["id"]
     client = client_for()
     page = client.get("/me").text
     assert "Shape your feed" in page
@@ -618,7 +623,9 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     worker.run_cycle(conn, Scorer(), Gemma())
     assert limits == [40]
     assert "technical research" in profiles.markdown(conn, uid)
-    assert len(digests.read(conn, uid)) <= 10
+    assert digests.latest(conn, uid)["id"] != previous_run
+    assert selected_keys
+    assert [post["key"] for post in digests.read(conn, uid)] == selected_keys
     assert not conn.execute("SELECT 1 FROM feed_requests WHERE user_id=?", (uid,)).fetchone()
     assert "More technical research" not in client.get("/me").text
     conn.execute("UPDATE reader_settings SET requested_more_day='2000-01-01' WHERE user_id=?", (uid,))
@@ -1285,6 +1292,48 @@ def test_feedback_result_reports_its_exact_revision_and_survives_feed_reload(con
     assert "window.pwned=1</script>" not in client.get("/settings").text
 
 
+@pytest.mark.parametrize("scope", ["post", "feed", "more"])
+def test_feedback_model_gets_source_context_and_saves_only_principles(conn, monkeypatch, scope):
+    from curator_curation import jobs
+    from curator_curation.llm.gemma import GemmaClient
+    from curator_curation.llm.schemas import PreferenceLine, ProfileEdits
+
+    source_text = "Compiler evaluation " + "detailed evidence " * 40 + "Reproducible benchmark methodology"
+    uid = seed(conn, source_text=source_text)
+    post_key = digests.read(conn, uid)[0]["key"]
+    seen = {}
+    principle = "Prefer in-depth compiler evaluations with reproducible benchmarks"
+
+    def call(self, instruction, payload, schema, max_tokens=8192):
+        seen.update(instruction=instruction, payload=payload)
+        return ProfileEdits(add=[PreferenceLine(category="topic", text=principle)])
+
+    monkeypatch.setattr(GemmaClient, "_call", call)
+    data = {"csrf": "csrf-test", "key": "context-" + scope, "text": "I want more of this"}
+    if scope == "post":
+        data["post_key"] = post_key
+    else:
+        data["visible_post_key"] = post_key
+    client = client_for()
+    response = client.post(
+        "/me/more" if scope == "more" else "/me/feedback",
+        data=data,
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 202
+    assert jobs.process_one(conn, GemmaClient("https://gemma.example/v1", "test", "test"))
+    prompt = seen["payload"]["feedback"]
+    assert source_text in prompt and "Reproducible benchmark methodology" in prompt
+    assert "I want more of this" in prompt
+    assert "standalone curation principle" in seen["instruction"]
+    assert "Never save the feedback verbatim" in prompt
+    profile = profiles.markdown(conn, uid)
+    assert principle in profile and "I want more of this" not in profile
+    receipt = client.get("/api/jobs/" + response.json()["job_id"]).json()
+    assert receipt["diff"]["changed"]
+    assert not any(line["type"] == "context" for line in receipt["diff"]["lines"])
+
+
 def test_noop_feedback_does_not_claim_the_previous_revision_diff(conn):
     from curator_curation import jobs
 
@@ -1296,6 +1345,39 @@ def test_noop_feedback_does_not_claim_the_previous_revision_diff(conn):
     conn.execute("UPDATE feedback_jobs SET state='applied',applied_revision=? WHERE id=?", (revision, job_id))
     receipt = client_for().get("/api/jobs/" + job_id).json()
     assert receipt["changes"] == [] and not receipt["diff"]["changed"] and receipt["diff"]["lines"] == []
+
+
+@pytest.mark.parametrize("endpoint", ["/me/feedback", "/me/more"])
+def test_full_feed_feedback_accepts_all_fifty_visible_posts(conn, monkeypatch, endpoint):
+    from curator_web import site
+
+    uid = seed(conn)
+    source = digests.read(conn, uid)[0]
+    posts = [dict(source, key=f"bluesky:at://did:plc:author/app.bsky.feed.post/{number}") for number in range(50)]
+    monkeypatch.setattr(site.digests, "read", lambda *args: posts)
+    fields = [("csrf", (None, "csrf-test")), ("key", (None, "fifty")), ("text", (None, "more research"))]
+    fields.extend(("visible_post_key", (None, post["key"])) for post in posts)
+    response = client_for().post(endpoint, files=fields, headers={"Accept": "application/json"})
+    assert response.status_code == 202
+    row = conn.execute("SELECT feed_context FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()
+    assert len(json.loads(row["feed_context"])) == 50
+
+
+def test_large_feed_context_has_a_shared_budget_and_preserves_post_endings(conn, monkeypatch):
+    from curator_web import site
+
+    uid = seed(conn)
+    source = digests.read(conn, uid)[0]
+    posts = [
+        dict(source, key=f"bluesky:missing-{number}", text="Beginning " + "evidence " * 1000 + "Conclusion")
+        for number in range(50)
+    ]
+    monkeypatch.setattr(site.digests, "read", lambda *args: posts)
+    context = site.feed_context(conn, uid, [post["key"] for post in posts])
+    snapshots = json.loads(context)
+    assert len(snapshots) == 50 and len(context) < 30000
+    assert all(post["text"].startswith("Beginning") and post["text"].endswith("Conclusion") for post in snapshots)
+    assert all("[truncated]" in post["text"] for post in snapshots)
 
 
 def test_feedback_diffs_are_scoped_to_each_post_and_each_document(conn):

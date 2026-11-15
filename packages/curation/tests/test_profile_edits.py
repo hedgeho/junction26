@@ -17,6 +17,47 @@ def test_flattened_profile_parses_into_lines():
     assert tail == ""
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I want more of this",
+        "More like this",
+        "Less of these posts please",
+        "Prefer content similar to this.",
+        "More please",
+    ],
+)
+def test_vague_references_without_source_context_do_not_call_the_model(monkeypatch, text):
+    from curator_curation.llm.gemma import GemmaClient
+
+    def unexpected_call(*args, **kwargs):
+        pytest.fail("Unresolvable feedback must not trigger model inference")
+
+    monkeypatch.setattr(GemmaClient, "_call", unexpected_call)
+    result = GemmaClient("https://gemma.example/v1", "t", "m").update_profile(FLAT, text, ["birds"])
+    assert result.markdown == FLAT and result.search_terms == ["birds"]
+
+
+@pytest.mark.parametrize(
+    "text", ["More: compiler benchmarks", "Prefer technical posts like this", "Less promotional hype"]
+)
+def test_explicit_preferences_are_not_mistaken_for_empty_references(text):
+    assert not profile_edits.unresolved_reference(text)
+
+
+@pytest.mark.parametrize("category,text", [("topic", "More like this"), ("feedback", "Less hype")])
+def test_model_cannot_save_transcripts_or_unresolved_preferences(monkeypatch, category, text):
+    from curator_curation.llm.gemma import GemmaClient
+
+    def call(*args, **kwargs):
+        return ProfileEdits(add=[PreferenceLine(category=category, text=text)])
+
+    monkeypatch.setattr(GemmaClient, "_call", call)
+    model = GemmaClient("https://gemma.example/v1", "t", "m")
+    with pytest.raises(ValueError, match="standalone curation principles"):
+        model.update_profile(FLAT, "<post>A compiler benchmark</post><user_feedback>More of this</user_feedback>")
+
+
 def test_edits_change_only_the_named_lines_and_keep_terms():
     edits = ProfileEdits(
         remove=[3],
@@ -69,6 +110,41 @@ def test_gemma_sees_numbered_lines_and_terms_not_a_document(monkeypatch):
 def test_bare_removals_are_ignored_so_lines_change_only_by_replacement():
     markdown, _ = profile_edits.apply(FLAT, [], ProfileEdits(remove=[2]))
     assert "- [rule] Exclude: furries\n" in markdown
+
+
+def test_contextual_feedback_cannot_archive_an_unrelated_interest(monkeypatch):
+    from curator_curation.llm.gemma import GemmaClient
+
+    original = "# Profile\n\n- [topic] Prefer in-depth compiler evaluations with reproducible benchmarks\n"
+
+    def call(*args, **kwargs):
+        return ProfileEdits(remove=[0], add=[PreferenceLine(category="rule", text="Exclude marketing announcements")])
+
+    monkeypatch.setattr(GemmaClient, "_call", call)
+    result = GemmaClient("https://gemma.example/v1", "t", "m").update_profile(
+        original, "<post>A marketing announcement</post><user_feedback>Less of this</user_feedback>"
+    )
+    assert "- [topic] Prefer in-depth compiler evaluations with reproducible benchmarks" in result.markdown
+    assert "- [rule] Exclude marketing announcements" in result.markdown
+    assert "[history]" not in result.markdown
+
+
+def test_contextual_feedback_can_still_update_the_same_subject(monkeypatch):
+    from curator_curation.llm.gemma import GemmaClient
+
+    original = "# Profile\n\n- [topic] More: cooking\n"
+
+    def call(*args, **kwargs):
+        return ProfileEdits(
+            remove=[0], add=[PreferenceLine(category="topic", text="More: cooking, but not Italian food")]
+        )
+
+    monkeypatch.setattr(GemmaClient, "_call", call)
+    result = GemmaClient("https://gemma.example/v1", "t", "m").update_profile(
+        original, "<post>Italian cooking</post><user_feedback>Not Italian food</user_feedback>"
+    )
+    assert "- [history] Previously: More: cooking" in result.markdown
+    assert "- [topic] More: cooking, but not Italian food" in result.markdown
 
 
 def test_legacy_search_term_lines_are_hidden_from_the_model_and_kept():

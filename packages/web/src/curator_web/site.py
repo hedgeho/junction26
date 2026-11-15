@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from curator_core import db
+from curator_core.sources import get_post
 from curator_curation import digests, drive_notes, funnel, health, jobs, note_folders, profile_edits, profiles
 from curator_curation.config import settings as curation_settings
 from curator_curation.readers import ensure_user
@@ -28,7 +29,7 @@ log = logging.getLogger(__name__)
 async def csrf_guard(request: Request):
     if request.method != "POST":
         return
-    form = await request.form(max_fields=20, max_files=0, max_part_size=300000)
+    form = await request.form(max_fields=64, max_files=0, max_part_size=300000)
     received = form.get("csrf", "")
     expected = request.session.get("csrf", "")
     if not isinstance(received, str) or not expected or not hmac.compare_digest(received, expected):
@@ -556,8 +557,19 @@ def feed_context(conn, uid, visible_keys=None):
     posts = digests.read(conn, uid)
     if visible_keys and (len(visible_keys) > 50 or set(visible_keys) != {p["key"] for p in posts}):
         raise HTTPException(409, "The feed changed. Reload before sending feedback.")
+    text_limit = min(4000, 20000 // max(1, len(posts)))
     return json.dumps(
-        [{"post_key": p["key"], "author": p["author"][:100], "text": p["text"][:500]} for p in posts],
+        [
+            {
+                "post_key": post["key"],
+                "author": post["author"][:100],
+                "text": jobs.excerpt(post["text"], text_limit),
+                "context": jobs.source_context(conn, source, text_limit // 4)
+                if (source := get_post(conn, post["key"]))
+                else "",
+            }
+            for post in posts
+        ],
         ensure_ascii=False,
     )
 

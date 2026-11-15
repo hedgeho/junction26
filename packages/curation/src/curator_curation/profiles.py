@@ -114,13 +114,13 @@ def revision_diff(conn, user_id: str, revision_id: str) -> dict | None:
             if not parent:
                 raise ValueError("missing parent revision")
             before = content(parent)
-        # Prefixes, hunk positions and context are retained; no model summaries or truncation.
         for index, line in enumerate(
             difflib.unified_diff(
                 before.splitlines(),
                 after.splitlines(),
                 fromfile=filename + " (before)",
                 tofile=filename + " (after)",
+                n=0,
                 lineterm="",
             )
         ):
