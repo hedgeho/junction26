@@ -67,6 +67,13 @@ def test_profile_compare_and_swap_and_exact_unicode(conn):
     assert profiles.markdown(conn, uid) == body
 
 
+def test_crlf_profile_round_trips(conn):
+    uid, _ = setup(conn)
+    body = "# Interests\r\n\r\nCompilers\r\n"
+    profiles.save(conn, uid, "public", body, profiles.head(conn, uid)["id"])
+    assert profiles.markdown(conn, uid) == body
+
+
 def test_job_crash_recovery_does_not_apply_twice(conn):
     uid, _ = setup(conn)
     job = jobs.enqueue(conn, uid, "public", "more compilers", "recover")

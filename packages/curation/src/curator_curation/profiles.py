@@ -47,7 +47,7 @@ def markdown(conn, user_id: str, kind: str = "public") -> str:
     current = head(conn, user_id, kind)
     if not current:
         return ""
-    body = _path(user_id, kind, current["id"]).read_text(encoding="utf-8")
+    body = _path(user_id, kind, current["id"]).read_bytes().decode("utf-8")
     if hashlib.sha256(body.encode()).hexdigest() != current["content_hash"]:
         raise ValueError("revision integrity error")
     return body
