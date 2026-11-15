@@ -202,7 +202,11 @@ def _scan_shared(conn, user_id, root):
             response = client.post(
                 "https://api.context.dev/v1/web/scrape",
                 headers={"Authorization": "Bearer " + settings().context_dev_api_key},
-                json={"url": "https://drive.google.com/drive/folders/" + current, "formats": {"html": True}},
+                json={
+                    "url": "https://drive.google.com/drive/folders/" + current,
+                    "formats": {"html": True},
+                    "maxAgeMs": 0,
+                },
             )
             response.raise_for_status()
             result = response.json().get("html") or {}

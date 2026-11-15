@@ -208,7 +208,9 @@ def test_shared_drive_scans_nested_markdown_and_rejects_incomplete_listing(conn,
     def handle(request):
         if request.url.host == "api.context.dev":
             assert request.headers["authorization"] == "Bearer test-key"
-            folder = json.loads(request.content)["url"].split("/")[-1]
+            payload = json.loads(request.content)
+            assert payload["maxAgeMs"] == 0
+            folder = payload["url"].split("/")[-1]
             rows = (
                 row("childfolder123", "folder", "nested")
                 if folder == "rootfolder123"
@@ -290,3 +292,30 @@ def test_shared_drive_rejects_untrusted_or_incomplete_responses(conn, monkeypatc
     assert not note_folders.folder_for(conn, uid)
     assert not conn.execute("SELECT 1 FROM note_versions").fetchone()
     clear_settings()
+
+
+def test_shared_drive_does_not_reuse_an_old_single_file_listing(conn, monkeypatch):
+    import json
+
+    uid = reader(conn)
+    monkeypatch.setenv("CONTEXT_DEV_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    clear_settings()
+    original_client = httpx.Client
+
+    def handle(request):
+        if request.url.host == "api.context.dev":
+            count = 7 if json.loads(request.content).get("maxAgeMs") == 0 else 1
+            rows = "".join(
+                f'<tr data-id="file12345678{i}" data-target="doc"><td><span class="WQJtxb">note{i}.md</span></td></tr>'
+                for i in range(count)
+            )
+            html = f'<table role="grid" aria-label="Item List" aria-rowcount="{count}">{rows}</table>'
+            return httpx.Response(200, json={"html": {"success": True, "data": html}})
+        return httpx.Response(200, content=b"Original note", headers={"content-type": "text/markdown"})
+
+    monkeypatch.setattr(
+        drive_notes.httpx, "Client", lambda **kwargs: original_client(transport=httpx.MockTransport(handle))
+    )
+    note_folders.configure(conn, uid, "drive:rootfolder123")
+    assert conn.execute("SELECT count(*) FROM note_versions WHERE user_id=?", (uid,)).fetchone()[0] == 7
