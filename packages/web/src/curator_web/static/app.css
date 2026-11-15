@@ -182,6 +182,13 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .image-dialog img { display: block; max-width: calc(100vw - 80px); max-height: calc(100vh - 80px); object-fit: contain; }
 .image-close { position: fixed; right: 16px; top: 16px; width: 40px; height: 40px; padding: 10px; border: 0; background: transparent; color: white; }
 .image-close:hover { background: rgba(255,255,255,.15); }
+@media (max-width: 480px) {
+ .toolbar, .dialog-footer, .settings-footer { flex-wrap: wrap; }
+ .connection-top { flex-wrap: wrap; }
+ .image-dialog { padding: 16px; }
+ .image-dialog img { max-width: calc(100vw - 32px); max-height: calc(100dvh - 80px); }
+ .image-close { top: 4px; right: 4px; }
+}
 
 .social-action[aria-pressed="true"] { color: var(--primary); }
 .social-action[aria-pressed="true"] svg { fill: currentColor; }

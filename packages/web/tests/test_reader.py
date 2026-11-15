@@ -32,6 +32,11 @@ def test_landing_page_links_to_working_sign_in_form(conn):
     assert 'id="join"' in response.text
     assert 'action="/login"' in response.text
     assert 'name="csrf"' in response.text
+    assert 'value="bluesky"' in response.text
+    assert 'value="threads" disabled' in response.text
+    assert "Threads sign-in is not yet supported" in response.text
+    assert "including deleting your posts" not in response.text
+    assert "Resurrect the dead internet" in response.text
 
 
 def seed(conn, **post_cols):

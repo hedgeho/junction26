@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f1f2ec">
-<title>Agora &middot; A better public square</title>
+<title>Agora &middot; The modern public square</title>
 <script src="/static/theme.js?v={{ asset_version }}"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,10 +35,12 @@
         <svg class="logo-story" id="logoStory" viewBox="-20 -20 140 140" role="img" aria-label="The Agora logo: scattered pieces fall into place as a single meander line leading to a golden dot"></svg>
         <h1 class="name" id="name">AGORA</h1>
       </div>
-      <p class="promise typed" data-type data-delay="900" data-speed="140">A better public square.</p>
+      <p class="promise typed" data-type data-delay="900" data-speed="140">The modern public square.</p>
       <p class="define"><b>agora</b> (ἀγορά): the ancient Greek gathering place for intellectual, civic and commercial life.</p>
-      <a class="cta network-cta" href="#join" aria-label="Try Agora with Bluesky and Threads; sign in with Bluesky"><i></i><span>Try Agora with</span><span class="network-label" aria-hidden="true"><span class="network-bluesky">Bluesky</span><span class="network-threads">Threads</span></span></a>
+    <div class="hero-actions">
+        <a class="cta network-cta" href="#join" aria-label="Try Agora with Bluesky and Threads; sign in with Bluesky"><i></i><span>Try Agora with</span><span class="network-label" aria-hidden="true"><span class="network-bluesky">Bluesky</span><span class="network-threads">Threads</span></span></a>
       <a class="cue" href="#square"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg>Read the story</a>
+    </div>
     </div>
   </section>
 
@@ -49,7 +51,7 @@
       <div style="display:grid;gap:22px;min-width:0">
         <span class="num">I · The square</span>
         <h2 id="h1">Every Greek city had one.</h2>
-        <p class="story typed" data-type data-speed="95">A square where people traded goods, news and ideas. Where you could hear a philosopher in the morning and argue politics by the afternoon. Where a city made up its mind, together.</p>
+        <p class="story typed" data-type data-speed="95">A square where people traded goods, news and ideas. Where you could hear a philosopher in the morning and argue politics by the afternoon. Where a city made up its mind together, with intent.</p>
       </div>
       <div class="bust" aria-label="Marble bust of a woman in profile, drawn in line, on olive">
         <div class="grid"></div>
@@ -81,34 +83,38 @@
     <div class="inner">
       <span class="num">IV · We stay</span>
       <h2 id="h4">We're not leaving.</h2>
-      <p class="story">Our friends are here. The news is here. The ideas we haven't met yet are here.</p>
+      <p class="story">Our friends are here. The news is here. The ideas we want to engage with are here. The global conversations we want to contribute to are here.</p>
     </div>
   </section>
 
   <section class="band ch olive" aria-labelledby="h5">
     <div class="inner">
-      <span class="num">V · A better square</span>
+      <span class="num">V · The modern public square</span>
       <h2 id="h5">So we built one.</h2>
       <ul class="feature-list">
         <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Tell Agora what you care about,</strong> in your own words, and your feed starts there.</span></li>
-        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Make the feed yours.</strong> Share feedback to shape what you see next.</span></li>
-        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Bring your own ideas.</strong> Connect your notes to find relevant thoughts alongside posts.</span></li>
+        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Make the feed yours.</strong> Share nuanced feedback to shape what you see next in fine-grained detail.</span></li>
+        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Bring your own ideas.</strong> Connect your notes to discover relevant thoughts alongside posts, and find opportunities to share your ideas with interested audiences.</span></li>
+        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Resurrect the dead internet</strong> and harness the algorithms for your goals with only intentional signals.</span></li>
       </ul>
     </div>
   </section>
 
   <section class="band ch close" id="join" aria-labelledby="h6">
-    <div class="inner">
+    <div class="inner join-layout">
+      <div class="join-intro">
       <span class="num">VI · Take back the square</span>
       <p class="values">Fewer bots. More voices. A square built for people, not clicks.</p>
       <h2 class="big typed" id="h6" data-type data-speed="170">Take back the square.</h2>
+      </div>
       <div class="join-card">
-        <h3>Connect Bluesky</h3><p>Use your Bluesky account to get started.</p>
+        <h3>Connect <label class="visually-hidden" for="login-platform">Sign-in platform</label><select id="login-platform" aria-describedby="platform-help"><option value="bluesky">Bluesky</option><option value="threads" disabled>Threads (sign-in unavailable)</option></select></h3>
+        <p id="platform-help">Sign in with Bluesky to get started. Threads posts are available when enabled; Threads sign-in is not yet supported.</p>
         <form method="post" action="/login">
           <input type="hidden" name="csrf" value="{{ csrf }}">
           <label for="handle">Bluesky handle</label>
           <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true" autofocus{% endif %}>
-          <p class="join-help" id="login-help">Read your feed and allow interactions you choose to make, including deleting your posts.</p>
+          <p class="join-help" id="login-help">Read your feed and allow interactions you choose to make.</p>
           {% if error %}<p class="join-error" role="alert" id="login-error">{{ error }}</p>{% endif %}
           <button class="cta" type="submit"><i></i>Continue</button>
         </form>
@@ -119,7 +125,7 @@
 </main>
 
 <footer class="band foot">
-  <div class="inner"><span>Agora · A better public square</span><span>Built at Junction 2026 on Bluesky's open protocol</span></div>
+  <div class="inner"><span>Agora · The modern public square</span><span>Built at Junction 2026 on Bluesky's open protocol</span></div>
 </footer>
 
 

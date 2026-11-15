@@ -22,8 +22,8 @@ function branch(svg,p0,c,p2,n,size,fruitEvery){
     if(fruitEvery&&i%fruitEvery===0)el("ellipse",{cx:x+side*s*.5,cy:y+s*.4,rx:s*.26,ry:s*.2,class:"fruit"},svg);
   }}
 function sprig(svg,x,y0,y1,amp,seg,leaf){let y=y0,dir=1;while(y<y1){const ny=Math.min(y1,y+seg);branch(svg,[x,y],[x+amp*dir,(y+ny)/2],[x,ny],5,leaf,dir>0?5:0);y=ny;dir*=-1}}
-sprig(document.getElementById("sideL"),44,40,990,20,110,8);
-sprig(document.getElementById("sideR"),44,10,960,20,120,8);
+sprig(document.getElementById("sideL"),44,-50,1050,20,110,8);
+sprig(document.getElementById("sideR"),44,-60,1080,20,120,8);
 
 
 (function(){const b=document.getElementById("bust");
