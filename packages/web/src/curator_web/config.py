@@ -6,6 +6,8 @@ class WebSettings(CoreSettings):
     session_secret: str = "dev-only-change-me"
     # Shown on the data deletion page when set.
     contact_email: str = ""
+    # Reader whose curated feed is shown read-only at /demo; empty disables the demo.
+    demo_did: str = ""
     for_you_sync_interval_s: int = 60  # Background For You pulls for connected readers; 0 = off
 
 

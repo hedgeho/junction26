@@ -184,6 +184,8 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .post-actions { gap: 12px; flex-wrap: wrap; }
 .social-actions { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
 .action-platform { margin-right: 5px; color: var(--muted); font-size: 11px; }
+a.action-platform { text-decoration: none; }
+a.action-platform:hover { color: var(--ink); }
 .social-action, .feedback-action { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); text-decoration: none; }
 .social-action:hover, .feedback-action:hover { background: var(--soft); color: var(--ink); }
 .feedback-action { gap: 5px; border-left: 1px solid var(--line); border-radius: 0; font-size: 11px; }

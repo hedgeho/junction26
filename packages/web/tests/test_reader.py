@@ -3,6 +3,7 @@ import json
 
 import pytest
 from curator_core import db
+from curator_core.config import clear_settings
 from curator_core.testing import add_user, insert_post
 from curator_curation import digests, profiles, worker
 from curator_curation.llm.schemas import Assessment, Assessments
@@ -1433,3 +1434,46 @@ def test_configuration_diff_history_paginates_without_gaps_or_other_readers(conn
     assert client.get("/settings/history/unknown").status_code == 404
     assert client.get("/settings/history/feed-curation?before=" + str(2**64)).status_code == 404
     assert "Other reader secret" not in html + older
+
+
+def test_demo_is_disabled_without_a_configured_reader(conn, monkeypatch):
+    seed(conn)
+    monkeypatch.setenv("DEMO_DID", "")
+    client = TestClient(create_app(), base_url="https://feed.example.com")
+    assert client.get("/demo").status_code == 404
+    assert client.get("/api/demo/post-details").status_code == 404
+    assert 'href="/demo"' not in client.get("/").text
+    monkeypatch.setenv("DEMO_DID", "did:plc:never-signed-in")
+    clear_settings()
+    assert client.get("/demo").status_code == 404
+    assert conn.execute("SELECT 1 FROM users WHERE did='did:plc:never-signed-in'").fetchone() is None
+
+
+def test_demo_shows_configured_feed_read_only_without_notes(conn, monkeypatch):
+    from curator_web import appview
+
+    uid = seed(conn)
+    post = digests.read(conn, uid)[0]
+    monkeypatch.setattr(
+        digests,
+        "read",
+        lambda c, u: [dict(post, notes=[{"chunk_id": 1, "title": "Diary", "text": "PRIVATE_NOTE_SENTINEL"}])],
+    )
+    monkeypatch.setattr(appview, "get_posts", lambda uris: [])
+    monkeypatch.setenv("DEMO_DID", DID)
+    clear_settings()
+    client = TestClient(create_app(), base_url="https://feed.example.com")
+    assert 'href="/demo"' in client.get("/").text
+    response = client.get("/demo")
+    assert response.status_code == 200
+    assert "Original human post" in response.text
+    assert "data-read-only" in response.text
+    assert 'data-funnel-url="/api/demo/funnel"' in response.text
+    assert "PRIVATE_NOTE_SENTINEL" not in response.text
+    assert "GENERATED_CONFIG_SENTINEL" not in response.text
+    for action in ("/me/feedback", "/me/more", "/me/daily-limit", "social-interact"):
+        assert action not in response.text
+    details = client.get("/api/demo/post-details").json()["items"]
+    assert set(details) == {post["key"]}
+    assert "stages" in client.get("/api/demo/funnel").json()
+    assert client.get("/me").url.path == "/"

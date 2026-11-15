@@ -142,7 +142,57 @@ def logout(request: Request):
 def index(request: Request):
     if request.session.get("did"):
         return redirect()
-    return page(request, "index.html", {})
+    return page(request, "index.html", {"demo_available": bool(web_settings().demo_did)})
+
+
+def demo_reader(conn) -> str:
+    """The configured demo reader's id; never creates a reader for an anonymous visitor."""
+    did = web_settings().demo_did
+    row = conn.execute("SELECT id FROM reader_accounts WHERE bluesky_did=?", (did,)).fetchone() if did else None
+    if not row:
+        raise HTTPException(404, "Demo unavailable")
+    return row["id"]
+
+
+def demo_posts(conn, uid):
+    return [dict(post, notes=[]) for post in reader_posts(conn, uid, web_settings().demo_did)]
+
+
+@router.get("/demo", response_class=HTMLResponse)
+def demo(request: Request):
+    c = db.connect()
+    try:
+        posts = demo_posts(c, demo_reader(c))
+    finally:
+        c.close()
+    return page(
+        request,
+        "demo.html",
+        {
+            "posts": posts,
+            "post_metadata": {post["key"]: post_details.imported_details(post) for post in posts},
+            "gemma_scoring": curation_settings().scoring_backend == "gemma",
+        },
+    )
+
+
+@router.get("/api/demo/post-details")
+async def demo_post_details_api():
+    c = db.connect()
+    try:
+        posts = demo_posts(c, demo_reader(c))
+    finally:
+        c.close()
+    return {"items": await displayed_details(posts)}
+
+
+@router.get("/api/demo/funnel")
+def demo_funnel_api():
+    c = db.connect()
+    try:
+        return funnel.compute(c, demo_reader(c), web_settings().demo_did)
+    finally:
+        c.close()
 
 
 @router.get("/privacy", response_class=HTMLResponse)
@@ -259,6 +309,10 @@ async def post_details_api(request: Request):
         posts = reader_posts(c, reader(request, c), current_did(request))
     finally:
         c.close()
+    return {"items": await displayed_details(posts)}
+
+
+async def displayed_details(posts):
     items = {post["key"]: post_details.imported_details(post) for post in posts}
     bluesky = {post["key"].removeprefix("bluesky:"): post for post in posts if post["platform"] == "bluesky"}
     if bluesky:
@@ -274,7 +328,7 @@ async def post_details_api(request: Request):
             for field, value in source.items():
                 if value or (field == "reply_count" and value is not None):
                     items["bluesky:" + uri][field] = value
-    return {"items": items}
+    return items
 
 
 def thread_contains_ancestor(thread: dict, root_uri: str) -> bool:

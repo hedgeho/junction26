@@ -354,7 +354,7 @@ async function loadFunnel(section) {
  const notes = section.querySelector('.funnel-notes');
  const number = new Intl.NumberFormat();
  try {
-  const response = await fetch('/api/funnel', {cache:'no-store', headers:{Accept:'application/json'}});
+  const response = await fetch(section.dataset.funnelUrl || '/api/funnel', {cache:'no-store', headers:{Accept:'application/json'}});
   if (!response.ok) throw new Error('funnel');
   const funnel = await response.json();
   if (!funnel.stages.length) { status.textContent = 'No posts counted yet.'; return; }
@@ -602,7 +602,7 @@ function hydratePostCards(page = document) {
   const metadata = JSON.parse(page.getElementById('post-metadata')?.textContent || '{}');
   postCards.forEach(post => { if (metadata[post.dataset.postKey]) renderPostDetails(post, metadata[post.dataset.postKey]); });
  } catch (_) { /* The original source text remains readable. */ }
- if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
+ if (postCards.length) fetch(document.getElementById('feed-posts')?.dataset.detailsUrl || '/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
  .then(response => response.ok && !response.redirected ? response.json() : null)
  .then(data => { if (data?.items) postCards.forEach(post => {const details = data.items[post.dataset.postKey]; if (details) renderPostDetails(post, details);}); })
  .catch(() => {});
@@ -973,7 +973,8 @@ function bindCommentButtons() { document.querySelectorAll('.comments-toggle').fo
  else { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; }
 })); }
 function initializePostCards(page = document) {
- hydratePostCards(page); bindShareButtons(); bindNoteButtons(); bindSocialButtons(); bindCommentButtons(); startNoteMatching();
+ hydratePostCards(page); bindShareButtons();
+ if (!document.getElementById('feed-posts')?.hasAttribute('data-read-only')) { bindNoteButtons(); bindSocialButtons(); bindCommentButtons(); startNoteMatching(); }
  postCards.forEach(post => post.querySelectorAll('time[datetime]').forEach(node => {
   const date = new Date(node.dateTime);
   if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric'}).format(date);
