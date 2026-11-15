@@ -809,3 +809,49 @@ def test_decision_scorer_excludes_policy_blocked_posts_but_raises_other_errors()
     assert [(i.post_key, i.decision) for i in result.items] == [("x:ok", "include"), ("x:blocked", "exclude")]
     with pytest.raises(Blocked):
         decision_scorer(create).score(request("x:ok", "x:broken"))
+
+
+def add_threads_post(conn, native_id: str, text: str) -> str:
+    conn.execute(
+        """INSERT INTO social_posts VALUES ('threads',?,'alice','alice',?,?,NULL,?,NULL,NULL,NULL,'',0,'[]','alice',NULL)""",
+        (native_id, text, f"https://www.threads.com/@alice/post/{native_id}", int(time.time()) - 60),
+    )
+    return "threads:" + native_id
+
+
+def test_scored_threads_posts_lead_the_digest_even_when_excluded(conn):
+    uid, bluesky = setup(conn)
+    threads = add_threads_post(conn, "t1", "Junction is pretty fun, cannot deny that")
+
+    class ExcludesThreads(FakeScorer):
+        def score(self, request):
+            result = super().score(request)
+            for item in result.items:
+                if item.post_key.startswith("threads:"):
+                    item.decision, item.relevance = "exclude", 0.1
+            return result
+
+    worker.run_cycle(conn, ExcludesThreads())
+    assert [p["key"] for p in digests.read(conn, uid)] == [threads, bluesky]
+
+
+def test_threads_recall_is_not_crowded_out_by_bluesky_pools(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:followed"))
+    now = int(time.time())
+    for i in range(10):
+        insert_post(conn, "did:plc:followed", f"f{i}", "A followed author's post", age_s=60)
+        liked = insert_post(conn, f"did:plc:liked{i}", "x", "Post liked by a followed account")
+        conn.execute(
+            "INSERT INTO followed_engagement (actor_did,subject_uri,kind,at) VALUES (?,?,?,?)",
+            ("did:plc:followed", liked, "like", now),
+        )
+        shown = insert_post(conn, f"did:plc:fy{i}", "x", "For you feed post here")
+        conn.execute(
+            "INSERT INTO bluesky_feed_posts (user_did,post_key,observed_at,position) VALUES (?,?,?,?)",
+            (DID, "bluesky:" + shown, now, i),
+        )
+    threads = add_threads_post(conn, "t1", "Unique compiler topic on Threads")
+    assert threads in {p.key for p in public_candidates(conn, DID, ["Unique compiler"], 6)}

@@ -36,6 +36,7 @@ class CurationSettings(CoreSettings):
     decision_concurrency: int = 8  # Per-post Decisions requests in flight per scoring batch
     decision_tokens_per_minute: int = 500000  # Input tokens per process, scoring and triage combined; 0 = unlimited
     social_slots: int = 3  # Digest positions reserved for followed authors that pass the filter
+    threads_slots: int = 2  # Top digest positions reserved for scored Threads posts, whatever their decision
     serendipity_share: float = 0.1  # Digest share for substantive, clean posts just outside the profile
     hide_shown_posts: bool = True  # Leave posts delivered on earlier days out of later digests
     background_score_interval_s: int = 60  # Score new candidates ahead of refreshes this often

@@ -151,7 +151,8 @@ def public_candidates(conn, did: str, terms: list[str], limit: int):
             ORDER BY bm25(social_posts_fts) LIMIT ?""",
             (query, since, share),
         )
-        pools.append([f"{r[0]}:{r[1]}" for r in normalized])
+        # Imported Threads/X posts are rare, and the Bluesky pools alone can fill the whole limit.
+        pools.insert(0, [f"{r[0]}:{r[1]}" for r in normalized])
     pools.append(rising(conn, share))
     # Recent posts are an unranked firehose sample, so they only keep a sparse pool from running dry.
     backfill = min(limit, settings().recent_backfill_floor)

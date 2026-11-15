@@ -181,6 +181,30 @@ class Selection:
         return True
 
 
+def with_threads(conn, uid, profile, scorer_version: str, config, skip: set[str], selected: list, limit: int) -> list:
+    """Put the reader's best scored Threads posts first, regardless of decision, up to `threads_slots`."""
+    slots = min(settings().threads_slots, limit)
+    if slots <= 0:
+        return selected
+    rows = conn.execute(
+        """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
+        AND post_key LIKE 'threads:%'""",
+        (uid, revision(profile), scorer_version),
+    ).fetchall()
+    boosted = Selection()
+    for _, post in ranked(conn, rows, config, skip, strict=False):
+        if len(boosted.posts) >= slots:
+            break
+        boosted.take(post)
+    if not boosted.posts:
+        return selected
+    for post in selected:
+        if len(boosted.posts) >= limit:
+            break
+        boosted.take(post)
+    return boosted.posts
+
+
 def build(conn, uid, scorer_version: str, selector=None, request=None) -> str | None:
     profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
@@ -231,6 +255,7 @@ def build(conn, uid, scorer_version: str, selector=None, request=None) -> str | 
         selected = [allowed[key] for key in keys[:limit]]
     else:
         selected = selected[:limit]
+    selected = with_threads(conn, uid, profile, scorer_version, config, skip, selected, limit)
     run_id = uuid.uuid4().hex
     with db.tx(conn):
         current = profiles.head(conn, uid)
