@@ -604,7 +604,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     assert 'id="feedback-dialog"' not in page
     assert 'name="kind"' not in page
     assert "Tell your feed" in page
-    assert 'formaction="/me/more"' in page
+    assert 'formaction="/me/more"' not in page
     assert client.post("/me/more", data={"key": "more-one", "text": "More technical research"}).status_code == 403
     data = {"csrf": "csrf-test", "key": "more-one", "text": "More technical research"}
     assert client.post("/me/more", data=data, follow_redirects=False).status_code == 303
