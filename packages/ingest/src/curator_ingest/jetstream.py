@@ -46,6 +46,8 @@ class Batch:
     followed_engagement: list[tuple] = field(default_factory=list)
     last_time_us: int = 0
     seen: int = 0
+    # Post creates by hour, before the language filter: hour -> [posts, lang_dropped].
+    hourly: dict[int, list[int]] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return self.seen
@@ -87,7 +89,10 @@ def handle_event(evt: dict, batch: Batch, keep_langs: set[str], followed: frozen
             return
         rec = commit.get("record") or {}
         langs = rec.get("langs") or []
+        counts = batch.hourly.setdefault(evt.get("time_us", 0) // 3_600_000_000, [0, 0])
+        counts[0] += 1
         if keep_langs and not keep_langs.intersection(langs):
+            counts[1] += 1
             return
         reply = rec.get("reply") or {}
         parent = (reply.get("parent") or {}).get("uri")
@@ -138,6 +143,11 @@ def flush(conn, batch: Batch) -> None:
                 [(n, u) for u, n in counts.items()],
             )
         conn.executemany("INSERT OR IGNORE INTO followed_engagement VALUES (?,?,?,?)", batch.followed_engagement)
+        conn.executemany(
+            """INSERT INTO firehose_stats VALUES (?,?,?) ON CONFLICT(hour) DO UPDATE
+            SET posts=posts+excluded.posts, lang_dropped=lang_dropped+excluded.lang_dropped""",
+            [(hour, posts, dropped) for hour, (posts, dropped) in batch.hourly.items()],
+        )
         if batch.last_time_us:
             db.kv_set(conn, CURSOR_KEY, str(batch.last_time_us))
 

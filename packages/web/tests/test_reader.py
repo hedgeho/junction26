@@ -829,3 +829,18 @@ def test_theme_toggle_has_an_icon_not_a_placeholder(conn):
     html = TestClient(create_app(), base_url="https://feed.example.com").get("/").text
     assert 'aria-hidden="true">?<' not in html
     assert 'aria-hidden="true">&#9680;<' in html
+
+
+def test_funnel_api_returns_only_counts_for_the_signed_in_reader(conn):
+    seed(conn)
+    response = client_for().get("/api/funnel")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stages"][-1] == {"key": "delivered", "label": "In today's feed", "count": 1, "drops": []}
+    assert "compilers" not in response.text.casefold()
+    assert (
+        TestClient(create_app(), base_url="https://feed.example.com", follow_redirects=False)
+        .get("/api/funnel")
+        .status_code
+        == 303
+    )

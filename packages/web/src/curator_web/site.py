@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from curator_core import db
-from curator_curation import digests, drive_notes, health, jobs, note_folders, profiles
+from curator_curation import digests, drive_notes, funnel, health, jobs, note_folders, profiles
 from curator_curation.config import settings as curation_settings
 from curator_curation.readers import ensure_user
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -488,6 +488,15 @@ def curation_status(request: Request):
     c = db.connect()
     try:
         return health.filtering_status(c, reader(request, c))
+    finally:
+        c.close()
+
+
+@router.get("/api/funnel")
+def funnel_api(request: Request):
+    c = db.connect()
+    try:
+        return funnel.compute(c, reader(request, c), current_did(request))
     finally:
         c.close()
 

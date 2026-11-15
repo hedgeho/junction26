@@ -171,7 +171,7 @@ if (feedbackPanel) {
 const algorithmDialog = document.getElementById('algorithm-info-dialog');
 const algorithmOpen = document.getElementById('algorithm-info-open');
 if (algorithmDialog && algorithmOpen) {
- algorithmOpen.addEventListener('click', () => algorithmDialog.showModal());
+ algorithmOpen.addEventListener('click', () => { algorithmDialog.showModal(); loadFunnel(algorithmDialog.querySelector('.funnel')); });
  document.getElementById('algorithm-info-close').addEventListener('click', () => algorithmDialog.close());
  algorithmDialog.addEventListener('close', () => algorithmOpen.focus());
  algorithmDialog.addEventListener('click', event => {
@@ -179,6 +179,57 @@ if (algorithmDialog && algorithmOpen) {
   const rect = algorithmDialog.getBoundingClientRect();
   if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) algorithmDialog.close();
  });
+}
+function el(tag, className, text) {
+ const node = document.createElement(tag);
+ if (className) node.className = className;
+ if (text !== undefined) node.textContent = text;
+ return node;
+}
+async function loadFunnel(section) {
+ if (!section) return;
+ const status = section.querySelector('.funnel-status');
+ const list = section.querySelector('.funnel-stages');
+ const notes = section.querySelector('.funnel-notes');
+ const number = new Intl.NumberFormat();
+ try {
+  const response = await fetch('/api/funnel', {cache:'no-store', headers:{Accept:'application/json'}});
+  if (!response.ok) throw new Error('funnel');
+  const funnel = await response.json();
+  if (!funnel.stages.length) { status.textContent = 'No posts counted yet.'; return; }
+  list.replaceChildren(...funnel.stages.map(stage => {
+   const item = el('li', 'funnel-stage');
+   const head = el('div', 'funnel-head');
+   head.append(el('span', 'funnel-count', number.format(stage.count)), el('span', 'funnel-label', stage.label));
+   item.append(head);
+   if (stage.drops.length) {
+    const drops = el('ul', 'funnel-drops');
+    for (const drop of stage.drops) {
+     const share = stage.count ? drop.count / stage.count : 0;
+     const percent = share >= 0.01 || !drop.count ? Math.round(share * 100) + '%' : '<1%';
+     const row = el('li', 'funnel-drop');
+     row.title = `${number.format(drop.count)} of ${number.format(stage.count)} (${percent})`;
+     const bar = el('span', 'funnel-bar');
+     const fill = el('span');
+     fill.style.width = drop.count ? `max(2px, ${share * 100}%)` : '0';
+     bar.append(fill);
+     row.append(bar, el('span', 'funnel-drop-count', '\u2212' + number.format(drop.count)), el('span', 'funnel-drop-label', drop.label));
+     drops.append(row);
+    }
+    item.append(drops);
+   }
+   return item;
+  }));
+  const extra = [];
+  if (funnel.notes.downranked?.length) extra.push('Ranked lower but still eligible: ' + funnel.notes.downranked.map(d => `${d.label.toLowerCase()} ${number.format(d.count)}`).join(', ') + '.');
+  if (funnel.notes.flags_pending) extra.push(`${number.format(funnel.notes.flags_pending)} relevant posts are still waiting for content checks.`);
+  notes.textContent = extra.join(' ');
+  notes.hidden = !extra.length;
+  list.hidden = false;
+  status.hidden = true;
+ } catch {
+  status.textContent = 'Counts are unavailable right now.';
+ }
 }
 // Source text stays unchanged; facets supply destinations for displayed substrings.
 function safeHttps(value) {

@@ -80,11 +80,19 @@ def flags_of(conn, post: SocialPost) -> dict[str, float] | None:
     return {name: row[name] for name in FLAGS} if row else None
 
 
+def hide_reason(flags: dict[str, float] | None) -> str | None:
+    """The hiding flag that clears its threshold by the widest margin, if any."""
+    over = {name: flags[name] - threshold for name, threshold in HIDE_AT.items() if flags and flags[name] >= threshold}
+    return max(over, key=over.get) if over else None
+
+
 def hidden(flags: dict[str, float] | None) -> bool:
-    return bool(flags) and any(flags[name] >= threshold for name, threshold in HIDE_AT.items())
+    return hide_reason(flags) is not None
+
+
+def downranks(flags: dict[str, float] | None) -> list[str]:
+    return [name for name, threshold in DOWNRANK_AT.items() if flags and flags[name] >= threshold]
 
 
 def penalty(flags: dict[str, float] | None) -> float:
-    if not flags:
-        return 1.0
-    return 0.5 ** sum(flags[name] >= threshold for name, threshold in DOWNRANK_AT.items())
+    return 0.5 ** len(downranks(flags))

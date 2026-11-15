@@ -102,3 +102,17 @@ def test_likes_and_reposts_by_followed_accounts_are_recorded(conn):
     jetstream.flush(conn, b)
     rows = conn.execute("SELECT actor_did, subject_uri, kind FROM followed_engagement").fetchall()
     assert [tuple(r) for r in rows] == [("did:friend", subject, "like")]
+
+
+def test_firehose_posts_and_language_drops_are_counted_by_hour(conn):
+    now = int(time.time())
+    b = jetstream.Batch()
+    jetstream.handle_event(post_evt("did:plc:a", "1", "hello", now), b, {"en"})
+    foreign = post_evt("did:plc:b", "2", "hei", now)
+    foreign["commit"]["record"]["langs"] = ["fi"]
+    jetstream.handle_event(foreign, b, {"en"})
+    jetstream.flush(conn, b)
+    b = jetstream.Batch()
+    jetstream.handle_event(post_evt("did:plc:c", "3", "again", now), b, {"en"})
+    jetstream.flush(conn, b)
+    assert tuple(conn.execute("SELECT hour, posts, lang_dropped FROM firehose_stats").fetchone()) == (now // 3600, 3, 1)

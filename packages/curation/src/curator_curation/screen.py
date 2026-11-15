@@ -141,29 +141,40 @@ def tag_spam(text: str, max_tags: int) -> bool:
     return any(len(found) >= max_tags and len(found) >= prose for found in (tags, mentions))
 
 
+def cheap_reasons(conn, posts: list[SocialPost], followed: set[str]) -> dict[str, str]:
+    """Drop reason by post key for the checks that need no network: campaign, author_rate or tags.
+
+    Followed authors are exempt from the rate and tag checks, never from copy-paste campaigns.
+    """
+    cfg = settings()
+    since = int(time.time()) - WINDOW_S
+    bluesky_authors = sorted({p.author_id for p in posts if p.platform == "bluesky" and p.author_id not in followed})
+    rates = _author_counts(conn, bluesky_authors, since)
+    campaigns = _campaign_uris(
+        conn, [p.native_id for p in posts if p.platform == "bluesky"], since, cfg.campaign_min_authors
+    )
+    reasons = {}
+    for post in posts:
+        if post.native_id in campaigns:
+            reasons[post.key] = "campaign"
+        elif post.author_id not in followed and rates.get(post.author_id, 0) > cfg.max_author_posts_per_day:
+            reasons[post.key] = "author_rate"
+        elif post.author_id not in followed and tag_spam(post.text, cfg.max_tags):
+            reasons[post.key] = "tags"
+    return reasons
+
+
 def screen(conn, posts: list[SocialPost], followed: set[str], limit: int) -> tuple[list[SocialPost], dict[str, int]]:
     """Returns up to `limit` eligible posts in input order, and drop counts by reason.
 
     Followed authors are exempt from the rate and tag checks, never from labels or copy-paste campaigns.
     """
     cfg = settings()
-    since = int(time.time()) - WINDOW_S
     dropped = {"labels": 0, "campaign": 0, "author_rate": 0, "tags": 0}
-    bluesky_authors = sorted({p.author_id for p in posts if p.platform == "bluesky" and p.author_id not in followed})
-    rates = _author_counts(conn, bluesky_authors, since)
-    campaigns = _campaign_uris(
-        conn, [p.native_id for p in posts if p.platform == "bluesky"], since, cfg.campaign_min_authors
-    )
-    cheap = []
-    for post in posts:
-        if post.native_id in campaigns:
-            dropped["campaign"] += 1
-        elif post.author_id not in followed and rates.get(post.author_id, 0) > cfg.max_author_posts_per_day:
-            dropped["author_rate"] += 1
-        elif post.author_id not in followed and tag_spam(post.text, cfg.max_tags):
-            dropped["tags"] += 1
-        else:
-            cheap.append(post)
+    reasons = cheap_reasons(conn, posts, followed)
+    for reason in reasons.values():
+        dropped[reason] += 1
+    cheap = [post for post in posts if post.key not in reasons]
     # Labels need a network lookup, so check only what could be scored, with headroom for drops.
     head = cheap[: limit + limit // 4]
     if cfg.label_checks:

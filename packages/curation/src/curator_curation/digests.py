@@ -46,11 +46,8 @@ def blocked(config) -> set[str]:
     return set(json.loads(config["blocked_authors"]))
 
 
-def build(conn, uid, scorer_version: str) -> str | None:
-    profile = profiles.head(conn, uid)
-    config = config_for(conn, uid)
-    if not config:
-        return None
+def assessments(conn, uid, profile, scorer_version: str):
+    """Digest-eligible assessments: (requested, nearby). Nearby is substantive but outside the profile."""
     decisions = scorer_version.startswith(DECISION_SCORER_VERSION)
     threshold = settings().decision_minimum_relevance if decisions else settings().minimum_relevance
     rows = conn.execute(
@@ -58,7 +55,6 @@ def build(conn, uid, scorer_version: str) -> str | None:
         AND decision='include' AND relevance>=?""",
         (uid, revision(profile), scorer_version, threshold),
     ).fetchall()
-    # Substantive posts the reader did not ask for but that are not unrelated; never flagged ones.
     nearby = (
         conn.execute(
             """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
@@ -68,6 +64,11 @@ def build(conn, uid, scorer_version: str) -> str | None:
         if decisions
         else []
     )
+    return rows, nearby
+
+
+def seen(conn, uid, config) -> set[str]:
+    """Dismissed posts and posts delivered on earlier days."""
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
     previous = {
         r[0]
@@ -77,67 +78,118 @@ def build(conn, uid, scorer_version: str) -> str | None:
             (uid, day_key(config)),
         )
     }
+    return dismissed | previous
+
+
+def followed_keys(conn, uid) -> set[str]:
     account = conn.execute("SELECT bluesky_did FROM reader_accounts WHERE id=?", (uid,)).fetchone()
-    followed = {
+    return {
         "bluesky:" + r[0]
         for r in conn.execute(
             "SELECT subject_did FROM follows WHERE user_did=?", (account["bluesky_did"] if account else "",)
         )
     }
 
-    def candidates(assessments, strict):
-        out = []
-        for row in assessments:
-            post = get_post(conn, row["post_key"])
-            if (
-                not post
-                or post.content_hash != row["content_hash"]
-                or post.author_key in blocked(config)
-                or post.key in dismissed | previous
-                or post.observed_at < time.time() - 86400
-                or screen.label_blocked(screen.labels_of(conn, post.key))
-            ):
-                continue
-            flags = triage.flags_of(conn, post)
-            if triage.hidden(flags) or (strict and (flags is None or triage.penalty(flags) < 1)):
-                continue
-            age_h = max(0, (time.time() - post.published_at) / 3600)
-            value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
-            out.append((value * triage.penalty(flags), post))
-        out.sort(key=lambda p: (-p[0], p[1].key))
-        return out
 
-    pool = candidates(rows, strict=False)
-    limit = delivery_limit(config)
-    selected, authors, conversations, texts, stories = [], {}, set(), set(), set()
+def ranked(conn, rows, config, skip: set[str], strict: bool, reasons: dict[str, str] | None = None):
+    """Eligible (value, post) pairs, best first. Records why each other row was dropped in `reasons`.
 
-    def take(post) -> bool:
+    Strict selection also requires completed content flags without any downranking flag.
+    """
+    reasons = {} if reasons is None else reasons
+    out = []
+    for row in rows:
+        post = get_post(conn, row["post_key"])
+        if not post or post.content_hash != row["content_hash"]:
+            reasons[row["post_key"]] = "gone"
+            continue
+        if post.author_key in blocked(config):
+            reasons[post.key] = "blocked"
+            continue
+        if screen.label_blocked(screen.labels_of(conn, post.key)):
+            reasons[post.key] = "labels"
+            continue
+        flags = triage.flags_of(conn, post)
+        if hide := triage.hide_reason(flags):
+            reasons[post.key] = hide
+            continue
+        if strict and flags is None:
+            reasons[post.key] = "unchecked"
+            continue
+        if strict and triage.penalty(flags) < 1:
+            reasons[post.key] = "downranked"
+            continue
+        if post.key in skip:
+            reasons[post.key] = "seen"
+            continue
+        if post.observed_at < time.time() - 86400:
+            reasons[post.key] = "old"
+            continue
+        age_h = max(0, (time.time() - post.published_at) / 3600)
+        value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
+        out.append((value * triage.penalty(flags), post))
+    out.sort(key=lambda p: (-p[0], p[1].key))
+    return out
+
+
+class Selection:
+    """One post per conversation, text and linked story, and at most two per author."""
+
+    def __init__(self):
+        self.posts, self.authors, self.conversations, self.texts, self.stories = [], {}, set(), set(), set()
+
+    @staticmethod
+    def _identity(post):
         conversation = (post.platform, post.root_id or post.parent_id or post.native_id)
-        normalized = " ".join(post.text.casefold().split())
-        story = screen.story_key(post)
-        if (
-            post in selected
-            or conversation in conversations
-            or normalized in texts
-            or (story and story in stories)
-            or authors.get(post.author_key, 0) >= 2
-        ):
-            return False
-        selected.append(post)
-        conversations.add(conversation)
-        texts.add(normalized)
+        return conversation, " ".join(post.text.casefold().split()), screen.story_key(post)
+
+    def conflict(self, post) -> str | None:
+        conversation, normalized, story = self._identity(post)
+        if conversation in self.conversations:
+            return "conversation"
+        if normalized in self.texts:
+            return "duplicate"
+        if story and story in self.stories:
+            return "story"
+        if self.authors.get(post.author_key, 0) >= 2:
+            return "author_cap"
+        return None
+
+    def add(self, post) -> None:
+        conversation, normalized, story = self._identity(post)
+        self.posts.append(post)
+        self.conversations.add(conversation)
+        self.texts.add(normalized)
         if story:
-            stories.add(story)
-        authors[post.author_key] = authors.get(post.author_key, 0) + 1
+            self.stories.add(story)
+        self.authors[post.author_key] = self.authors.get(post.author_key, 0) + 1
+
+    def take(self, post) -> bool:
+        if post in self.posts or self.conflict(post):
+            return False
+        self.add(post)
         return True
 
+
+def build(conn, uid, scorer_version: str) -> str | None:
+    profile = profiles.head(conn, uid)
+    config = config_for(conn, uid)
+    if not config:
+        return None
+    rows, nearby = assessments(conn, uid, profile, scorer_version)
+    skip = seen(conn, uid, config)
+    followed = followed_keys(conn, uid)
+    pool = ranked(conn, rows, config, skip, strict=False)
+    limit = delivery_limit(config)
+    selection = Selection()
+    selected, take = selection.posts, selection.take
     social = 0
     for _, post in pool:
         if social >= min(settings().social_slots, limit):
             break
         if post.author_key in followed and take(post):
             social += 1
-    serendipity = candidates(nearby, strict=True)
+    serendipity = ranked(conn, nearby, config, skip, strict=True)
     reserved = min(len(serendipity), int(limit * settings().serendipity_share))
     for _, post in pool:
         if len(selected) >= limit - reserved:
