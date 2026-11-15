@@ -90,3 +90,15 @@ def test_ingest_stores_text_signature_for_campaign_detection(conn):
     jetstream.flush(conn, b)
     sigs = [r[0] for r in conn.execute("SELECT text_sig FROM posts ORDER BY uri")]
     assert sigs[0] == sigs[1] and sigs[0] is not None and sigs[2] is None
+
+
+def test_likes_and_reposts_by_followed_accounts_are_recorded(conn):
+    now = int(time.time())
+    b = jetstream.Batch()
+    subject = "at://did:a/app.bsky.feed.post/1"
+    followed = frozenset({"did:friend"})
+    jetstream.handle_event(like_evt("did:friend", subject, now), b, set(), followed)
+    jetstream.handle_event(like_evt("did:stranger", subject, now), b, set(), followed)
+    jetstream.flush(conn, b)
+    rows = conn.execute("SELECT actor_did, subject_uri, kind FROM followed_engagement").fetchall()
+    assert [tuple(r) for r in rows] == [("did:friend", subject, "like")]

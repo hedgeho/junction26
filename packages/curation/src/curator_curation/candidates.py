@@ -121,6 +121,14 @@ def public_candidates(conn, did: str, terms: list[str], limit: int):
         (did, since, share),
     )
     pools = [["bluesky:" + r[0] for r in followed]]
+    endorsed = conn.execute(
+        """SELECT e.subject_uri FROM followed_engagement e
+        JOIN follows f ON f.subject_did=e.actor_did AND f.user_did=?
+        WHERE e.at>? AND e.subject_uri NOT LIKE ? GROUP BY e.subject_uri
+        ORDER BY count(DISTINCT e.actor_did) DESC, max(e.at) DESC LIMIT ?""",
+        (did, since, f"at://{did}/%", share),
+    )
+    pools.append(["bluesky:" + r[0] for r in endorsed])
     query = _fts_query(terms)
     if query:
         matched = conn.execute(

@@ -525,3 +525,20 @@ def test_discovery_prefers_posts_gaining_engagement_fastest(conn):
     insert_post(conn, "did:plc:c", "reply", "Busy reply", age_s=600, likes=90, reply_parent="at://x/y/z")
     keys = [p.key for p in public_candidates(conn, DID, [], 6)]
     assert keys[:2] == ["bluesky:" + fast, "bluesky:" + slow]
+
+
+def test_recall_includes_posts_liked_by_followed_accounts(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:friend"))
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    liked = insert_post(conn, "did:plc:stranger", "liked", "Older post a friend liked", age_s=7200)
+    once = insert_post(conn, "did:plc:other", "once", "Post liked by a stranger", age_s=7200)
+    now = int(time.time())
+    conn.execute("INSERT INTO followed_engagement VALUES ('did:plc:friend',?,'like',?)", (liked, now))
+    conn.execute("INSERT INTO followed_engagement VALUES ('did:plc:nobody',?,'like',?)", (once, now))
+    keys = [p.key for p in public_candidates(conn, DID, [], 3)]
+    assert keys[0] == "bluesky:" + liked
+    assert "bluesky:" + once not in keys
