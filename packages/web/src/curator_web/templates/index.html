@@ -4,28 +4,24 @@
 {% block main_attributes %} class="landing"{% endblock %}
 {% block body %}
 <section class="landing-hero" aria-labelledby="hero-title">
-  <div class="landing-inner hero-grid">
-    <div class="hero-copy">
-      <p class="landing-eyebrow"><span class="sun-dot"></span> A better public square</p>
-      <h1 id="hero-title">The internet was supposed to bring us <em>together.</em></h1>
-      <p class="hero-intro">Your feed can be a place for ideas, curiosity, and conversations worth having.</p>
-      <div class="hero-actions"><a class="button primary landing-button" href="#join">Try Agora on Bluesky <span aria-hidden="true">&rarr;</span></a><a class="story-link" href="#square">Explore the story <span aria-hidden="true">&darr;</span></a></div>
-    </div>
-    <div class="hero-art" aria-hidden="true">
-      <div class="plaza-grid"></div>
-      <svg viewBox="0 0 240 240" fill="none"><path d="M28 212H212V28H28V168H168V72H72V120" stroke="currentColor" stroke-width="12"/><circle cx="120" cy="120" r="12" fill="#FFB000"/></svg>
-      <span class="art-caption">Many voices. Your square.</span>
-    </div>
+  <div class="landing-inner hero-copy">
+    <div class="hero-wordmark" aria-label="Agora"><svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><path d="M8 92H92V8H8V72H72V28H28V52" stroke="currentColor" stroke-width="10"/><circle cx="52" cy="52" r="7" fill="#FFB000"/></svg><span>AGORA</span></div>
+    <h1 id="hero-title">A better public square.</h1>
+    <p class="hero-intro"><span>agora</span> (&#7936;&#947;&#959;&#961;&#940;): the ancient Greek gathering place for intellectual, civic and commercial life.</p>
+    <div class="hero-actions"><a class="story-link" href="#square"><span class="mini-mark" aria-hidden="true">&#9635;</span> Read the story</a><a class="button primary landing-button" href="#join">Try Agora on Bluesky <span aria-hidden="true">&rarr;</span></a></div>
   </div>
+  <div class="meander-rule" aria-hidden="true"></div>
 </section>
 <section class="landing-section" id="square">
   <div class="landing-inner story-grid">
-    <div><p class="landing-eyebrow">I &middot; The square</p><h2>Every Greek city had one.</h2></div>
-    <p class="story-copy">A place to exchange news and ideas. To listen, to question, and to be part of something bigger than yourself.</p>
+    <div><p class="landing-eyebrow">I &middot; The square</p><h2>Every Greek<br>city had one.</h2><p class="story-copy">A square where people traded goods, news and ideas. Where you could hear a philosopher in the morning and argue politics by the afternoon. Where a city made up its mind, together.</p></div>
+    <div class="statue-art" role="img" aria-label="Illustration of a classical bust against an olive grid">
+      <svg viewBox="0 0 340 425" aria-hidden="true"><circle cx="292" cy="68" r="9" fill="#ffb000"/><path fill="#f1f2ec" d="M57 366c49-17 64-41 70-79 4-29-1-49-13-64-18-8-34-20-40-39-6-20 2-39 25-47 13-36 40-61 77-61 33 0 48 24 50 51 3 22 12 43 23 59 5 7 11 13 10 17-1 4-10 4-13 7 4 6 3 10-3 13 4 6 2 12-4 14-4 26-14 36-28 39-5 25 0 48 19 62 13 11 31 20 52 27l8 23H50z"/><path d="M114 137c-31-16-53 13-33 35 12 13 31 7 30-6-2-12-17-15-22-4M119 126c22-17 58-20 91-9M125 141c22-13 54-16 80-8M130 157c20-13 47-15 70-10M224 149c8-5 15-5 22 0M225 160c7 4 13 3 18-1M177 261l11 60M143 324c-14 21-37 34-72 43M158 337c-7 18-17 30-27 37M211 318c10 22 28 36 53 46" fill="none" stroke="#4e5b2c" stroke-width="2.4" stroke-linecap="round"/><path d="M116 112c23-11 44-18 68-22M132 100l-3-10m13 8 1-11m10 9 4-11m7 9 6-10m4 9 7-8" fill="none" stroke="#718454" stroke-width="3"/><path fill="#d4dac7" d="M53 388h235v13H53z"/></svg>
+    </div>
   </div>
 </section>
 <section class="landing-section landing-olive">
-  <div class="landing-inner"><p class="landing-eyebrow">II &middot; The promise</p><h2>The internet was supposed to be the biggest square ever built.</h2><p class="story-copy">Open to anyone. Every voice, every idea, one tap away.</p></div>
+  <div class="landing-inner"><p class="landing-eyebrow">II &middot; The promise</p><h2>The internet was supposed to be the biggest square ever built.</h2><p class="story-copy">Open to anyone. Every voice, every idea, every corner of the world, one tap away.</p></div>
 </section>
 <section class="landing-section">
   <div class="landing-inner"><p class="landing-eyebrow">III &middot; The sale</p><h2>Then someone noticed that anger keeps people scrolling.</h2><p class="story-copy">Feeds learned to reward outrage. The conversations we came for got harder to find.</p></div>
