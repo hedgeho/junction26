@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Data deletion &middot; Agora{% endblock %}{% block body %}<h1>Data deletion</h1>
+<p>Agora has no accounts for Threads users and does not ask you to log in with Threads. Removing Agora from your Threads app permissions therefore needs nothing else from us.</p>
+<p>What Agora keeps about Threads: public posts found by keyword search, with their text, public links, author username and media references. They are deleted automatically, usually within 48 hours of being collected. A post you delete on Threads is gone from Agora at that point at the latest.</p>
+<p>To have a Threads post or username removed sooner{% if contact_email %}, email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>{% else %}, contact the operator of this site{% endif %} with the post link or username. Requests are handled by hand.</p>
+<p>Agora's Bluesky readers can see what is stored about them on the <a href="/privacy">privacy page</a>.</p>
+<p>
+<a href="{{ '/me' if request.session.get('did') else '/' }}">Back</a>
+</p>{% endblock %}

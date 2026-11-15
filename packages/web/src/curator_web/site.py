@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Red
 from fastapi.templating import Jinja2Templates
 
 from . import appview, bluesky_feed, oauth, post_details, social
+from .config import settings as web_settings
 
 log = logging.getLogger(__name__)
 
@@ -144,6 +145,16 @@ def index(request: Request):
 @router.get("/privacy", response_class=HTMLResponse)
 def privacy(request: Request):
     return page(request, "privacy.html", {})
+
+
+@router.get("/terms", response_class=HTMLResponse)
+def terms(request: Request):
+    return page(request, "terms.html", {})
+
+
+@router.get("/data-deletion", response_class=HTMLResponse)
+def data_deletion(request: Request):
+    return page(request, "data-deletion.html", {"contact_email": web_settings().contact_email})
 
 
 @router.get("/me", response_class=HTMLResponse)
