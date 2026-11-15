@@ -16,6 +16,7 @@ FLAGS = tuple(FLAG_CRITERIA)
 HIDE_AT = {"clickbait": 0.78, "ragebait": 0.88, "spam_promo": 0.36}
 # Never hidden on a model's word alone; each flag halves the digest value.
 DOWNRANK_AT = {"misinformation": 0.84, "ragebait": 0.76, "low_effort": 0.82}
+DOWNRANK_FACTOR = 0.5
 RETENTION_S = 48 * 3600
 
 
@@ -95,4 +96,4 @@ def downranks(flags: dict[str, float] | None) -> list[str]:
 
 
 def penalty(flags: dict[str, float] | None) -> float:
-    return 0.5 ** len(downranks(flags))
+    return DOWNRANK_FACTOR ** len(downranks(flags))

@@ -17,6 +17,9 @@ from .llm.gemini import DECISION_SCORER_VERSION
 
 log = logging.getLogger(__name__)
 BASELINE_REVISION = "baseline-v1"
+WEIGHTS = {"relevance": 0.65, "substance": 0.25, "opportunity": 0.1}
+HALF_LIFE_H = 48
+MAX_PER_AUTHOR = 2
 
 
 def revision(profile):
@@ -46,10 +49,16 @@ def blocked(config) -> set[str]:
     return set(json.loads(config["blocked_authors"]))
 
 
+def relevance_floor(scorer_version: str) -> float:
+    if scorer_version.startswith(DECISION_SCORER_VERSION):
+        return settings().decision_minimum_relevance
+    return settings().minimum_relevance
+
+
 def assessments(conn, uid, profile, scorer_version: str):
     """Digest-eligible assessments: (requested, nearby). Nearby is substantive but outside the profile."""
     decisions = scorer_version.startswith(DECISION_SCORER_VERSION)
-    threshold = settings().decision_minimum_relevance if decisions else settings().minimum_relevance
+    threshold = relevance_floor(scorer_version)
     rows = conn.execute(
         """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
         AND decision='include' AND relevance>=?""",
@@ -128,7 +137,7 @@ def ranked(conn, rows, config, skip: set[str], strict: bool, reasons: dict[str, 
             reasons[post.key] = "old"
             continue
         age_h = max(0, (time.time() - post.published_at) / 3600)
-        value = (0.65 * row["relevance"] + 0.25 * row["substance"] + 0.1 * row["opportunity"]) * 0.5 ** (age_h / 48)
+        value = sum(w * row[name] for name, w in WEIGHTS.items()) * 0.5 ** (age_h / HALF_LIFE_H)
         out.append((value * triage.penalty(flags), post))
     out.sort(key=lambda p: (-p[0], p[1].key))
     return out
@@ -153,7 +162,7 @@ class Selection:
             return "duplicate"
         if story and story in self.stories:
             return "story"
-        if self.authors.get(post.author_key, 0) >= 2:
+        if self.authors.get(post.author_key, 0) >= MAX_PER_AUTHOR:
             return "author_cap"
         return None
 

@@ -114,3 +114,10 @@ def test_daily_limit_and_unscored_candidates_have_their_own_buckets(conn):
     assert stages["delivered"]["count"] == 2
     assert drops(stages["clean"])["limit"] == 2
     assert drops(stages["candidates"])["pending"] == 1
+
+
+def test_funnel_explains_the_ranking_it_applies(conn):
+    uid, _ = seed(conn)
+    ranking = funnel.compute(conn, uid, DID)["ranking"]
+    assert ranking["weights"] == digests.WEIGHTS and sum(ranking["weights"].values()) == 1
+    assert ranking["half_life_h"] == 48 and ranking["flag_factor"] == 0.5 and ranking["max_per_author"] == 2

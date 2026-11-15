@@ -192,6 +192,18 @@ function el(tag, className, text) {
  if (text !== undefined) node.textContent = text;
  return node;
 }
+function renderRanking(box, ranking) {
+ if (!box || !ranking) return;
+ const term = (...children) => { const span = el('span', 'funnel-term'); span.append(...children); return span; };
+ const weights = Object.entries(ranking.weights);
+ const formula = [term('value =')];
+ weights.forEach(([name, weight], i) => formula.push(' ', term(`${i ? '+ ' : '('}${weight.toFixed(2)} \u00d7 ${name}${i === weights.length - 1 ? ')' : ''}`)));
+ formula.push(' ', term('\u00d7 \u00bd', el('sup', '', `age \u00f7 ${ranking.half_life_h} h`)));
+ formula.push(' ', term(`\u00d7 ${ranking.flag_factor === 0.5 ? '\u00bd' : ranking.flag_factor} per content flag`));
+ box.querySelector('.funnel-formula').replaceChildren(...formula);
+ box.querySelector('.funnel-rule').textContent = `A post competes once the model includes it with relevance \u2265 ${ranking.min_relevance.toFixed(2)}. The ${ranking.daily_limit} highest values fill your feed, at most ${ranking.max_per_author} per author and one per conversation or linked story.`;
+ box.hidden = false;
+}
 async function loadFunnel(section) {
  if (!section) return;
  const status = section.querySelector('.funnel-status');
@@ -226,6 +238,7 @@ async function loadFunnel(section) {
    }
    return item;
   }));
+  renderRanking(section.querySelector('.funnel-ranking'), funnel.ranking);
   const extra = [];
   if (funnel.notes.downranked?.length) extra.push('Ranked lower but still eligible: ' + funnel.notes.downranked.map(d => `${d.label.toLowerCase()} ${number.format(d.count)}`).join(', ') + '.');
   if (funnel.notes.flags_pending) extra.push(`${number.format(funnel.notes.flags_pending)} relevant posts are still waiting for content checks.`);

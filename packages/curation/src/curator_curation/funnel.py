@@ -167,6 +167,14 @@ def compute(conn, uid: str, did: str) -> dict:
     ]
     return {
         "stages": stages,
+        "ranking": {
+            "weights": digests.WEIGHTS,
+            "half_life_h": digests.HALF_LIFE_H,
+            "flag_factor": triage.DOWNRANK_FACTOR,
+            "min_relevance": digests.relevance_floor(version),
+            "max_per_author": digests.MAX_PER_AUTHOR,
+            "daily_limit": digests.delivery_limit(config),
+        },
         "notes": {
             "downranked": [{"key": k, "label": LABELS[k], "count": n} for k, n in downranked.items() if n],
             "flags_pending": sum(f is None for f in flags),

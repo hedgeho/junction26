@@ -271,6 +271,14 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .funnel-bar { height: 6px; border-radius: 3px; background: var(--soft); overflow: hidden; }
 .funnel-bar span { display: block; height: 100%; border-radius: 3px; background: var(--primary); opacity: .75; }
 .funnel-drop-count { text-align: right; font-variant-numeric: tabular-nums; }
+.funnel-ranking { margin-top: 6px; padding: 12px 14px; border-radius: 9px; background: var(--surface); border: 1px solid var(--line); }
+.funnel-ranking h4 { margin: 0 0 6px; font-size: 12px; font-weight: 650; }
+.funnel-formula { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; line-height: 1.7; color: var(--ink); }
+.funnel-formula sup { font-size: 9.5px; }
+.funnel-term { white-space: nowrap; }
+.funnel-rule { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.funnel-open { min-height: 34px; padding: 6px 13px; gap: 7px; border-radius: 999px; font-size: 12.5px; }
+.funnel-open svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
 .algorithm-footnote { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 @media (max-width: 480px) { .algorithm-dialog { padding: 24px; } }
 
