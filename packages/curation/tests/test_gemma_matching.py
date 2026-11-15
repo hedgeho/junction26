@@ -113,10 +113,14 @@ def test_warmup_prepares_only_fixed_schemas_with_empty_synthetic_payloads(conn, 
         import json
 
         assert payload == {}
-        assert json.loads(instruction.split(": ", 1)[1]) == {name: [] for name in schema.model_fields}
+        expected = {
+            name: [] if field.get("type") == "array" else None
+            for name, field in schema.model_json_schema()["properties"].items()
+        }
+        assert json.loads(instruction.split(": ", 1)[1]) == expected
         assert max_tokens == 256
         calls.append(schema.__name__)
-        return schema.model_validate({name: [] for name in schema.model_fields})
+        return schema.model_validate(expected)
 
     monkeypatch.setattr(gemma.GemmaClient, "_call", call)
     model = gemma.GemmaClient("https://warm.example/v1", "test", "test")

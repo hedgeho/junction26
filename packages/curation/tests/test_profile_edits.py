@@ -91,7 +91,7 @@ def test_multiline_profile_and_trailing_section_survive():
     )
 
 
-def test_gemma_sees_numbered_lines_and_terms_not_a_document(monkeypatch):
+def test_gemma_sees_full_document_as_well_as_numbered_lines_and_terms(monkeypatch):
     from curator_curation.llm.gemma import GemmaClient
 
     seen = {}
@@ -103,22 +103,24 @@ def test_gemma_sees_numbered_lines_and_terms_not_a_document(monkeypatch):
     monkeypatch.setattr(GemmaClient, "_call", call)
     result = GemmaClient("https://gemma.example/v1", "t", "m").update_profile(FLAT, "more kingfishers", ["birds"])
     assert seen["preferences"][2] == {"id": 2, "category": "rule", "text": "Exclude: furries"}
-    assert seen["search_terms"] == ["birds"] and "current_markdown" not in seen
+    assert seen["search_terms"] == ["birds"] and seen["current_markdown"] == FLAT
     assert result.search_terms == ["birds", "kingfisher"]
 
 
-def test_bare_removals_are_ignored_so_lines_change_only_by_replacement():
+def test_bare_removals_delete_without_requiring_an_addition():
     markdown, _ = profile_edits.apply(FLAT, [], ProfileEdits(remove=[2]))
-    assert "- [rule] Exclude: furries\n" in markdown
+    assert "Exclude: furries" not in markdown
+    assert "More: politics" in markdown
 
 
-def test_contextual_feedback_cannot_archive_an_unrelated_interest(monkeypatch):
+def test_narrow_contextual_feedback_preserves_unrelated_interests(monkeypatch):
     from curator_curation.llm.gemma import GemmaClient
 
     original = "# Profile\n\n- [topic] Prefer in-depth compiler evaluations with reproducible benchmarks\n"
 
-    def call(*args, **kwargs):
-        return ProfileEdits(remove=[0], add=[PreferenceLine(category="rule", text="Exclude marketing announcements")])
+    def call(self, instruction, payload, schema, max_tokens):
+        assert "keep unrelated interests" in instruction
+        return ProfileEdits(add=[PreferenceLine(category="rule", text="Exclude marketing announcements")])
 
     monkeypatch.setattr(GemmaClient, "_call", call)
     result = GemmaClient("https://gemma.example/v1", "t", "m").update_profile(
@@ -143,7 +145,7 @@ def test_contextual_feedback_can_still_update_the_same_subject(monkeypatch):
     result = GemmaClient("https://gemma.example/v1", "t", "m").update_profile(
         original, "<post>Italian cooking</post><user_feedback>Not Italian food</user_feedback>"
     )
-    assert "- [history] Previously: More: cooking" in result.markdown
+    assert "Previously: More: cooking" not in result.markdown
     assert "- [topic] More: cooking, but not Italian food" in result.markdown
 
 
@@ -163,9 +165,9 @@ def test_legacy_search_term_lines_are_hidden_from_the_model_and_kept():
     assert terms == ["politics", "elections"]
 
 
-def test_replaced_topics_are_retained_as_historical_context():
+def test_replaced_topics_are_not_automatically_retained_as_history():
     old = "# Feed\n\n- [topic] More: compiler research\n"
     edits = ProfileEdits(remove=[0], add=[PreferenceLine(category="topic", text="Current: programming languages")])
     markdown, _ = profile_edits.apply(old, [], edits)
-    assert "[history] Previously: More: compiler research" in markdown
+    assert "compiler research" not in markdown
     assert "[topic] Current: programming languages" in markdown

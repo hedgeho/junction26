@@ -1,4 +1,4 @@
-"""Apply model-proposed edits to a profile, so feedback changes only the lines it is about."""
+"""Apply model-proposed patches or complete profile replacements."""
 
 import re
 
@@ -93,55 +93,6 @@ def parse(markdown: str) -> tuple[str, list[tuple[str, str]], str]:
     return head, [(c, " ".join(t.split())) for c, t in items], tail.strip()
 
 
-def grounded_removals(markdown: str, edits) -> list[int]:
-    _, items, _ = parse(markdown)
-    ignored = {
-        "a",
-        "an",
-        "the",
-        "and",
-        "or",
-        "of",
-        "in",
-        "on",
-        "to",
-        "for",
-        "from",
-        "with",
-        "without",
-        "about",
-        "but",
-        "more",
-        "less",
-        "much",
-        "fewer",
-        "prefer",
-        "avoid",
-        "exclude",
-        "include",
-        "no",
-        "not",
-        "posts",
-        "post",
-        "content",
-        "current",
-        "enduring",
-        "historical",
-        "previously",
-        "only",
-        "all",
-        "any",
-    }
-
-    def subjects(text):
-        return set(re.findall(r"[^\W_]+", text.casefold())) - ignored
-
-    replacements = set().union(*(subjects(line.text) for line in edits.add if line.category != TERM))
-    if any(not 0 <= index < len(items) for index in edits.remove):
-        raise ValueError("unknown preference id")
-    return [index for index in edits.remove if subjects(items[index][1]) & replacements]
-
-
 def render(head: str, items: list[tuple[str, str]], tail: str) -> str:
     head = SECTION.sub("\n\n", head)
     parts = [head, "\n".join(f"- [{c}] {t}" for c, t in items), tail]
@@ -167,19 +118,16 @@ def numbered(markdown: str) -> tuple[str, list[dict]]:
 
 
 def apply(markdown: str, terms: list[str], edits) -> tuple[str, list[str]]:
+    if edits.replacement is not None:
+        return edits.replacement.markdown, list(edits.replacement.search_terms)
+    if not (edits.remove or edits.add or edits.add_terms or edits.remove_terms):
+        return markdown, list(terms)
     head, items, tail = parse(markdown)
     if any(not 0 <= i < len(items) for i in edits.remove):
         raise ValueError("unknown preference id")
-    # Removals only replace lines; a small model's bare removals were often the opposite of the feedback.
     lines = [line for line in edits.add if line.category != TERM]
-    removed_ids = {i for i in edits.remove if items[i][0] != TERM} if lines else set()
+    removed_ids = {i for i in edits.remove if items[i][0] != TERM}
     kept = [item for i, item in enumerate(items) if i not in removed_ids]
-    for i in sorted(removed_ids):
-        category, text = items[i]
-        if category == "topic":
-            historical = ("history", "Previously: " + text)
-            if historical not in kept:
-                kept.append(historical)
     for line in lines:
         item = (line.category, " ".join(line.text.split()))
         if item[1] and item not in kept:

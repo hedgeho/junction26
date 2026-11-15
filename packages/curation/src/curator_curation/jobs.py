@@ -162,7 +162,11 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
                 + "\n</user_feedback>"
             )
         if job["mode"] == "more":
-            feedback += "\nThis is a one-time request: infer at most one tentative, short interest. Preserve every existing preference."
+            feedback += (
+                "\nBy default this request affects only the next feed selection; do not persist temporary interests. "
+                "If the user's own feedback explicitly asks to change, forget or replace lasting preferences, "
+                "compile that change at its requested scope."
+            )
         if job["source_chunk_id"]:
             if job["kind"] == "public" and settings().scoring_backend != "gemma":
                 conn.execute(
@@ -198,7 +202,7 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
         else:
             current = profiles.head(conn, job["user_id"], job["kind"])
             terms = json.loads(current["search_terms"]) if current else []
-            body = profiles.markdown(conn, job["user_id"], job["kind"]) or EMPTY_PROFILES[job["kind"]]
+            body = profiles.markdown(conn, job["user_id"], job["kind"]) if current else EMPTY_PROFILES[job["kind"]]
             if not has_source_context and profile_edits.unresolved_reference(job["feedback"]):
                 proposal = ProfileProposal(markdown=body, search_terms=terms)
             else:
@@ -214,16 +218,6 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
                 if (category, text) not in old_preferences
             ):
                 raise ValueError("feedback must be interpreted as a curation principle")
-            if job["mode"] == "more":
-                head_text, old_items, tail = profile_edits.parse(body)
-                _, new_items, _ = profile_edits.parse(proposal.markdown)
-                additions = [item for item in new_items if item not in old_items and item[0] != profile_edits.TERM]
-                proposal.markdown = (
-                    profile_edits.render(head_text, old_items + additions[:1], tail) if additions else body
-                )
-                proposal.search_terms = terms
-            if job["mode"] != "more" and not job["source_chunk_id"] and proposal.markdown.strip() == body.strip():
-                proposal.search_terms = terms
             if current and proposal.markdown.strip() == body.strip() and proposal.search_terms == terms:
                 revision = current["id"]
             else:

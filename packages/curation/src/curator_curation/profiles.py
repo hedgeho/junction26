@@ -165,7 +165,7 @@ def save(
     source_chunk_id=None,
     refresh=True,
 ) -> str:
-    if kind not in KINDS or not body.strip() or len(body) > 24000 or "\x00" in body:
+    if kind not in KINDS or len(body) > 24000 or "\x00" in body:
         raise ValueError("invalid profile")
     revision = uuid.uuid4().hex
     path = _path(user_id, kind, revision)

@@ -898,19 +898,18 @@ def test_unresolved_feedback_without_sources_is_an_exact_noop(conn, mode, feed_c
 
 
 @pytest.mark.parametrize("feedback", ["Less hype, but keep technical depth", "I want more of this"])
-def test_uninterpreted_feedback_is_not_copied_when_model_only_changes_search_terms(conn, feedback):
+def test_feedback_is_not_copied_when_model_only_changes_search_terms(conn, feedback):
     uid, key = setup(conn)
     original = profiles.markdown(conn, uid)
-    current_terms = json.loads(profiles.head(conn, uid)["search_terms"])
 
     class MissedEdit:
         def update_profile(self, current, feedback, terms=()):
-            return ProfileProposal(markdown=current, search_terms=["unrelated"])
+            return ProfileProposal(markdown=current, search_terms=["compiler benchmarks"])
 
     jobs.enqueue(conn, uid, "public", feedback, "missed-edit", key)
     assert jobs.process_one(conn, MissedEdit())
     assert profiles.markdown(conn, uid) == original
-    assert json.loads(profiles.head(conn, uid)["search_terms"]) == current_terms
+    assert json.loads(profiles.head(conn, uid)["search_terms"]) == ["compiler benchmarks"]
 
 
 @pytest.mark.parametrize("mode", ["preference", "more"])

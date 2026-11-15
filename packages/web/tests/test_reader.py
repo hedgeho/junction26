@@ -1256,6 +1256,30 @@ def test_restore_profile_keeps_original_unicode_and_line_endings(conn):
     assert profiles.markdown(conn, uid) == original
 
 
+def test_empty_compiled_profile_downloads_and_restores_without_reseeding(conn):
+    uid = seed(conn)
+    original = profiles.head(conn, uid)["id"]
+    empty = profiles.save(conn, uid, "public", "", original, terms=[])
+    client = client_for()
+    assert client.get("/me").status_code == 200
+    assert client.get("/settings").status_code == 200
+    assert client.get("/settings/profile/public").text == ""
+    restored = client.post(
+        "/settings/restore/" + original,
+        data={"csrf": "csrf-test", "expected": empty},
+        follow_redirects=False,
+    )
+    assert restored.status_code == 303
+    assert profiles.markdown(conn, uid)
+    restored_empty = client.post(
+        "/settings/restore/" + empty,
+        data={"csrf": "csrf-test", "expected": profiles.head(conn, uid)["id"]},
+        follow_redirects=False,
+    )
+    assert restored_empty.status_code == 303
+    assert profiles.markdown(conn, uid) == ""
+
+
 def test_feedback_result_reports_its_exact_revision_and_survives_feed_reload(conn):
     import re
 

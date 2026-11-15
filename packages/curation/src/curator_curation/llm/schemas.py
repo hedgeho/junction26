@@ -8,7 +8,7 @@ class StrictModel(BaseModel):
 
 
 class ProfileProposal(StrictModel):
-    markdown: str = Field(min_length=1, max_length=24000)
+    markdown: str = Field(max_length=24000)
     search_terms: list[str] = Field(default_factory=list, max_length=30)
 
 
@@ -20,13 +20,14 @@ class PreferenceLine(StrictModel):
 class ProfileEdits(StrictModel):
     # Every list is required in the schema, so guided decoding cannot shortcut to an empty object.
     model_config = ConfigDict(
-        extra="forbid", json_schema_extra={"required": ["remove", "add", "add_terms", "remove_terms"]}
+        extra="forbid", json_schema_extra={"required": ["remove", "add", "add_terms", "remove_terms", "replacement"]}
     )
 
     remove: list[int] = Field(default_factory=list, max_length=20)
     add: list[PreferenceLine] = Field(default_factory=list, max_length=5)
     add_terms: list[str] = Field(default_factory=list, max_length=10)
     remove_terms: list[str] = Field(default_factory=list, max_length=20)
+    replacement: ProfileProposal | None = None
 
 
 class Assessment(StrictModel):
