@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }} history &middot; Agora{% endblock %}
+{% block body %}
+<a class="text-link" href="/settings#configuration">&larr; Configuration files</a>
+<div class="page-heading"><h1>{{ doc.title }}</h1><p class="help">Every saved version, with its exact changes. Each diff compares that version with the one before it.</p></div>
+<div class="configuration-history">{% for revision in history %}{% include "configuration_revision.html" %}{% else %}<p class="help">No saved versions yet.</p>{% endfor %}</div>
+{% if next_before %}<a class="button history-older" href="/settings/history/{{ doc.slug }}?before={{ next_before }}">Older versions &rarr;</a>{% endif %}
+{% endblock %}

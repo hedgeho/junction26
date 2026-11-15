@@ -90,16 +90,54 @@ async def main():
         await expect(page.locator("#feedback")).to_have_value("Draft B")
         await asyncio.sleep(0.25)
         assert len(submissions) == 1
-        jobs["job0"] = {"state": "applied", "changes": ["Saved preference A"]}
+        jobs["job0"] = {
+            "state": "applied",
+            "changes": ["Saved preference A"],
+            "job_id": "job0",
+            "feedback": "Draft A",
+            "post_key": keys[0],
+            "diff": {
+                "filename": "feed-curation.md",
+                "title": "Feed curation",
+                "changed": True,
+                "added": 1,
+                "removed": 1,
+                "format_changes": [],
+                "unavailable": False,
+                "lines": [
+                    {"type": "file", "text": "--- feed-curation.md (before)"},
+                    {"type": "file", "text": "+++ feed-curation.md (after)"},
+                    {"type": "hunk", "text": "@@ -1 +1 @@"},
+                    {"type": "remove", "text": "-Old preference"},
+                    {"type": "add", "text": "+New preference <script>window.diffExecuted=1</script>"},
+                ],
+            },
+        }
         await asyncio.sleep(1.7)
         await expect(page.locator("#feedback")).to_have_value("Draft B")
         await expect(page.locator("#feedback-panel .feedback-progress")).to_have_text("")
+        await expect(page.locator("#feedback-panel .feedback-receipt")).to_have_count(0)
         await page.locator("#feedback-close").click()
         await posts.first.locator(".feedback-open").click()
         await expect(page.locator("#feedback-panel .feedback-progress")).to_have_text("Saved preference A")
         await expect(page.locator("#feedback")).to_have_value("")
+        await expect(page.locator("#feedback-panel .feedback-request")).to_have_text("Draft A")
+        await expect(page.locator("#feedback-panel .diff-remove")).to_have_text("-Old preference")
+        await expect(page.locator("#feedback-panel .diff-add")).to_have_text(
+            "+New preference <script>window.diffExecuted=1</script>"
+        )
+        assert not await page.evaluate("window.diffExecuted || false")
+        await expect(page.locator("#feedback-panel .feedback-receipt a")).to_have_attribute(
+            "href", "/settings/history/feed-curation"
+        )
+        await page.screenshot(path=str(OUT / "feedback-diff-desktop.png"))
+        await page.set_viewport_size({"width": 320, "height": 740})
+        assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        await page.screenshot(path=str(OUT / "feedback-diff-mobile.png"))
+        await page.set_viewport_size({"width": 1440, "height": 1000})
         assert keys[0] in submissions[0]["body"]
         checks.append("feedback races, correct source context, duplicate protection and scoped completion")
+        checks.append("exact inline feedback diff, source association, safe literal rendering and narrow layout")
 
         await page.locator("#feedback").fill("Try this again")
         await page.locator("#feedback").press("Control+Enter")
@@ -123,11 +161,31 @@ async def main():
         await page.locator("#more-feedback").fill("More like these")
         await page.locator("#more-feedback").press("Control+Enter")
         await asyncio.sleep(0.25)
-        jobs["job2"] = {"state": "applied", "changes": ["Saved a lasting preference"]}
+        jobs["job2"] = {
+            "state": "applied",
+            "changes": ["Saved a lasting preference"],
+            "job_id": "job2",
+            "feedback": "More like these",
+            "post_key": "",
+            "diff": {
+                "filename": "feed-curation.md",
+                "title": "Feed curation",
+                "changed": False,
+                "added": 0,
+                "removed": 0,
+                "lines": [],
+                "format_changes": [],
+                "unavailable": False,
+            },
+        }
         await expect(page.locator(".more-section .feedback-progress")).to_have_text(
             "Saved a lasting preference", timeout=5000
         )
         assert submissions[2]["url"].endswith("/me/feedback") and keys[0] in submissions[2]["body"]
+        await expect(page.locator(".more-section .feedback-receipt .diff-note")).to_have_text(
+            "No configuration changes."
+        )
+        await expect(page.locator(".more-section .feedback-request")).to_have_text("More like these")
         await posts.first.locator(".social-interact[data-action=comment]").click()
         await page.locator("#social-text").fill("Unsent comment draft")
         await page.locator("#social-close").click()
@@ -365,6 +423,16 @@ async def main():
         await expect(config).to_have_value(initial)
         download = await page.request.get(ORIGIN + "/settings/profile/feed-curation")
         assert await download.body() == original_bytes
+        await page.locator(".config-doc").first.locator(".revision-history > summary").click()
+        await page.locator(".config-doc").first.get_by_role("link", name="Browse all versions").click()
+        await expect(page.locator(".configuration-history")).to_be_visible()
+        await page.locator(".revision-diff > summary").first.click()
+        await expect(page.locator(".revision-entry").first.locator(".configuration-diff")).to_be_visible()
+        assert await page.locator(".revision-entry").first.locator(".diff-add").count() > 0
+        assert await page.locator(".revision-entry").first.locator(".diff-remove").count() > 0
+        await page.screenshot(path=str(OUT / "configuration-diff-history.png"))
+        await page.get_by_role("link", name="Configuration files", exact=False).click()
+        checks.append("full configuration revision diffs and complete history navigation")
         checks.append("configuration edit, literal revision history, restore and exact Markdown download")
         for width, height in [(1440, 1000), (768, 1024), (390, 844), (320, 740)]:
             await page.set_viewport_size({"width": width, "height": height})

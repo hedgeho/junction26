@@ -177,6 +177,18 @@ def me(request: Request):
             (uid,),
         ).fetchone()
         posts = reader_posts(c, uid, current_did(request))
+        scopes = [""] + [post["key"] for post in posts]
+        receipts = c.execute(
+            """SELECT * FROM (
+                SELECT j.*,ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(post_key,'') ORDER BY created_at DESC,rowid DESC
+                ) AS position FROM feedback_jobs j
+                WHERE user_id=? AND source_chunk_id IS NULL AND state='applied'
+                AND COALESCE(post_key,'') IN ("""
+            + ",".join("?" for _ in scopes)
+            + ")\n) WHERE position=1",
+            (uid, *scopes),
+        ).fetchall()
         return page(
             request,
             "me.html",
@@ -184,6 +196,7 @@ def me(request: Request):
                 "user": user,
                 "posts": posts,
                 "post_metadata": {post["key"]: post_details.imported_details(post) for post in posts},
+                "feedback_receipts": [feedback_result(c, uid, row) for row in receipts],
                 "daily_limit": digests.config_for(c, uid)["daily_limit"],
                 "job": dict(pending) if pending else None,
                 "curation_status": health.filtering_status(c, uid),
@@ -611,28 +624,44 @@ def job_status(request: Request, job_id: str):
     c = db.connect()
     try:
         uid = reader(request, c)
-        row = c.execute(
-            "SELECT state,applied_revision FROM feedback_jobs WHERE user_id=? AND id=?", (uid, job_id)
-        ).fetchone()
+        row = c.execute("SELECT * FROM feedback_jobs WHERE user_id=? AND id=?", (uid, job_id)).fetchone()
         if not row:
             raise HTTPException(404)
-        result = {"state": row["state"]}
-        if row["state"] == "applied":
-            revision = (
-                c.execute(
-                    "SELECT origin FROM profile_revisions WHERE user_id=? AND id=?", (uid, row["applied_revision"])
-                ).fetchone()
-                if row["applied_revision"]
-                else None
-            )
-            result["changes"] = (
-                profiles.changes(c, uid, row["applied_revision"])
-                if revision and revision["origin"] == "feedback:" + job_id
-                else []
-            )
-        return result
+        return feedback_result(c, uid, row)
     finally:
         c.close()
+
+
+def feedback_result(conn, uid: str, job) -> dict:
+    result = {"state": job["state"]}
+    if job["state"] != "applied":
+        return result
+    revision = conn.execute(
+        "SELECT origin FROM profile_revisions WHERE user_id=? AND id=?", (uid, job["applied_revision"])
+    ).fetchone()
+    # A no-op job can point to an earlier revision. Never attribute its old diff to this feedback.
+    own_revision = revision and revision["origin"] == "feedback:" + job["id"]
+    result["changes"] = profiles.changes(conn, uid, job["applied_revision"]) if own_revision else []
+    result.update(job_id=job["id"], feedback=job["feedback"], post_key=job["post_key"] or "")
+    filename, title = profiles.FILES[job["kind"]]
+    result["diff"] = (
+        profiles.revision_diff(conn, uid, job["applied_revision"])
+        if own_revision
+        else {
+            "kind": job["kind"],
+            "filename": filename,
+            "title": title,
+            "revision": job["applied_revision"],
+            "parent_revision": job["applied_revision"],
+            "lines": [],
+            "added": 0,
+            "removed": 0,
+            "format_changes": [],
+            "changed": False,
+            "unavailable": False,
+        }
+    )
+    return result
 
 
 @router.post("/me/daily-limit")
@@ -719,14 +748,7 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
         source_notes = c.execute(
             "SELECT id,title FROM note_versions WHERE user_id=? ORDER BY created_at DESC", (uid,)
         ).fetchall()
-        history = [
-            row
-            for kind in profiles.KINDS
-            for row in c.execute(
-                "SELECT id,kind,created_at,parent_id FROM profile_revisions WHERE user_id=? AND kind=? ORDER BY created_at DESC,rowid DESC LIMIT 20",
-                (uid, kind),
-            )
-        ]
+        history = [row for kind in profiles.KINDS for row in revision_history(c, uid, kind)]
         return page(
             request,
             "settings.html",
@@ -740,8 +762,42 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
                 if any(row["state"] == "unavailable" for row in note_folders.folders_for(c, uid))
                 else "ready",
                 "folder_error": folder_error,
-                "history": [dict(row) | {"changes": profiles.changes(c, uid, row["id"])} for row in history],
+                "history": history,
             },
+        )
+    finally:
+        c.close()
+
+
+def revision_history(conn, uid: str, kind: str, before: int = 0, limit: int = 20) -> list[dict]:
+    rows = conn.execute(
+        """SELECT r.id,r.kind,r.created_at,r.parent_id,r.rowid AS sequence,j.feedback
+        FROM profile_revisions r LEFT JOIN feedback_jobs j ON r.origin='feedback:' || j.id AND r.user_id=j.user_id
+        WHERE r.user_id=? AND r.kind=? AND (?=0 OR r.rowid<?) ORDER BY r.rowid DESC LIMIT ?""",
+        (uid, kind, before, before, limit),
+    ).fetchall()
+    return [dict(row) | {"diff": profiles.revision_diff(conn, uid, row["id"])} for row in rows]
+
+
+@router.get("/settings/history/{kind}", response_class=HTMLResponse)
+def configuration_history(request: Request, kind: str, before: int = 0):
+    kind = {"feed-curation": "public", "note-matching": "private"}.get(kind, kind)
+    if kind not in profiles.KINDS or before < 0:
+        raise HTTPException(404)
+    c = db.connect()
+    try:
+        uid = reader(request, c)
+        filename, title = profiles.FILES[kind]
+        doc = {
+            "title": title,
+            "slug": filename.removesuffix(".md"),
+            "revision": (profiles.head(c, uid, kind) or {"id": ""})["id"],
+        }
+        rows = revision_history(c, uid, kind, before, 21)
+        return page(
+            request,
+            "profile_history.html",
+            {"doc": doc, "history": rows[:20], "next_before": rows[19]["sequence"] if len(rows) > 20 else None},
         )
     finally:
         c.close()

@@ -1,0 +1,6 @@
+<div class="revision-entry" data-revision="{{ revision.id }}">
+  <div class="revision-meta"><time datetime="{{ revision.created_at }}" data-epoch="{{ revision.created_at }}"></time>{% if revision.id == doc.revision %}<span class="meta">Current</span>{% endif %}</div>
+  {% if revision.feedback %}<blockquote class="revision-feedback">{{ revision.feedback }}</blockquote>{% endif %}
+  <details class="revision-diff"><summary>View diff{% if revision.diff and revision.diff.changed %} <span class="diff-count"><span class="diff-added">+{{ revision.diff.added }}</span> <span class="diff-removed">&minus;{{ revision.diff.removed }}</span></span>{% endif %}</summary>{% with diff=revision.diff %}{% include "configuration_diff.html" %}{% endwith %}</details>
+  {% if revision.id != doc.revision %}<form method="post" action="/settings/restore/{{ revision.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="expected" value="{{ doc.revision }}"><button class="text-link">Restore this version</button></form>{% endif %}
+</div>

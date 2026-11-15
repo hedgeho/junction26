@@ -449,6 +449,29 @@ body:has(.landing) .site-header { height: 75px; border-bottom: 0; }
 .revision-entry time { font-weight:600; }
 .revision-entry ul { padding-left:16px; color:var(--muted); }
 .revision-entry form { margin:0; }
+.configuration-diff { margin-top:10px; border:1px solid var(--line); border-radius:8px; overflow:hidden; min-width:0; }
+.diff-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 12px; background:var(--soft); border-bottom:1px solid var(--line); font-size:11px; }
+.diff-heading code { overflow-wrap:anywhere; }
+.diff-count { display:inline-flex; gap:7px; font-family:ui-monospace,monospace; font-size:11px; white-space:nowrap; }
+.diff-added { color:var(--primary); }
+.diff-removed { color:var(--danger); }
+.diff-code { margin:0; padding:10px 0; max-height:360px; overflow:auto; font-size:11px; line-height:1.75; tab-size:2; }
+.diff-code code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.diff-line { display:block; padding:0 12px; white-space:pre-wrap; overflow-wrap:anywhere; min-height:1.75em; }
+.diff-add { color:var(--primary); background:color-mix(in srgb,var(--primary) 9%,transparent); }
+.diff-remove { color:var(--danger); background:color-mix(in srgb,var(--danger) 9%,transparent); }
+.diff-file,.diff-hunk { color:var(--muted); }
+.diff-note { margin:0; padding:10px 12px; font-size:12px; color:var(--muted); }
+.feedback-receipt { margin-top:14px; min-width:0; }
+.feedback-receipt > .help { margin:7px 0; }
+.feedback-request,.revision-feedback { margin:7px 0 10px; padding-left:10px; border-left:2px solid var(--line); font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.feedback-receipt .text-link { display:inline-block; margin-top:9px; font-size:11px; }
+.revision-meta { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.revision-diff { margin:8px 0; }
+.revision-diff > summary { font-size:12px; cursor:pointer; }
+.revision-diff > summary .diff-count { margin-left:8px; }
+.configuration-history { min-width:0; }
+.history-older { margin-top:20px; }
 @media (max-width:520px) { .more-compose { flex-wrap:wrap; } .more-actions { width:100%; flex-direction:row; } .more-compose .more-action { flex:1; } .thread-children { margin-left:4px; padding-left:8px; } .thread-children .thread-children { margin-left:0; padding-left:0; border-left:0; } }
 #social-context-media { display:flex; gap:6px; overflow:auto; margin-top:8px; }
 #social-context-media:empty { display:none; }

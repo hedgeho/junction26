@@ -29,7 +29,7 @@
 <label for="config-{{ doc.slug }}">{{ doc.title }} Markdown</label>
 <textarea class="config-file" id="config-{{ doc.slug }}" name="body" maxlength="24000">{{ doc.body }}</textarea>
 <button class="button secondary">Save file</button>
-</form><details class="revision-history"><summary>Previous versions</summary>{% for revision in history if revision.kind == doc.kind %}<div class="revision-entry"><time datetime="{{ revision.created_at }}" data-epoch="{{ revision.created_at }}"></time>{% if revision.id == doc.revision %}<span class="meta">Current</span>{% endif %}<ul>{% for change in revision.changes %}<li>{{ change }}</li>{% else %}<li>Configuration saved</li>{% endfor %}</ul>{% if revision.id != doc.revision %}<form method="post" action="/settings/restore/{{ revision.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="expected" value="{{ doc.revision }}"><button class="text-link">Restore this version</button></form>{% endif %}</div>{% endfor %}</details></div>{% endfor %}</details>
+</form><details class="revision-history"><summary>Previous versions</summary>{% for revision in history if revision.kind == doc.kind %}{% include "configuration_revision.html" %}{% endfor %}<a class="text-link" href="/settings/history/{{ doc.slug }}">Browse all versions &rarr;</a></details></div>{% endfor %}</details>
 
 <div class="settings-footer"><a class="meta" href="/privacy">Privacy</a><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-link">Sign out</button></form></div>
 {% endblock %}

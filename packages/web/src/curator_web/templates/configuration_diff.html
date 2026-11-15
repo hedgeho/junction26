@@ -1,0 +1,7 @@
+{% if diff %}<div class="configuration-diff">
+  <div class="diff-heading"><code>{{ diff.filename }}</code>{% if diff.changed %}<span class="diff-count"><span class="diff-added">+{{ diff.added }}</span> <span class="diff-removed">&minus;{{ diff.removed }}</span></span>{% endif %}</div>
+  {% if diff.unavailable %}<p class="diff-note">This diff is unavailable. The original revision could not be read.</p>{% elif not diff.changed %}<p class="diff-note">No configuration changes.</p>{% else %}
+  {% if diff.lines %}<pre class="diff-code" tabindex="0" aria-label="{{ diff.title }} changes"><code>{% for line in diff.lines %}<span class="diff-line diff-{{ line.type }}">{{ line.text }}</span>{% endfor %}</code></pre>{% endif %}
+  {% for change in diff.format_changes %}<p class="diff-note">{{ change }}</p>{% endfor %}
+  {% endif %}
+</div>{% endif %}

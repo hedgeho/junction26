@@ -1191,3 +1191,106 @@ def test_restore_profile_keeps_original_unicode_and_line_endings(conn):
     )
     assert result.status_code == 303 and result.headers["location"] == "/settings#configuration"
     assert profiles.markdown(conn, uid) == original
+
+
+def test_feedback_result_reports_its_exact_revision_and_survives_feed_reload(conn):
+    import re
+
+    from curator_curation import jobs
+    from curator_curation.llm.schemas import ProfileProposal
+
+    uid = seed(conn)
+    before = profiles.head(conn, uid)["id"]
+    client = client_for()
+    text = "More compiler research </script><script>window.pwned=1</script>"
+    result = client.post(
+        "/me/feedback",
+        data={"csrf": "csrf-test", "key": "diff-job", "text": text},
+        headers={"Accept": "application/json"},
+    ).json()
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(
+                markdown=current + "\n" + "".join(f"- [topic] Research {i}\n" for i in range(7)), search_terms=[]
+            )
+
+    assert jobs.process_one(conn, Model())
+    receipt = client.get("/api/jobs/" + result["job_id"]).json()
+    diff = receipt["diff"]
+    assert diff["parent_revision"] == before and diff["changed"]
+    assert diff["added"] == 7 and receipt["feedback"] == text and receipt["post_key"] == ""
+    assert any(line["text"] == "+- [topic] Research 6" for line in diff["lines"])
+    profiles.save(conn, uid, "public", "# A later independent change\n", diff["revision"])
+    assert client.get("/api/jobs/" + result["job_id"]).json()["diff"] == diff
+    html = client.get("/me").text
+    raw = re.search(r'<script id="feedback-receipts" type="application/json">(.*?)</script>', html).group(1)
+    assert "</script>" not in raw and json.loads(raw)[0] == receipt
+    assert "window.pwned=1</script>" not in client.get("/settings").text
+
+
+def test_noop_feedback_does_not_claim_the_previous_revision_diff(conn):
+    from curator_curation import jobs
+
+    uid = seed(conn)
+    revision = profiles.save(
+        conn, uid, "public", "# Existing preferences\n- [topic] Compilers\n", profiles.head(conn, uid)["id"]
+    )
+    job_id = jobs.enqueue(conn, uid, "public", "Only compilers now", "noop-diff", mode="more")
+    conn.execute("UPDATE feedback_jobs SET state='applied',applied_revision=? WHERE id=?", (revision, job_id))
+    receipt = client_for().get("/api/jobs/" + job_id).json()
+    assert receipt["changes"] == [] and not receipt["diff"]["changed"] and receipt["diff"]["lines"] == []
+
+
+def test_feedback_diffs_are_scoped_to_each_post_and_each_document(conn):
+    import re
+
+    from curator_curation import jobs
+
+    uid = seed(conn)
+    key = digests.read(conn, uid)[0]["key"]
+    for kind, post_key in (("public", key), ("private", None)):
+        job_id = jobs.enqueue(conn, uid, kind, "Remember " + kind, "diff-" + kind, post_key)
+        head = profiles.head(conn, uid, kind)
+        revision = profiles.save(
+            conn,
+            uid,
+            kind,
+            "# New " + kind + " preferences\n",
+            head["id"] if head else None,
+            origin="feedback:" + job_id,
+        )
+        conn.execute("UPDATE feedback_jobs SET state='applied',applied_revision=? WHERE id=?", (revision, job_id))
+    html = client_for().get("/me").text
+    receipts = json.loads(
+        re.search(r'<script id="feedback-receipts" type="application/json">(.*?)</script>', html).group(1)
+    )
+    assert {(receipt["post_key"], receipt["diff"]["filename"]) for receipt in receipts} == {
+        (key, "feed-curation.md"),
+        ("", "note-matching.md"),
+    }
+
+
+def test_configuration_diff_history_paginates_without_gaps_or_other_readers(conn):
+    import re
+
+    uid = seed(conn)
+    parent = profiles.head(conn, uid)["id"]
+    revisions = [parent]
+    for number in range(23):
+        parent = profiles.save(conn, uid, "public", f"# Revision {number}\n", parent)
+        revisions.append(parent)
+    other = profiles.reader_id(conn, "did:plc:someone-else")
+    foreign = profiles.save(conn, other, "public", "# Other reader secret\n", None)
+    client = client_for()
+    html = client.get("/settings/history/feed-curation").text
+    first = re.findall(r'data-revision="([a-f0-9]+)"', html)
+    assert first == list(reversed(revisions))[:20] and foreign not in first
+    assert "diff-code" in html and "View diff" in html
+    cursor = re.search(r'href="/settings/history/feed-curation\?before=(\d+)"', html).group(1)
+    older = client.get("/settings/history/feed-curation?before=" + cursor).text
+    second = re.findall(r'data-revision="([a-f0-9]+)"', older)
+    assert first + second == list(reversed(revisions))
+    assert "history-older" not in older
+    assert client.get("/settings/history/unknown").status_code == 404
+    assert "Other reader secret" not in html + older

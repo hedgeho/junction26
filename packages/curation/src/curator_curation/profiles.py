@@ -1,5 +1,6 @@
 """Immutable Markdown revisions; the DB pointer is the only mutable authority."""
 
+import difflib
 import hashlib
 import json
 import os
@@ -12,6 +13,7 @@ from curator_core import db
 from .config import settings
 
 KINDS = {"public", "private"}
+FILES = {"public": ("feed-curation.md", "Feed curation"), "private": ("note-matching.md", "Note matching")}
 
 
 class RevisionConflict(Exception):
@@ -55,8 +57,6 @@ def markdown(conn, user_id: str, kind: str = "public") -> str:
 
 def changes(conn, user_id: str, revision_id: str) -> list[str]:
     """Show a small, literal summary of what a revision added or removed."""
-    import difflib
-
     row = conn.execute("SELECT * FROM profile_revisions WHERE user_id=? AND id=?", (user_id, revision_id)).fetchone()
     if not row:
         return []
@@ -75,6 +75,82 @@ def changes(conn, user_id: str, revision_id: str) -> list[str]:
         if line[:2] in ("+ ", "- ") and text and not text.startswith("#"):
             changes.append(("Added: " if line.startswith("+") else "Removed: ") + text[:200])
     return changes[:4]
+
+
+def revision_diff(conn, user_id: str, revision_id: str) -> dict | None:
+    """Literal, complete diff against this revision's own parent, scoped to its owner."""
+    row = conn.execute("SELECT * FROM profile_revisions WHERE user_id=? AND id=?", (user_id, revision_id)).fetchone()
+    if not row:
+        return None
+    filename, title = FILES[row["kind"]]
+    result = {
+        "revision": row["id"],
+        "parent_revision": row["parent_id"],
+        "kind": row["kind"],
+        "filename": filename,
+        "title": title,
+        "lines": [],
+        "added": 0,
+        "removed": 0,
+        "format_changes": [],
+        "changed": False,
+        "unavailable": False,
+    }
+    try:
+
+        def content(revision):
+            text = _path(user_id, row["kind"], revision["id"]).read_bytes().decode("utf-8")
+            if hashlib.sha256(text.encode()).hexdigest() != revision["content_hash"]:
+                raise ValueError("revision integrity error")
+            return text
+
+        after = content(row)
+        before = ""
+        if row["parent_id"]:
+            parent = conn.execute(
+                "SELECT * FROM profile_revisions WHERE user_id=? AND kind=? AND id=?",
+                (user_id, row["kind"], row["parent_id"]),
+            ).fetchone()
+            if not parent:
+                raise ValueError("missing parent revision")
+            before = content(parent)
+        # Prefixes, hunk positions and context are retained; no model summaries or truncation.
+        for index, line in enumerate(
+            difflib.unified_diff(
+                before.splitlines(),
+                after.splitlines(),
+                fromfile=filename + " (before)",
+                tofile=filename + " (after)",
+                lineterm="",
+            )
+        ):
+            if index < 2:
+                style = "file"
+            elif line.startswith("@@"):
+                style = "hunk"
+            elif line.startswith("+"):
+                style = "add"
+            elif line.startswith("-"):
+                style = "remove"
+            else:
+                style = "context"
+            result["lines"].append({"type": style, "text": line})
+            if style == "add":
+                result["added"] += 1
+            elif style == "remove":
+                result["removed"] += 1
+        if before and after and ("\r\n" in before) != ("\r\n" in after):
+            result["format_changes"].append("Line endings changed to " + ("CRLF." if "\r\n" in after else "LF."))
+        if before and after and before.endswith(("\n", "\r")) != after.endswith(("\n", "\r")):
+            result["format_changes"].append(
+                "Final newline " + ("added." if after.endswith(("\n", "\r")) else "removed.")
+            )
+        result["changed"] = before != after
+        if result["changed"] and not result["lines"] and not result["format_changes"]:
+            result["format_changes"].append("Line endings changed.")
+    except (OSError, ValueError, UnicodeError):
+        result["unavailable"] = True
+    return result
 
 
 def save(

@@ -14,6 +14,8 @@ Open the loopback IP in development as described in the root README. Explicit us
 
 Feedback requests retain separate drafts, idempotency keys and progress for each post. A completed request cannot overwrite another post's editor. New selections wait for open panels, pending feedback and unsent feedback/comment/quote drafts before reloading. Imported author/media metadata is embedded as escaped JSON and rendered immediately; public AppView hydration enhances it asynchronously. Note matches poll slowly after completion so newly processed or removed excerpts can update an already open feed. Long comment chains cap their visual indentation on narrow screens.
 
+Completed feedback displays its exact configuration diff inline, next to the original feedback. The latest receipt for the whole feed and each visible post survives a reload. No-op requests explicitly show that the configuration was kept. Settings provide full diffs for Feed curation and Note matching; Browse all versions opens paginated history with restore controls. Diffs are computed from immutable revision files without extra model calls, and are scoped to the signed-in reader.
+
 ## Agora sources
 
 Sign in with Bluesky and run the ingest and curation workers. Candidate recall combines posts from followed accounts, public topic matches and recent discovery from the ingested Bluesky and X sources. The discovery pool is not the signed-in user's Bluesky feed. Gemini evaluates candidate batches concurrently; source posts remain visible while filtering runs. No interests are required to start.

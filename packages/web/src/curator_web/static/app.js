@@ -72,10 +72,47 @@ function pollStatus(url, node, isDone, render, options = {}) {
 const feedbackDrafts = new Map();
 const socialDrafts = new Map();
 const feedbackStates = new Map();
+const feedbackReceipts = new Map((JSON.parse(document.getElementById('feedback-receipts')?.textContent || '[]')).map(result => [result.post_key || 'feed', result]));
+function feedbackStateForScope(scope) {
+ if (!feedbackStates.has(scope)) feedbackStates.set(scope, {key:crypto.randomUUID(), busy:false, message:'', working:false, receipt:feedbackReceipts.get(scope) || null});
+ return feedbackStates.get(scope);
+}
 function feedbackState(form) {
  const key = form.querySelector('[name="post_key"]')?.value || 'feed';
- if (!feedbackStates.has(key)) feedbackStates.set(key, {key:crypto.randomUUID(), busy:false, message:'', working:false});
- return feedbackStates.get(key);
+ return feedbackStateForScope(key);
+}
+function renderConfigurationDiff(diff) {
+ const box = el('div', 'configuration-diff'), heading = el('div', 'diff-heading');
+ heading.append(el('code', '', diff.filename));
+ if (diff.changed) {
+  const count = el('span', 'diff-count');
+  count.append(el('span', 'diff-added', '+' + diff.added), el('span', 'diff-removed', '\u2212' + diff.removed)); heading.append(count);
+ }
+ box.append(heading);
+ if (diff.unavailable) box.append(el('p', 'diff-note', 'This diff is unavailable. The original revision could not be read.'));
+ else if (!diff.changed) box.append(el('p', 'diff-note', 'No configuration changes.'));
+ else {
+  if (diff.lines.length) {
+   const pre = el('pre', 'diff-code'), code = el('code'); pre.tabIndex = 0; pre.setAttribute('aria-label', diff.title + ' changes');
+   for (const line of diff.lines) {
+    const type = ['file','hunk','add','remove','context'].includes(line.type) ? line.type : 'context';
+    code.append(el('span', 'diff-line diff-' + type, line.text));
+   }
+   pre.append(code); box.append(pre);
+  }
+  for (const change of diff.format_changes) box.append(el('p', 'diff-note', change));
+ }
+ return box;
+}
+function renderFeedbackReceipt(form, receipt) {
+ const previous = form.querySelector('.feedback-receipt');
+ if (!receipt?.diff) { previous?.remove(); return; }
+ if (previous?.dataset.job === receipt.job_id) return;
+ const box = el('section', 'feedback-receipt'); box.dataset.job = receipt.job_id; box.setAttribute('aria-label', 'Configuration changes from your feedback');
+ box.append(el('p', 'help', 'Your feedback'), el('blockquote', 'feedback-request', receipt.feedback));
+ box.append(renderConfigurationDiff(receipt.diff));
+ const history = el('a', 'text-link', 'All revisions \u2192'); history.href = '/settings/history/' + receipt.diff.filename.replace(/\.md$/, ''); box.append(history);
+ if (previous) previous.replaceWith(box); else (form.querySelector('.feedback-submit') || form.querySelector('.feedback-progress')).insertAdjacentElement('afterend', box);
 }
 function renderFeedbackState(form, state = feedbackState(form)) {
  if (feedbackState(form) !== state) return;
@@ -85,7 +122,9 @@ function renderFeedbackState(form, state = feedbackState(form)) {
  form.toggleAttribute('aria-busy', state.busy);
  if (state.busy) form.setAttribute('aria-busy', 'true');
  form.querySelectorAll('button[type="submit"]').forEach(button => button.disabled = state.busy);
+ renderFeedbackReceipt(form, state.receipt);
 }
+document.querySelectorAll('.feed-feedback-form:not([data-feedback-scope="post"])').forEach(form => renderFeedbackState(form));
 document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventListener('submit', async event => {
  event.preventDefault();
  const state = feedbackState(form); if (state.busy) return;
@@ -94,6 +133,7 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
  const buttons = [...form.querySelectorAll('button[type="submit"]')], button = event.submitter || buttons[0];
  const isMore = button?.getAttribute('formaction') === '/me/more';
  const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value;
+ state.receipt = null;
  state.busy = state.working = true;
  const update = message => { state.message = message; renderFeedbackState(form, state); };
  const finish = message => {
@@ -119,6 +159,7 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
    else if (result.state === 'failed') {
     failed('Could not update your feed. Your feedback is here to try again.');
    } else if (result.state === 'applied') {
+    state.receipt = result;
     const summary = result.changes?.length ? result.changes.join('; ') : 'Your existing preferences were kept.';
     if (!isMore) { finish(summary); return; }
     update(summary + ' Selecting posts for this request...');
@@ -170,6 +211,10 @@ const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
  pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {
   job.textContent = result.state === 'failed' ? 'Could not update your feed. Please try again.' : result.state === 'applied' ? (result.changes?.join('; ') || 'Your existing preferences were kept.') : 'Learning your preferences...';
+  if (result.state === 'applied') {
+   const state = feedbackStateForScope(result.post_key || 'feed'); state.receipt = result;
+   document.querySelectorAll('.feed-feedback-form').forEach(form => renderFeedbackState(form));
+  }
   if (result.state === 'applied' && job.dataset.mode === 'more') {
    job.textContent += ' Finding posts for this request...';
    pollStatus('/api/curation', job, state => ['ready','failed'].includes(state.state), state => {
