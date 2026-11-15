@@ -13,16 +13,24 @@ MEDIA_HOSTS = {
     "bluesky": ("cdn.bsky.app", "video.cdn.bsky.app"),
     "x": ("pbs.twimg.com",),
 }
+# Threads serves signed media from rotating Meta CDN hosts, so match on the dot boundary.
+MEDIA_HOST_SUFFIXES = {"threads": (".cdninstagram.com", ".fbcdn.net")}
 MAX_IMAGES = 4
 _CID = re.compile(r"^[a-z2-7]{20,120}$")
 _DID = re.compile(r"^did:[a-z]+:[A-Za-z0-9._:%-]{1,200}$")
+
+
+def _media_host_allowed(platform: str, host: str | None) -> bool:
+    if not host:
+        return False
+    return host in MEDIA_HOSTS.get(platform, ()) or host.endswith(MEDIA_HOST_SUFFIXES.get(platform, ()))
 
 
 def media_url(platform: str, url) -> str | None:
     if not isinstance(url, str) or len(url) > 2000:
         return None
     parsed = urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname not in MEDIA_HOSTS.get(platform, ()):
+    if parsed.scheme != "https" or not _media_host_allowed(platform, parsed.hostname):
         return None
     if parsed.username or parsed.password or parsed.port:
         return None

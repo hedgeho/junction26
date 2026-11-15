@@ -5,6 +5,12 @@ from urllib.parse import urlparse
 
 from curator_core import db, media
 
+SOURCE_HOSTS = {
+    "bluesky": ("bsky.app",),
+    "x": ("x.com", "twitter.com"),
+    "threads": ("threads.com", "www.threads.com", "threads.net", "www.threads.net"),
+}
+
 
 def import_posts(conn, records: list[dict]) -> int:
     if not isinstance(records, list) or len(records) > 2000:
@@ -12,12 +18,16 @@ def import_posts(conn, records: list[dict]) -> int:
     rows = []
     for item in records:
         platform, native_id = item["platform"], item["native_id"]
-        if platform not in ("bluesky", "x") or not isinstance(native_id, str) or not 1 <= len(native_id) <= 1000:
+        if platform not in SOURCE_HOSTS or not isinstance(native_id, str) or not 1 <= len(native_id) <= 1000:
             raise ValueError("invalid source identity")
         url = item.get("canonical_url", "")
         parsed = urlparse(url)
-        allowed = ("bsky.app",) if platform == "bluesky" else ("x.com", "twitter.com")
-        if parsed.scheme != "https" or parsed.hostname not in allowed or parsed.username or parsed.password:
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname not in SOURCE_HOSTS[platform]
+            or parsed.username
+            or parsed.password
+        ):
             raise ValueError("invalid canonical URL")
         text, context = item.get("text", ""), item.get("context", "")
         if not isinstance(text, str) or not isinstance(context, str) or len(text) > 30000 or len(context) > 16000:

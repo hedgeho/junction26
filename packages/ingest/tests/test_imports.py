@@ -48,3 +48,38 @@ def test_jetstream_delete_invalidates_normalized_copy(conn):
     import_posts(conn, [item])
     flush(conn, Batch(deletes=[(uri,)]))
     assert get_post(conn, "bluesky:" + uri) is None
+
+
+def threads_source(native_id: str = "17900000000000001") -> dict:
+    return {
+        "platform": "threads",
+        "native_id": native_id,
+        "author_id": "alice",
+        "author_handle": "alice",
+        "text": "Original threads text",
+        "canonical_url": "https://www.threads.com/@alice/post/abc",
+        "observed_at": int(time.time()),
+    }
+
+
+def test_threads_import_round_trips_and_validates_host(conn) -> None:
+    assert import_posts(conn, [threads_source()]) == 1
+    post = get_post(conn, "threads:17900000000000001")
+    assert (post.platform, post.author_key, post.text) == ("threads", "threads:alice", "Original threads text")
+    for bad in ("https://x.com/i/status/1", "https://evilthreads.com/@a/post/1", "http://www.threads.com/@a/post/1"):
+        with pytest.raises(ValueError):
+            import_posts(conn, [threads_source("2") | {"canonical_url": bad}])
+
+
+def test_threads_media_accepts_meta_cdn_suffixes_only(conn) -> None:
+    good = "https://scontent-iad3-1.cdninstagram.com/v/t51/a.jpg?sig=1"
+    fbcdn = "https://scontent.xx.fbcdn.net/v/b.jpg"
+    bad = ["https://evilcdninstagram.com/a.jpg", "https://cdninstagram.com.evil.io/a.jpg", "http://x.fbcdn.net/a.jpg"]
+    item = threads_source() | {
+        "author_avatar": good,
+        "media": [{"type": "image", "thumb": u} for u in [good, fbcdn, *bad]],
+    }
+    import_posts(conn, [item])
+    post = get_post(conn, "threads:17900000000000001")
+    assert [m["thumb"] for m in post.media] == [good, fbcdn]
+    assert post.author_avatar == good

@@ -774,6 +774,40 @@ def test_delete_quote_on_reply_removes_only_its_stored_reference(conn, monkeypat
     assert not conn.execute("SELECT 1 FROM social_contributions WHERE record_uri=?", (quote,)).fetchone()
 
 
+def test_threads_blocks_are_accepted_and_unknown_platforms_rejected(conn):
+    seed(conn)
+    client = client_for()
+    form = {"csrf": "csrf-test", "daily_limit": 5, "timezone": "UTC"}
+    ok = client.post("/settings/delivery", data=form | {"blocked_authors": "threads:alice"}, follow_redirects=False)
+    assert ok.status_code == 303
+    assert client.post("/settings/delivery", data=form | {"blocked_authors": "mastodon:bob"}).status_code == 400
+
+
+def test_imported_threads_media_reaches_the_reader(conn):
+    from curator_core.imports import import_posts
+    from curator_web.post_details import imported_details
+
+    cdn = "https://scontent-iad3-1.cdninstagram.com/v/a.jpg"
+    import_posts(
+        conn,
+        [
+            {
+                "platform": "threads",
+                "native_id": "1790",
+                "author_id": "alice",
+                "author_handle": "alice",
+                "text": "Original",
+                "canonical_url": "https://www.threads.com/@alice/post/abc",
+                "media": [{"type": "image", "thumb": cdn, "full": cdn, "alt": "A photo"}],
+            }
+        ],
+    )
+    add_user(conn, DID)
+    uid = profiles.bootstrap(conn, DID)
+    post = next(item for item in digests.read(conn, uid) if item["platform"] == "threads")
+    assert imported_details(post)["images"] == [{"url": cdn, "full_url": cdn, "alt": "A photo"}]
+
+
 def test_feedback_ajax_returns_owned_job_and_fresh_key(conn):
     uid = seed(conn)
     post_key = digests.read(conn, uid)[0]["key"]
