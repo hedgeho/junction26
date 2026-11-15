@@ -1,6 +1,6 @@
 # Agora
 
-**The modern public square.** A social feed where you decide what's in it. Try it at [feed.ilia.fi](https://feed.ilia.fi).
+**The modern public square.** A social feed where you decide what's in it. Try it at [feed.ilia.fi](https://feed.ilia.fi), or browse the [demo feed](https://feed.ilia.fi/demo) without a Bluesky account.
 
 Built at Junction 2026 by Blanka Bartfai, Ilia Zalesskii, Miro Keimiöniemi and Zuhair Khan.
 
@@ -52,7 +52,7 @@ uv run curator-web
 
 Run processes in separate terminals. Open `http://127.0.0.1:8000` for development OAuth. Configure providers using `.env.example` and `deploy/modal/README.md`; model-dependent work remains pending without credentials. Set `GEMINI_MODEL` to an available event-account model.
 
-Sign in through Bluesky and complete setup; no initial interests are required. Adjust the post limit on the feed. Tell your feed updates future preferences, while Show more builds a new selection for the immediate request. Settings contain connections and the Feed curation / Note matching files with revision history and restore. Notes are read-only snapshots, refreshed periodically from connected sources.
+Sign in through Bluesky and complete setup; no initial interests are required. Adjust the post limit on the feed. Tell your feed updates future preferences. Settings contain connections and the Feed curation / Note matching files with revision history and restore. Notes are read-only snapshots, refreshed periodically from connected sources.
 
 ```sh
 uv run curator-curate once --user did:plc:example
@@ -75,7 +75,9 @@ The optional Bluesky feed projects only Bluesky digest items, with no generated 
 
 `TECHNICAL_PLAN.md` records scope. `DESIGN.md` describes implemented behavior and remaining limits. Live model quality, GPU fit and production deployment require separate smoke checks.
 
-On first sign-in, complete **Setup** to confirm Bluesky and optionally connect up to ten Google Drive notes folders. A hosted app accepts link-shared folders through Context.dev, or private folders shared with its service account as Viewer. Local imports remain available to operators using `notes/` (ignored by Git). See [notes setup](packages/web/README.md#notes-connections). No sample-data preview is included.
+On first sign-in, complete **Setup** to confirm Bluesky and optionally connect up to ten Google Drive notes folders. A hosted app accepts link-shared folders through Context.dev, or private folders shared with its service account as Viewer. Local imports remain available to operators using `notes/` (ignored by Git). See [notes setup](packages/web/README.md#notes-connections).
+
+Set `DEMO_DID` to a dedicated reader that has completed setup to show its feed read-only at `/demo`, without notes. Leave it empty to disable the demo.
 
 ## Built with
 
