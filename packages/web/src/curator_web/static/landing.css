@@ -82,6 +82,7 @@ a{color:inherit}
 .cta{display:inline-flex;align-items:center;gap:12px;background:var(--ink);color:var(--chalk);text-decoration:none;font-family:var(--display);font-weight:700;font-size:17px;padding:16px 22px;width:max-content;margin-top:10px}
 .cta i{width:10px;height:10px;border-radius:50%;background:var(--sun)}
 .cta:hover{background:var(--olive)}
+.cta-secondary{background:transparent;color:var(--ink);border:2px solid var(--ink);padding:14px 20px;font-size:15px}.cta-secondary:hover{background:var(--soft);color:#151A12;border-color:var(--olive)}
 .foot{padding-block:28px 48px;border-top:1px solid var(--line)}
 .foot .inner{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--muted)}
 

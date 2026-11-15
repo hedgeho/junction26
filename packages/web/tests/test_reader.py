@@ -1463,7 +1463,8 @@ def test_demo_shows_configured_feed_read_only_without_notes(conn, monkeypatch):
     monkeypatch.setenv("DEMO_DID", DID)
     clear_settings()
     client = TestClient(create_app(), base_url="https://feed.example.com")
-    assert 'href="/demo"' in client.get("/").text
+    landing = client.get("/").text
+    assert 'class="cta cta-secondary" href="/demo"' in landing
     response = client.get("/demo")
     assert response.status_code == 200
     assert "Original human post" in response.text
