@@ -129,6 +129,12 @@ def public_candidates(conn, did: str, terms: list[str], limit: int):
         (did, since, f"at://{did}/%", share),
     )
     pools.append(["bluesky:" + r[0] for r in endorsed])
+    for_you = conn.execute(
+        """SELECT post_key FROM bluesky_feed_posts WHERE user_did=? AND observed_at>?
+        ORDER BY observed_at DESC, position LIMIT ?""",
+        (did, since, share),
+    )
+    pools.append([r[0] for r in for_you])
     query = _fts_query(terms)
     if query:
         matched = conn.execute(

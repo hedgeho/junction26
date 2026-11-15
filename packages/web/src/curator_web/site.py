@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appview, oauth, post_details, social
+from . import appview, bluesky_feed, oauth, post_details, social
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +113,18 @@ async def oauth_callback(request: Request):
             pass
     finally:
         c.close()
+    background_sync(did)
     return redirect(destination)
+
+
+_syncs: set[asyncio.Task] = set()
+
+
+def background_sync(did: str) -> None:
+    """Start or reconnect the reader's For You source without delaying sign-in."""
+    task = asyncio.create_task(bluesky_feed.sync(did, force=True, initialize=True))
+    _syncs.add(task)
+    task.add_done_callback(_syncs.discard)
 
 
 @router.post("/logout")
