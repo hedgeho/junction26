@@ -363,6 +363,23 @@ def test_recall_finds_followed_and_topic_posts_beyond_recent_firehose_slice(conn
     assert "x:older" in keys
 
 
+def test_recent_posts_only_fill_a_sparse_candidate_pool(conn, monkeypatch):
+    from curator_core.config import clear_settings
+    from curator_curation.candidates import public_candidates
+
+    monkeypatch.setenv("RECENT_BACKFILL_FLOOR", "3")
+    clear_settings()
+    setup(conn)
+    for i in range(10):
+        insert_post(conn, f"did:plc:noise{i}", "1", "Unrelated latest firehose message")
+    assert len(public_candidates(conn, DID, [], 100)) == 3
+    for i in range(4):
+        insert_post(conn, "did:plc:followed", f"f{i}", "A followed author's post", age_s=60)
+    conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:followed"))
+    keys = {p.key for p in public_candidates(conn, DID, [], 100)}
+    assert len(keys) == 4 and all("did:plc:followed" in k for k in keys)
+
+
 def test_baseline_scoring_runs_batches_concurrently(conn, monkeypatch):
     import threading
 

@@ -8,6 +8,7 @@ import time
 from curator_core import db
 from curator_core.rows import Post
 
+from .config import settings
 from .readers import prefs_of
 
 log = logging.getLogger(__name__)
@@ -152,12 +153,14 @@ def public_candidates(conn, did: str, terms: list[str], limit: int):
         )
         pools.append([f"{r[0]}:{r[1]}" for r in normalized])
     pools.append(rising(conn, share))
-    # Recent posts backfill unused quota, while deterministic dedup preserves source identity.
-    pools.append([p.key for p in recent_posts(conn, since, limit)])
+    # Recent posts are an unranked firehose sample, so they only keep a sparse pool from running dry.
+    backfill = min(limit, settings().recent_backfill_floor)
+    pools.append([p.key for p in recent_posts(conn, since, backfill)])
     seen = {}
-    for pool in pools:
+    for i, pool in enumerate(pools):
+        cap = backfill if i == len(pools) - 1 else limit
         for key in pool:
-            if len(seen) >= limit:
+            if len(seen) >= cap:
                 break
             if key not in seen and (post := get_post(conn, key)) is not None:
                 seen[key] = post

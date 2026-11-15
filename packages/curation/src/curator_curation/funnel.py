@@ -47,11 +47,21 @@ ALWAYS = frozenset(triage.HIDE_AT)
 CONTENT = frozenset({"labels", *triage.HIDE_AT, "unchecked", "downranked"})
 
 
-def _firehose(conn, since: int) -> tuple[int, int] | None:
-    row = conn.execute(
-        "SELECT sum(posts), sum(lang_dropped) FROM firehose_stats WHERE hour>=?", (since // 3600,)
-    ).fetchone()
-    return (row[0], row[1]) if row[0] else None
+def _firehose(conn, since: int) -> tuple[int, int, int] | None:
+    """Daily posts and language drops, scaled from the complete hours counted in the window.
+
+    The first counted hour and the current hour are partial, so they are left out.
+    """
+    first = conn.execute("SELECT min(hour) FROM firehose_stats").fetchone()[0]
+    now_hour = int(time.time()) // 3600
+    rows = conn.execute(
+        "SELECT posts, lang_dropped FROM firehose_stats WHERE hour>=? AND hour>? AND hour<?",
+        (since // 3600, first if first is not None else now_hour, now_hour),
+    ).fetchall()
+    if not rows:
+        return None
+    hours = len(rows)
+    return round(sum(r[0] for r in rows) * 24 / hours), round(sum(r[1] for r in rows) * 24 / hours), hours
 
 
 def _stored(conn, since: int) -> int:
@@ -137,7 +147,10 @@ def compute(conn, uid: str, did: str) -> dict:
     clean = relevant - len(content)
     stages = []
     if firehose := _firehose(conn, since):
-        stages.append(_stage("firehose", firehose[0], {"language": firehose[1]}))
+        stage = _stage("firehose", firehose[0], {"language": firehose[1]})
+        if firehose[2] < 24:
+            stage["label"] = f"Bluesky firehose per day, measured over {firehose[2]} h"
+        stages.append(stage)
     stages += [
         _stage("window", stored, {"not_recalled": stored - len(recalled), "blocked": blocked_n}),
         _stage("candidates", len(pool), _tally(early, ["campaign", "author_rate", "tags", "labels", "pending"])),

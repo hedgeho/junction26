@@ -81,11 +81,28 @@ def test_funnel_splits_drops_by_reason_and_content_flag(conn):
 
 def test_funnel_starts_at_the_firehose_when_ingest_has_counted_it(conn):
     uid, _ = seed(conn)
-    conn.execute("INSERT INTO firehose_stats VALUES (?,?,?)", (int(time.time()) // 3600, 1000, 600))
-    conn.execute("INSERT INTO firehose_stats VALUES (?,?,?)", (int(time.time()) // 3600 - 30, 999, 999))
+    hour = int(time.time()) // 3600
+    stats = [(hour - 30, 999, 999), (hour - 3, 5, 5), (hour - 2, 100, 60), (hour - 1, 200, 120), (hour, 7, 7)]
+    conn.executemany("INSERT INTO firehose_stats VALUES (?,?,?)", stats)
     first = funnel.compute(conn, uid, DID)["stages"][0]
-    assert first["key"] == "firehose" and first["count"] == 1000
-    assert drops(first) == {"language": 600}
+    # Only the complete hours inside the window count; their rate is scaled to a day.
+    assert first["key"] == "firehose" and first["count"] == round(305 * 24 / 3)
+    assert drops(first) == {"language": round(185 * 24 / 3)}
+
+
+def test_firehose_is_omitted_until_one_full_hour_is_counted(conn):
+    uid, _ = seed(conn)
+    hour = int(time.time()) // 3600
+    conn.executemany("INSERT INTO firehose_stats VALUES (?,?,?)", [(hour - 1, 50, 10), (hour, 40, 5)])
+    assert funnel.compute(conn, uid, DID)["stages"][0]["key"] == "window"
+
+
+def test_firehose_label_says_when_it_is_an_estimate(conn):
+    uid, _ = seed(conn)
+    hour = int(time.time()) // 3600
+    conn.executemany("INSERT INTO firehose_stats VALUES (?,?,?)", [(hour - h, 10, 1) for h in range(4)])
+    first = funnel.compute(conn, uid, DID)["stages"][0]
+    assert first["label"] == "Bluesky firehose per day, measured over 2 h" and first["count"] == 240
 
 
 def test_daily_limit_and_unscored_candidates_have_their_own_buckets(conn):

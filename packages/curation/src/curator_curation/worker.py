@@ -285,7 +285,7 @@ def stale_empty_digest(conn, uid: str, last) -> bool:
 
 
 def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
-    """Score a small batch of new candidates while the digest is current, so a refresh rarely waits on models.
+    """Score new candidates while the digest is current, so the pool stays scored and a refresh rarely waits.
 
     Paced, with a three-hour head start, to leave a fifth of the day's scoring allowance for refreshes.
     """
@@ -300,7 +300,7 @@ def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
     if int(db.kv_get(conn, budget_key(uid)) or "0") >= allowance:
         return
     try:
-        score_user(conn, scorer, did, None, triager, limit=cfg.score_batch_size)
+        score_user(conn, scorer, did, None, triager, limit=cfg.background_score_size)
     except Exception as exc:  # noqa: BLE001 - the current digest stays valid; retry next interval
         log.warning("Background scoring failed for a reader (%s); retry next interval", type(exc).__name__)
 

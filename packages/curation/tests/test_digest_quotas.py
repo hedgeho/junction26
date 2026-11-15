@@ -101,3 +101,16 @@ def test_current_digest_keeps_scoring_ahead_within_pacing(conn, monkeypatch):
     db.kv_set(conn, worker.budget_key(uid), str(10**6))
     worker.run_cycle(conn, scorer)
     assert "STRONG third compiler post" not in scorer.scored  # over the paced allowance
+
+
+def test_background_scoring_covers_a_full_batch_each_interval(conn, monkeypatch):
+    uid = reader(conn)
+    insert_post(conn, "did:plc:a", "1", "STRONG first compiler post")
+    scorer = ScriptedScorer({"STRONG": ("include", 0.95, 0.9)})
+    worker.run_cycle(conn, scorer)
+    strangers(conn, 50)
+    noon = time.time() // 86400 * 86400 + 43200
+    monkeypatch.setattr(worker.time, "time", lambda: noon)
+    db.kv_set(conn, "background-scored:" + uid, "0")
+    worker.run_cycle(conn, scorer)
+    assert len(scorer.scored) == 1 + 40
