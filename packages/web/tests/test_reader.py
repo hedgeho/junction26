@@ -24,6 +24,16 @@ def client_for(did=DID):
     return client
 
 
+def test_landing_page_links_to_working_sign_in_form(conn):
+    client = TestClient(create_app(), base_url="https://feed.example.com")
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.text.count('href="#join"') >= 2
+    assert 'id="join"' in response.text
+    assert 'action="/login"' in response.text
+    assert 'name="csrf"' in response.text
+
+
 def seed(conn, **post_cols):
     add_user(conn, DID, "GENERATED_CONFIG_SENTINEL")
     uid = profiles.bootstrap(conn, DID)
@@ -242,7 +252,7 @@ def test_browser_errors_are_readable_and_api_errors_stay_json(conn):
 
 def test_static_interactions_and_styles_are_served_without_source_data(conn):
     client = client_for()
-    for path in ("/static/app.css", "/static/app.js"):
+    for path in ("/static/app.css", "/static/app.js", "/static/theme.js"):
         response = client.get(path)
         assert response.status_code == 200
         assert "GENERATED_CONFIG_SENTINEL" not in response.text

@@ -1,16 +1,63 @@
 {% extends "base.html" %}
-{% block title %}Sign in &middot; Agora{% endblock %}
+{% block title %}Agora &middot; A better public square{% endblock %}
+{% block header_extra %}<a class="landing-header-cta" href="#join">Try Agora <span aria-hidden="true">&rarr;</span></a>{% endblock %}
+{% block main_attributes %} class="landing"{% endblock %}
 {% block body %}
-<section class="auth">
-  <div class="page-heading"><h1>Connect Bluesky</h1><p class="muted">Use your Bluesky account to continue.</p></div>
-  <form method="post" action="/login">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label for="handle">Bluesky handle</label>
-    <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true"{% endif %}>
-    <p class="help" id="login-help">Read your feed and allow interactions you choose to make, including deleting your posts.</p>
-    {% if error %}<p class="error" role="alert" id="login-error">{{ error }}</p>{% endif %}
-    <button class="primary">Continue <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
-  </form>
-  <div class="auth-footer"><span>Bluesky OAuth</span><a href="/privacy">Privacy</a></div>
+<section class="landing-hero" aria-labelledby="hero-title">
+  <div class="landing-inner hero-grid">
+    <div class="hero-copy">
+      <p class="landing-eyebrow"><span class="sun-dot"></span> A better public square</p>
+      <h1 id="hero-title">The internet was supposed to bring us <em>together.</em></h1>
+      <p class="hero-intro">Your feed can be a place for ideas, curiosity, and conversations worth having.</p>
+      <div class="hero-actions"><a class="button primary landing-button" href="#join">Try Agora on Bluesky <span aria-hidden="true">&rarr;</span></a><a class="story-link" href="#square">Explore the story <span aria-hidden="true">&darr;</span></a></div>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+      <div class="plaza-grid"></div>
+      <svg viewBox="0 0 240 240" fill="none"><path d="M28 212H212V28H28V168H168V72H72V120" stroke="currentColor" stroke-width="12"/><circle cx="120" cy="120" r="12" fill="#FFB000"/></svg>
+      <span class="art-caption">Many voices. Your square.</span>
+    </div>
+  </div>
 </section>
+<section class="landing-section" id="square">
+  <div class="landing-inner story-grid">
+    <div><p class="landing-eyebrow">I &middot; The square</p><h2>Every Greek city had one.</h2></div>
+    <p class="story-copy">A place to exchange news and ideas. To listen, to question, and to be part of something bigger than yourself.</p>
+  </div>
+</section>
+<section class="landing-section landing-olive">
+  <div class="landing-inner"><p class="landing-eyebrow">II &middot; The promise</p><h2>The internet was supposed to be the biggest square ever built.</h2><p class="story-copy">Open to anyone. Every voice, every idea, one tap away.</p></div>
+</section>
+<section class="landing-section">
+  <div class="landing-inner"><p class="landing-eyebrow">III &middot; The sale</p><h2>Then someone noticed that anger keeps people scrolling.</h2><p class="story-copy">Feeds learned to reward outrage. The conversations we came for got harder to find.</p></div>
+</section>
+<section class="landing-section landing-soft">
+  <div class="landing-inner"><p class="landing-eyebrow">IV &middot; We stay</p><h2>We're not leaving.</h2><p class="story-copy">Our friends are here. The news is here. The ideas we haven't met yet are here.</p></div>
+</section>
+<section class="landing-section">
+  <div class="landing-inner"><p class="landing-eyebrow">V &middot; A better square</p><h2>So we built one.</h2>
+    <ul class="landing-features">
+      <li><strong>Tell Agora what you care about.</strong> Your feed starts with your interests, in your own words.</li>
+      <li><strong>Make the feed yours.</strong> Share feedback to shape what you see next.</li>
+      <li><strong>Bring your own ideas.</strong> Connect your notes to find relevant thoughts alongside posts.</li>
+    </ul>
+  </div>
+</section>
+<section class="landing-section landing-join" id="join">
+  <div class="landing-inner join-grid">
+    <div><p class="landing-eyebrow">VI &middot; Take back the square</p><h2>Take back the square.</h2><p class="story-copy">A little more curiosity. A feed shaped around you.</p></div>
+    <div class="join-card">
+      <h3>Connect Bluesky</h3><p>Use your Bluesky account to get started.</p>
+      <form method="post" action="/login">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="handle">Bluesky handle</label>
+        <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true" autofocus{% endif %}>
+        <p class="help" id="login-help">Read your feed and allow interactions you choose to make, including deleting your posts.</p>
+        {% if error %}<p class="error" role="alert" id="login-error">{{ error }}</p>{% endif %}
+        <button class="primary landing-button">Continue <span aria-hidden="true">&rarr;</span></button>
+      </form>
+      <div class="auth-footer"><span>Bluesky OAuth</span><a href="/privacy">Privacy</a></div>
+    </div>
+  </div>
+</section>
+<footer class="landing-footer"><div class="landing-inner"><span>Agora &middot; A better public square</span><span>Built on Bluesky's open protocol</span></div></footer>
 {% endblock %}

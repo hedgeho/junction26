@@ -41,7 +41,7 @@ templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 def page(request, name, context):
     token = request.session.setdefault("csrf", secrets.token_urlsafe(32))
     static = Path(__file__).parent / "static"
-    version = max((static / name).stat().st_mtime_ns for name in ("app.css", "app.js"))
+    version = max((static / name).stat().st_mtime_ns for name in ("app.css", "app.js", "theme.js"))
     return templates.TemplateResponse(request, name, dict(context, csrf=token, asset_version=version))
 
 
