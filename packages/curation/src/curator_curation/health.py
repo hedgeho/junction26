@@ -19,7 +19,14 @@ LABELS = {
 def filtering_status(conn, uid):
     cfg = settings()
     model = cfg.gemini_decision_model if cfg.scoring_backend == "decisions" else cfg.gemini_model
-    if not cfg.gemini_api_key or not model or cfg.scoring_backend not in {"decisions", "generative"}:
+    configured = (
+        bool(cfg.gemma_url and cfg.gemma_token and cfg.gemma_model)
+        if cfg.scoring_backend == "gemma"
+        else bool(cfg.gemini_api_key and model and cfg.scoring_backend in {"decisions", "generative"})
+    )
+    if cfg.scoring_backend != "gemma" and db.kv_get(conn, "notes-in-feed-profile:" + uid):
+        configured = False
+    if not configured:
         code = "not_configured"
     elif db.kv_get(conn, "curation-state:" + uid) == "failed":
         code = "failed"

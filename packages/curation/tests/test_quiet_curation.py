@@ -12,7 +12,7 @@ DID = "did:plc:reader"
 
 
 class FakeGemma:
-    def update_profile(self, current, feedback):
+    def update_profile(self, current, feedback, terms=()):
         return ProfileProposal(markdown=current + "\n" + feedback, search_terms=["compilers"])
 
     def match(self, post, chunks, private_profile):
@@ -254,9 +254,9 @@ def test_note_removal_during_inference_cannot_reintroduce_private_profile_data(c
     note = notes.import_note(conn, uid, "Remove while processing", "private original")
 
     class Removed(FakeGemma):
-        def update_profile(self, current, feedback):
+        def update_profile(self, current, feedback, terms=()):
             notes.delete_note(conn, uid, note)
-            return super().update_profile(current, feedback)
+            return super().update_profile(current, feedback, terms)
 
     jobs.process_one(conn, Removed())
     assert profiles.head(conn, uid, "private") is None
@@ -512,3 +512,101 @@ def test_failed_batches_return_their_scoring_budget(conn):
 
     worker.run_cycle(conn, Down())
     assert int(conn.execute("SELECT value FROM kv WHERE key=?", (worker.budget_key(uid),)).fetchone()[0]) == 0
+
+
+def test_discovery_prefers_posts_gaining_engagement_fastest(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    fast = insert_post(conn, "did:plc:a", "fast", "Fresh post taking off", age_s=1800, likes=40)
+    slow = insert_post(conn, "did:plc:b", "slow", "Old post that drifted up", age_s=20 * 3600, likes=60)
+    insert_post(conn, "did:plc:c", "reply", "Busy reply", age_s=600, likes=90, reply_parent="at://x/y/z")
+    keys = [p.key for p in public_candidates(conn, DID, [], 6)]
+    assert keys[:2] == ["bluesky:" + fast, "bluesky:" + slow]
+
+
+def test_recall_includes_posts_liked_by_followed_accounts(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:friend"))
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    liked = insert_post(conn, "did:plc:stranger", "liked", "Older post a friend liked", age_s=7200)
+    once = insert_post(conn, "did:plc:other", "once", "Post liked by a stranger", age_s=7200)
+    now = int(time.time())
+    conn.execute("INSERT INTO followed_engagement VALUES ('did:plc:friend',?,'like',?)", (liked, now))
+    conn.execute("INSERT INTO followed_engagement VALUES ('did:plc:nobody',?,'like',?)", (once, now))
+    keys = [p.key for p in public_candidates(conn, DID, [], 3)]
+    assert keys[0] == "bluesky:" + liked
+    assert "bluesky:" + once not in keys
+
+
+def test_pending_rebuild_keeps_the_last_selection_instead_of_raw_candidates(conn):
+    uid, key = setup(conn)
+    worker.run_cycle(conn, FakeScorer())
+    assert [p["key"] for p in digests.read(conn, uid)] == [key]
+    for i in range(5):
+        insert_post(conn, f"did:plc:raw{i}", str(i), f"Unscored keyword match {i}")
+    conn.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (uid,))
+    body = profiles.markdown(conn, uid) + "\n- More: something new"
+    profiles.save(conn, uid, "public", body, profiles.head(conn, uid)["id"])
+    assert [p["key"] for p in digests.read(conn, uid)] == [key]
+
+
+def test_note_derived_feed_profile_requires_gemma_and_blocks_gemini(conn, monkeypatch):
+    from curator_core import db
+    from curator_core.config import clear_settings
+
+    monkeypatch.setenv("SCORING_BACKEND", "gemma")
+    clear_settings()
+    uid, _ = setup(conn)
+    note = notes.import_note(conn, uid, "Thinking", "Working through a new compiler idea")
+    chunk = conn.execute("SELECT id FROM note_chunks WHERE note_id=?", (note,)).fetchone()[0]
+    jobs.enqueue_note_feed_chunk(conn, uid, chunk)
+    assert jobs.process_one(conn, FakeGemma())
+    assert jobs.process_one(conn, FakeGemma())
+    assert "new compiler idea" in profiles.markdown(conn, uid, "public")
+    assert db.kv_get(conn, "notes-in-feed-profile:" + uid) == "1"
+    monkeypatch.setenv("SCORING_BACKEND", "generative")
+    clear_settings()
+    scorer = FakeScorer()
+    with pytest.raises(RuntimeError, match="require Gemma"):
+        worker.score_user(conn, scorer, DID)
+    assert scorer.requests == []
+    clear_settings()
+
+
+def test_feedback_preserves_post_context_after_source_disappears(conn):
+    uid, key = setup(conn)
+    job = jobs.enqueue(conn, uid, "public", "I like this depth", "post-snapshot", key)
+    conn.execute("DELETE FROM posts")
+
+    class CapturingGemma(FakeGemma):
+        def update_profile(self, current, feedback, terms=()):
+            self.feedback = feedback
+            return super().update_profile(current, feedback, terms)
+
+    gemma = CapturingGemma()
+    assert jobs.process_one(conn, gemma)
+    assert "concrete compiler evaluation" in gemma.feedback
+    assert "I like this depth" in gemma.feedback
+    assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
+
+
+def test_feedback_is_preserved_when_model_only_changes_search_terms(conn):
+    uid, key = setup(conn)
+    original = profiles.markdown(conn, uid)
+    current_terms = json.loads(profiles.head(conn, uid)["search_terms"])
+
+    class MissedEdit:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current, search_terms=["unrelated"])
+
+    jobs.enqueue(conn, uid, "public", "Less hype, but keep technical depth", "missed-edit", key)
+    assert jobs.process_one(conn, MissedEdit())
+    assert "- [feedback] Less hype, but keep technical depth" in profiles.markdown(conn, uid)
+    assert original.strip() in profiles.markdown(conn, uid)
+    assert json.loads(profiles.head(conn, uid)["search_terms"]) == current_terms

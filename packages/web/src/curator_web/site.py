@@ -16,10 +16,10 @@ from curator_curation import digests, drive_notes, health, jobs, note_folders, p
 from curator_curation.config import settings as curation_settings
 from curator_curation.readers import ensure_user
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import appview, oauth, post_details, social
+from . import appview, bluesky_feed, oauth, post_details, social
 
 log = logging.getLogger(__name__)
 
@@ -114,7 +114,18 @@ async def oauth_callback(request: Request):
             pass
     finally:
         c.close()
+    background_sync(did)
     return redirect(destination)
+
+
+_syncs: set[asyncio.Task] = set()
+
+
+def background_sync(did: str) -> None:
+    """Start or reconnect the reader's For You source without delaying sign-in."""
+    task = asyncio.create_task(bluesky_feed.sync(did, force=True, initialize=True))
+    _syncs.add(task)
+    task.add_done_callback(_syncs.discard)
 
 
 @router.post("/logout")
@@ -165,6 +176,7 @@ async def me(request: Request):
                 "submission_key": uuid.uuid4().hex,
                 "more_submission_key": uuid.uuid4().hex,
                 "feedback_available": bool(curation_settings().gemma_url and curation_settings().gemma_token),
+                "gemma_scoring": curation_settings().scoring_backend == "gemma",
             },
         )
     finally:
@@ -482,11 +494,13 @@ def feedback(
         uid = reader(request, c)
         if post_key and post_key not in {p["key"] for p in digests.read(c, uid)}:
             raise HTTPException(404)
-        jobs.enqueue(c, uid, kind, text, key, post_key or None)
+        job_id = jobs.enqueue(c, uid, kind, text, key, post_key or None)
     except ValueError:
         raise HTTPException(400, "Invalid feedback") from None
     finally:
         c.close()
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"job_id": job_id, "next_key": uuid.uuid4().hex}, status_code=202)
     return redirect()
 
 
@@ -503,7 +517,7 @@ def request_more(
             existing = c.execute(
                 "SELECT 1 FROM feedback_jobs WHERE user_id=? AND idempotency_key=?", (uid, key)
             ).fetchone()
-            jobs.enqueue(c, uid, "public", text, key)
+            job_id = jobs.enqueue(c, uid, "public", text, key)
             if not existing:
                 config = digests.config_for(c, uid)
                 day = digests.day_key(config)
@@ -518,6 +532,8 @@ def request_more(
         raise HTTPException(400, "Invalid request") from None
     finally:
         c.close()
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"job_id": job_id, "next_key": uuid.uuid4().hex}, status_code=202)
     return redirect("/me#more")
 
 
@@ -599,7 +615,14 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
                     "public",
                     "feed-curation",
                     "Feed curation",
-                    "Guides which posts are selected for your feed. Your feedback updates this file; it is sent to Gemini for filtering.",
+                    (
+                        "Guides which posts are selected for your feed. Your feedback updates this file; "
+                        + (
+                            "notes can also shape it, and Gemma uses it for filtering."
+                            if curation_settings().scoring_backend == "gemma"
+                            else "it is sent to Gemini for filtering. Notes do not update it while Gemini filtering is enabled."
+                        )
+                    ),
                 ),
                 (
                     "private",

@@ -33,6 +33,7 @@ CURSOR_KEY = "jetstream_cursor"
 REPLAY_OVERLAP_US = 5_000_000
 FLUSH_EVERY_S = 1.0
 PRUNE_EVERY_S = 600
+FOLLOWED_EVERY_S = 60
 
 
 @dataclass
@@ -42,6 +43,7 @@ class Batch:
     likes: dict[str, int] = field(default_factory=dict)
     reposts: dict[str, int] = field(default_factory=dict)
     replies: dict[str, int] = field(default_factory=dict)
+    followed_engagement: list[tuple] = field(default_factory=list)
     last_time_us: int = 0
     seen: int = 0
 
@@ -66,7 +68,7 @@ def _embed(record: dict) -> tuple[str | None, str | None]:
     return None, None
 
 
-def handle_event(evt: dict, batch: Batch, keep_langs: set[str]) -> None:
+def handle_event(evt: dict, batch: Batch, keep_langs: set[str], followed: frozenset[str] = frozenset()) -> None:
     batch.last_time_us = evt.get("time_us", batch.last_time_us)
     if evt.get("kind") != "commit":
         return
@@ -115,6 +117,9 @@ def handle_event(evt: dict, batch: Batch, keep_langs: set[str]) -> None:
         if subject:
             target = batch.likes if coll == LIKE else batch.reposts
             target[subject] = target.get(subject, 0) + 1
+            if did in followed:
+                kind = "like" if coll == LIKE else "repost"
+                batch.followed_engagement.append((did, subject, kind, evt["time_us"] // 1_000_000))
 
 
 def flush(conn, batch: Batch) -> None:
@@ -132,8 +137,13 @@ def flush(conn, batch: Batch) -> None:
                 f"UPDATE posts SET {col} = {col} + ? WHERE uri = ?",
                 [(n, u) for u, n in counts.items()],
             )
+        conn.executemany("INSERT OR IGNORE INTO followed_engagement VALUES (?,?,?,?)", batch.followed_engagement)
         if batch.last_time_us:
             db.kv_set(conn, CURSOR_KEY, str(batch.last_time_us))
+
+
+def followed_accounts(conn) -> frozenset[str]:
+    return frozenset(r[0] for r in conn.execute("SELECT DISTINCT subject_did FROM follows"))
 
 
 def subscribe_url(base: str, cursor: int | None) -> str:
@@ -148,7 +158,8 @@ async def run(stats_only: bool = False, duration_s: float | None = None) -> None
     conn = None if stats_only else db.connect()
     keep_langs = set(cfg.keep_langs)
     started = time.monotonic()
-    last_prune = 0.0
+    last_prune = last_followed = 0.0
+    followed: frozenset[str] = frozenset()
     counts: dict[str, int] = {}
 
     while True:
@@ -165,11 +176,14 @@ async def run(stats_only: bool = False, duration_s: float | None = None) -> None
                         k = f"{c.get('collection')}:{c.get('operation')}"
                         counts[k] = counts.get(k, 0) + 1
                     else:
-                        handle_event(evt, batch, keep_langs)
+                        handle_event(evt, batch, keep_langs, followed)
                     now = time.monotonic()
                     if conn is not None and now - last_flush >= FLUSH_EVERY_S:
                         await asyncio.to_thread(flush, conn, batch)
                         batch, last_flush = Batch(), now
+                        if now - last_followed >= FOLLOWED_EVERY_S:
+                            followed = followed_accounts(conn)
+                            last_followed = now
                         if now - last_prune >= PRUNE_EVERY_S:
                             await asyncio.to_thread(prune, conn, cfg.retention_hours)
                             last_prune = now

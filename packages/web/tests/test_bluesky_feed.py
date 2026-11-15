@@ -194,3 +194,34 @@ def test_null_optional_metadata_keeps_original_post(reply, embed):
     assert records[0]["parent_id"] is None
     assert records[0]["root_id"] is None
     assert records[0]["quote_id"] is None
+
+
+def test_for_you_pages_accumulate_per_reader_without_forcing_a_rebuild(conn, monkeypatch):
+    add_user(conn, DID)
+    add_user(conn, OTHER)
+    for i in range(10):
+        insert_post(conn, "did:plc:firehose", str(i), "Unrelated firehose post")
+    run_sync(conn, monkeypatch, payload("did:plc:first", "a"))
+    run_sync(conn, monkeypatch, payload("did:plc:second", "b"))
+    run_sync(conn, monkeypatch, payload("did:plc:theirs", "c"), OTHER)
+    assert not conn.execute("SELECT 1 FROM reader_settings WHERE refresh_requested=1").fetchone()
+    own = [p.author_id for p in public_candidates(conn, DID, [], 6)]
+    assert set(own[:2]) == {"did:plc:first", "did:plc:second"}
+
+
+def test_background_sync_skips_readers_who_must_reconnect(conn, monkeypatch):
+    add_user(conn, DID)
+    add_user(conn, OTHER)
+    run_sync(conn, monkeypatch, payload())
+    run_sync(conn, monkeypatch, payload(), OTHER)
+    conn.execute("UPDATE bluesky_feed_sync SET last_attempt=0")
+    conn.execute("UPDATE bluesky_feed_sync SET state='auth_required' WHERE user_did=?", (OTHER,))
+    calls = []
+
+    async def fetch(did):
+        calls.append(did)
+        return payload()
+
+    monkeypatch.setattr(bluesky_feed, "fetch_feed", fetch)
+    asyncio.run(bluesky_feed.sync_all())
+    assert calls == [DID]

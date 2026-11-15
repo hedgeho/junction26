@@ -134,6 +134,13 @@ def _campaign_uris(conn, uris: list[str], since: int, min_authors: int) -> set[s
     return {uri for uri, sig in sigs.items() if spread.get(sig, 0) >= min_authors}
 
 
+def tag_spam(text: str, max_tags: int) -> bool:
+    """Many tags or mentions and little else; tagged photo posts with real captions pass."""
+    tags, mentions = _HASHTAG.findall(text), _MENTION.findall(text)
+    prose = len(_MENTION.sub(" ", _HASHTAG.sub(" ", text)).split())
+    return any(len(found) >= max_tags and len(found) >= prose for found in (tags, mentions))
+
+
 def screen(conn, posts: list[SocialPost], followed: set[str], limit: int) -> tuple[list[SocialPost], dict[str, int]]:
     """Returns up to `limit` eligible posts in input order, and drop counts by reason.
 
@@ -153,9 +160,7 @@ def screen(conn, posts: list[SocialPost], followed: set[str], limit: int) -> tup
             dropped["campaign"] += 1
         elif post.author_id not in followed and rates.get(post.author_id, 0) > cfg.max_author_posts_per_day:
             dropped["author_rate"] += 1
-        elif post.author_id not in followed and (
-            len(_HASHTAG.findall(post.text)) >= cfg.max_tags or len(_MENTION.findall(post.text)) >= cfg.max_tags
-        ):
+        elif post.author_id not in followed and tag_spam(post.text, cfg.max_tags):
             dropped["tags"] += 1
         else:
             cheap.append(post)

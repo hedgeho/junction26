@@ -13,6 +13,7 @@ FEED_URI = "at://did:plc:3guzzweuqraryl3rdkimjamk/app.bsky.feed.generator/for-yo
 FEED_URL = "https://bsky.app/profile/spacecowboy17.bsky.social/feed/for-you"
 APPVIEW_SERVICE = "did:web:api.bsky.app#bsky_appview"
 REFRESH_SECONDS = 15 * 60
+SNAPSHOT_KEEP_S = 24 * 3600
 AUTH_NOTICE_URI = "at://did:plc:qhyg27lbj3uqsmlyvmsh2bjx/app.bsky.feed.post/3mnqknfvlpk24"
 
 
@@ -91,24 +92,30 @@ def save_snapshot(conn, did: str, records: list[dict]) -> None:
     import_posts(conn, records)
     now = int(time.time())
     with db.tx(conn):
-        conn.execute("DELETE FROM bluesky_feed_posts WHERE user_did=?", (did,))
+        conn.execute("DELETE FROM bluesky_feed_posts WHERE user_did=? AND observed_at<?", (did, now - SNAPSHOT_KEEP_S))
         conn.executemany(
-            "INSERT INTO bluesky_feed_posts VALUES (?,?,?,?)",
+            "INSERT OR REPLACE INTO bluesky_feed_posts VALUES (?,?,?,?)",
             [(did, "bluesky:" + r["native_id"], i, now) for i, r in enumerate(records)],
         )
         conn.execute(
             "UPDATE bluesky_feed_sync SET state='ready',updated_at=?,post_count=? WHERE user_did=?",
             (now, len(records), did),
         )
-        conn.execute(
-            """UPDATE reader_settings SET refresh_requested=1,version=version+1
-            WHERE user_id IN (SELECT id FROM reader_accounts WHERE bluesky_did=?)""",
-            (did,),
-        )
+
+
+async def sync_all() -> None:
+    """Background pull for every connected reader; `sync` enforces the per-reader cooldown."""
+    conn = db.connect()
+    try:
+        dids = [r[0] for r in conn.execute("SELECT user_did FROM bluesky_feed_sync WHERE state!='auth_required'")]
+    finally:
+        conn.close()
+    for did in dids:
+        await sync(did)
 
 
 async def sync(did: str, *, force: bool = False, initialize: bool = False) -> None:
-    """One bounded page on login/open/refresh, with a cross-request cooldown.
+    """One bounded page per call, with a cross-request cooldown. Pages accumulate into the reader's candidate pool.
 
     Failures preserve the prior snapshot and never import an unauthenticated fallback.
     No provider exception or OAuth credential is included in user-visible state.

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from curator_core import db
 
-from . import digests, jobs, media, note_folders, profiles, screen, triage
+from . import digests, jobs, media, note_folders, profiles, screen, seed, triage
 from .candidates import public_candidates
 from .config import settings
 from .llm.gemini import (
@@ -17,6 +17,7 @@ from .llm.gemini import (
     SCORER_VERSION,
     GeminiDecisionScorer,
     GeminiDecisionTriager,
+    GeminiProfileSeeder,
     GeminiScorer,
     PublicCandidate,
     PublicScoringRequest,
@@ -28,6 +29,8 @@ log = logging.getLogger(__name__)
 
 def scorer_version() -> str:
     cfg = settings()
+    if cfg.scoring_backend == "gemma":
+        return f"gemma-v1:{cfg.gemma_model}"
     if cfg.scoring_backend == "decisions":
         return f"{DECISION_SCORER_VERSION}:{cfg.gemini_decision_model}"
     if cfg.scoring_backend == "generative":
@@ -36,6 +39,8 @@ def scorer_version() -> str:
 
 
 def make_scorer(cfg):
+    if cfg.scoring_backend == "gemma":
+        return GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
     if cfg.scoring_backend == "decisions":
         return GeminiDecisionScorer(
             cfg.gemini_api_key,
@@ -66,6 +71,8 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
     timing = {} if timing is None else timing
     started = time.monotonic()
     uid = profiles.bootstrap(conn, did)
+    if cfg.scoring_backend != "gemma" and db.kv_get(conn, "notes-in-feed-profile:" + uid):
+        raise RuntimeError("Note-derived feed profiles require Gemma scoring")
     profile = profiles.head(conn, uid)
     version = scorer_version()
     config = digests.config_for(conn, uid)
@@ -115,7 +122,7 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                 for p in batch
             ),
         )
-        batches.append((batch, request, wanted if cfg.score_images else {}))
+        batches.append((batch, request, wanted if cfg.score_images and cfg.scoring_backend != "gemma" else {}))
     errors = 0
     image_s, model_s = [], []
 
@@ -172,16 +179,17 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                     total += 1
     timing["relevance_s"] = round(time.monotonic() - scoring_started, 3)
     if triager:
-        # Flags only matter for posts a digest could deliver, so triage follows relevance.
-        deliverable = {
-            r[0]
+        # Flags are per post and shared by readers; every scored post gets them, deliverable ones first.
+        assessed = {
+            r[0]: r[1]
             for r in conn.execute(
-                """SELECT post_key FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
-                AND (decision='include' OR (relevance>=0.5 AND substance>=0.75))""",
+                """SELECT post_key, decision='include' OR (relevance>=0.5 AND substance>=0.75)
+                FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?""",
                 (uid, profile_revision, version),
             )
         }
-        untriaged = triage.missing(conn, [p for p in pool if p.key in deliverable], triager.model)
+        scored = sorted((p for p in pool if p.key in assessed), key=lambda p: not assessed[p.key])
+        untriaged = triage.missing(conn, scored, triager.model)
         untriaged = untriaged[: cfg.candidates_per_cycle]
         if untriaged:
             t0 = time.monotonic()
@@ -208,15 +216,21 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
     return total
 
 
-def curate_reader(conn, scorer, gemma, did: str, triager=None) -> None:
+def make_seeder(cfg):
+    return GeminiProfileSeeder(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+
+
+def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> None:
     started = time.monotonic()
     uid = None
     try:
         uid = profiles.bootstrap(conn, did)
-        config = digests.config_for(conn, uid)
-        last = digests.latest(conn, uid)
         if scorer is None:
             return
+        if seeder and not profiles.head(conn, uid):
+            seed.maybe_seed(conn, did, uid, seeder)
+        config = digests.config_for(conn, uid)
+        last = digests.latest(conn, uid)
         if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
             score_ahead(conn, scorer, did, uid, triager)
             return
@@ -268,15 +282,15 @@ def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
         log.warning("Background scoring failed for a reader; retry next interval")
 
 
-def _curate_in_own_connection(scorer, gemma, did: str, triager) -> None:
+def _curate_in_own_connection(scorer, gemma, did: str, triager, seeder) -> None:
     conn = db.connect()
     try:
-        curate_reader(conn, scorer, gemma, did, triager)
+        curate_reader(conn, scorer, gemma, did, triager, seeder)
     finally:
         conn.close()
 
 
-def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> None:
+def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None, seeder=None) -> None:
     cfg = settings()
     db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
     for row in conn.execute("SELECT user_id FROM notes_folders").fetchall():
@@ -291,10 +305,21 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> Non
         for _ in range(10):
             if not jobs.process_one(conn, gemma):
                 break
-    if scorer is None and cfg.gemini_api_key:
+    if cfg.scoring_backend == "gemma":
+        conn.execute(
+            "UPDATE feedback_jobs SET state='queued',attempts=0,error_code=NULL WHERE error_code='private_scoring_required'"
+        )
+        for row in conn.execute("SELECT c.id,n.user_id FROM note_chunks c JOIN note_versions n ON n.id=c.note_id"):
+            jobs.enqueue_note_feed_chunk(conn, row["user_id"], row["id"])
+    if scorer is None and (
+        (cfg.scoring_backend == "gemma" and cfg.gemma_url and cfg.gemma_token)
+        or (cfg.scoring_backend != "gemma" and cfg.gemini_api_key)
+    ):
         scorer = make_scorer(cfg)
     if triager is None:
         triager = make_triager(cfg)
+    if seeder is None and cfg.scoring_backend != "gemma" and cfg.gemini_api_key:
+        seeder = make_seeder(cfg)
     dids = [
         row["did"]
         for row in conn.execute(
@@ -303,10 +328,10 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> Non
     ]
     if cfg.reader_concurrency <= 1 or len(dids) <= 1:
         for did in dids:
-            curate_reader(conn, scorer, gemma, did, triager)
+            curate_reader(conn, scorer, gemma, did, triager, seeder)
         return
     with ThreadPoolExecutor(max_workers=cfg.reader_concurrency) as executor:
-        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did, triager) for did in dids]:
+        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did, triager, seeder) for did in dids]:
             future.result()
 
 

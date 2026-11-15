@@ -61,7 +61,7 @@ _INSERT = (
 
 
 def test_threads_platform_migration_preserves_rows_and_search(tmp_path: Path) -> None:
-    conn = _migrate_before(tmp_path / "x.db", "0014")
+    conn = _migrate_before(tmp_path / "x.db", "0016")
     conn.execute(_INSERT, _post("x", "1", "compilers are fun"))
     conn.execute("UPDATE social_posts SET media='[1]', author_handle='h', author_avatar='a'")
     db.migrate(conn)
