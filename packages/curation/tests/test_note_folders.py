@@ -208,3 +208,45 @@ def test_shared_scans_preserve_notes_missing_from_listing(conn, monkeypatch):
     note_folders.configure(conn, uid, "drive:rootfolder123")
     assert conn.execute("SELECT text FROM note_versions").fetchone()[0] == "Original"
     clear_settings()
+
+
+@pytest.mark.parametrize(
+    ("html", "success"),
+    [
+        (
+            '<table role="grid" aria-label="Item List" aria-rowcount="2"><tr data-id="file123456789" data-target="doc"><td><span class="WQJtxb">entry.md</span></td></tr></table>',
+            True,
+        ),
+        (
+            '<table role="grid" aria-label="Item List" aria-rowcount="1"><tr data-id="file123456789" data-target="unknown"><td><span class="WQJtxb">entry.md</span></td></tr></table>',
+            True,
+        ),
+        (
+            '<table role="grid" aria-label="Item List" aria-rowcount="1"><tr data-id="bad" data-target="doc"><td><span class="WQJtxb">entry.md</span></td></tr></table>',
+            True,
+        ),
+        ("<html>Sign in to view this folder</html>", True),
+        ('<table role="grid" aria-label="Item List" aria-rowcount="0"></table>', False),
+    ],
+)
+def test_shared_drive_rejects_untrusted_or_incomplete_responses(conn, monkeypatch, html, success):
+    uid = reader(conn)
+    monkeypatch.setenv("CONTEXT_DEV_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    clear_settings()
+    original_client = httpx.Client
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.host)
+        return httpx.Response(200, json={"html": {"success": success, "data": html}})
+
+    monkeypatch.setattr(
+        drive_notes.httpx, "Client", lambda **kwargs: original_client(transport=httpx.MockTransport(handle))
+    )
+    with pytest.raises(drive_notes.DriveNotesError):
+        note_folders.configure(conn, uid, "drive:rootfolder123")
+    assert calls == ["api.context.dev"]
+    assert not note_folders.folder_for(conn, uid)
+    assert not conn.execute("SELECT 1 FROM note_versions").fetchone()
+    clear_settings()
