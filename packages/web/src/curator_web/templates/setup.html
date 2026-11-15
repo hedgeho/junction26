@@ -13,7 +13,7 @@
       <label for="folder">Markdown folder or Google Drive folder link</label>
       <input id="folder" name="folder" value="{{ folder or 'notes' }}" maxlength="2000" aria-describedby="notes-help{% if error %} setup-error{% endif %}">
       <p class="help" id="notes-help">Read-only .md files. Local folders must be on the app host.</p>
-      {% if drive_viewer %}<p class="help">For Drive, share the folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">Drive requires a connection configured by the host.</p>{% endif %}
+      {% if drive_viewer %}<p class="help">For Drive, share the folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">For Drive, choose ?Anyone with the link? as Viewer. Folder names are sent to Context.dev.</p>{% endif %}
     </fieldset>
   </section>
   {% if error %}<p class="error" role="alert" id="setup-error">{{ error }}</p>{% endif %}

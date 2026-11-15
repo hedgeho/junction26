@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -46,6 +47,8 @@ def viewer_email() -> str:
 
 
 def scan(conn, user_id: str, root: str) -> tuple[dict, set[str]]:
+    if not settings().google_application_credentials and settings().context_dev_api_key:
+        return scan_shared(conn, user_id, root)
     try:
         creds = credentials()
         creds.refresh(Request())
@@ -132,4 +135,128 @@ def _scan(client, conn, user_id, root):
             page_token = body.get("nextPageToken")
             if not page_token:
                 break
+    return found, folders
+
+
+class _FolderPage(HTMLParser):
+    """Read the rendered Drive item grid, rejecting partial or changed layouts."""
+
+    def __init__(self):
+        super().__init__()
+        self.expected = None
+        self.in_grid = False
+        self.row = None
+        self.in_name = False
+        self.rows = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "table" and a.get("role") == "grid" and a.get("aria-label") == "Item List":
+            if self.expected is not None:
+                raise DriveNotesError("Could not verify the Drive folder listing.")
+            self.expected = int(a.get("aria-rowcount", "-1"))
+            self.in_grid = True
+        elif self.in_grid and tag == "tr" and a.get("data-id"):
+            self.row = {"id": a["data-id"], "type": a.get("data-target"), "name": ""}
+        elif self.row is not None and not self.row["name"] and tag == "span" and "WQJtxb" in a.get("class", "").split():
+            self.in_name = True
+
+    def handle_data(self, data):
+        if self.in_name and self.row is not None:
+            self.row["name"] += data
+
+    def handle_endtag(self, tag):
+        if tag == "span" and self.in_name:
+            self.in_name = False
+        elif tag == "tr" and self.row is not None:
+            self.rows.append(self.row)
+            self.row = None
+        elif tag == "table" and self.in_grid:
+            self.in_grid = False
+
+
+def scan_shared(conn, user_id, root):
+    """Read link-shared folders via Context.dev and download original bytes from Drive."""
+    try:
+        return _scan_shared(conn, user_id, root)
+    except DriveNotesError:
+        raise
+    except Exception:  # noqa: BLE001 - provider errors may contain credentials or private source data.
+        raise DriveNotesError("Could not read the shared folder. Check its link-sharing settings.") from None
+
+
+def _scan_shared(conn, user_id, root):
+    found, folders, pending = {}, set(), [(root, "")]
+    total = 0
+    with httpx.Client(timeout=45, follow_redirects=False) as client:
+        while pending:
+            current, prefix = pending.pop()
+            if current in folders:
+                raise DriveNotesError("The folder contains a duplicate or cyclic folder.")
+            if len(folders) >= 50:
+                raise DriveNotesError("Too many note folders.")
+            claim = conn.execute("SELECT user_id FROM notes_drive_folders WHERE folder_id=?", (current,)).fetchone()
+            if claim and claim["user_id"] != user_id:
+                raise DriveNotesError("This notes folder is already connected to another reader.")
+            folders.add(current)
+            response = client.post(
+                "https://api.context.dev/v1/web/scrape",
+                headers={"Authorization": "Bearer " + settings().context_dev_api_key},
+                json={"url": "https://drive.google.com/drive/folders/" + current, "formats": {"html": True}},
+            )
+            response.raise_for_status()
+            result = response.json().get("html") or {}
+            html = result.get("data")
+            if not result.get("success") or not isinstance(html, str) or len(html) > 10_000_000:
+                raise DriveNotesError("Could not verify the Drive folder listing.")
+            page = _FolderPage()
+            page.feed(html)
+            if page.expected is None or page.expected < 0 or len(page.rows) != page.expected:
+                raise DriveNotesError("Drive returned an incomplete folder listing.")
+            ids = set()
+            for item in page.rows:
+                native_id, name, kind = item["id"], item["name"], item["type"]
+                if (
+                    not ID.fullmatch(native_id)
+                    or native_id in ids
+                    or not name
+                    or "/" in name
+                    or "\\" in name
+                    or name in (".", "..")
+                ):
+                    raise DriveNotesError("Invalid Drive folder listing.")
+                ids.add(native_id)
+                if name.startswith("."):
+                    continue
+                relative = prefix + name
+                if len(relative) > 200:
+                    raise DriveNotesError("Notes exceed the folder import limits.")
+                if kind == "folder":
+                    pending.append((native_id, relative + "/"))
+                    continue
+                if kind != "doc":
+                    raise DriveNotesError("An unsupported Drive item prevents a complete scan.")
+                if Path(name).suffix.lower() != ".md":
+                    continue
+                if len(found) >= 500 or relative in found:
+                    raise DriveNotesError("Notes exceed the folder import limits or contain duplicate names.")
+                with client.stream(
+                    "GET",
+                    "https://drive.usercontent.google.com/download",
+                    params={"export": "download", "id": native_id},
+                ) as download:
+                    download.raise_for_status()
+                    if download.headers.get("content-type", "").startswith("text/html"):
+                        raise DriveNotesError("A Markdown file cannot be downloaded publicly.")
+                    raw = bytearray()
+                    for chunk in download.iter_bytes():
+                        raw.extend(chunk)
+                        total += len(chunk)
+                        if len(raw) > 800_000 or total > 10_000_000:
+                            raise DriveNotesError("Notes exceed the folder import limits.")
+                text = raw.decode("utf-8")
+                if len(text) > 200_000 or "\x00" in text:
+                    raise DriveNotesError("A Markdown file is invalid.")
+                if text.strip():
+                    found[relative] = (text, hashlib.sha256(text.encode()).hexdigest())
     return found, folders

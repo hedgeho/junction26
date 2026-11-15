@@ -48,4 +48,4 @@ The optional Bluesky feed projects only Bluesky digest items, with no generated 
 
 `TECHNICAL_PLAN.md` records scope. `DESIGN.md` describes implemented behavior and remaining limits. Live model quality, GPU fit and production deployment require separate smoke checks.
 
-On first sign-in, complete **Setup** to connect your personalized Bluesky feed and optionally a Markdown notes folder. Local notes default to `notes/` (ignored by Git); a hosted app also accepts a private Google Drive folder shared with its service account as Viewer. See [notes setup](packages/web/README.md#notes-local-or-google-drive). No sample-data preview is included.
+On first sign-in, complete **Setup** to connect your personalized Bluesky feed and optionally a Markdown notes folder. Local notes default to `notes/` (ignored by Git); a hosted app also accepts a link-shared Google Drive folder through Context.dev, or a private folder shared with its service account as Viewer. See [notes setup](packages/web/README.md#notes-local-or-google-drive). No sample-data preview is included.

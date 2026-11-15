@@ -150,3 +150,61 @@ def test_drive_credential_errors_are_sanitized(monkeypatch, conn):
     with pytest.raises(ValueError) as error:
         drive_notes.scan(conn, "reader", "folder123456")
     assert "PRIVATE-CREDENTIAL-SENTINEL" not in str(error.value)
+
+
+def test_shared_drive_scans_nested_markdown_and_rejects_incomplete_listing(conn, monkeypatch):
+    import json
+
+    uid = reader(conn)
+    monkeypatch.setenv("CONTEXT_DEV_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    clear_settings()
+    original_client = httpx.Client
+    state = {"text": b"# Original\r\nLine", "incomplete": False}
+
+    def row(file_id, kind, name):
+        return f'<tr data-id="{file_id}" data-target="{kind}"><td><span class="WQJtxb">{name}</span></td></tr>'
+
+    def handle(request):
+        if request.url.host == "api.context.dev":
+            assert request.headers["authorization"] == "Bearer test-key"
+            folder = json.loads(request.content)["url"].split("/")[-1]
+            rows = (
+                row("childfolder123", "folder", "nested")
+                if folder == "rootfolder123"
+                else row("file123456789", "doc", "entry.md")
+            )
+            count = 2 if state["incomplete"] else 1
+            html = f'<table role="grid" aria-label="Item List" aria-rowcount="{count}">{rows}</table>'
+            return httpx.Response(200, json={"html": {"success": True, "data": html}})
+        assert request.url.host == "drive.usercontent.google.com"
+        assert "authorization" not in request.headers
+        return httpx.Response(200, content=state["text"], headers={"content-type": "application/octet-stream"})
+
+    monkeypatch.setattr(
+        drive_notes.httpx, "Client", lambda **kwargs: original_client(transport=httpx.MockTransport(handle))
+    )
+    note_folders.configure(conn, uid, "https://drive.google.com/drive/folders/rootfolder123")
+    assert conn.execute("SELECT text FROM note_versions").fetchone()[0] == "# Original\r\nLine"
+    state["text"] = b"Changed"
+    note_folders.configure(conn, uid, "drive:rootfolder123")
+    assert conn.execute("SELECT text FROM note_versions").fetchone()[0] == "Changed"
+    state["incomplete"] = True
+    with pytest.raises(ValueError, match="incomplete"):
+        note_folders.configure(conn, uid, "drive:rootfolder123")
+    assert conn.execute("SELECT text FROM note_versions").fetchone()[0] == "Changed"
+    clear_settings()
+
+
+def test_shared_scans_preserve_notes_missing_from_listing(conn, monkeypatch):
+    uid = reader(conn)
+    monkeypatch.setenv("CONTEXT_DEV_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    clear_settings()
+    source = {"entry.md": ("Original", "hash")}
+    monkeypatch.setattr(drive_notes, "scan", lambda *args: (dict(source), {"rootfolder123"}))
+    note_folders.configure(conn, uid, "drive:rootfolder123")
+    source.clear()
+    note_folders.configure(conn, uid, "drive:rootfolder123")
+    assert conn.execute("SELECT text FROM note_versions").fetchone()[0] == "Original"
+    clear_settings()

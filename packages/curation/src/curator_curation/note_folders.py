@@ -84,7 +84,7 @@ def _remove_snapshots(conn, user_id):
     conn.execute("DELETE FROM notes_files WHERE user_id=?", (user_id,))
 
 
-def _apply(conn, user_id, found):
+def _apply(conn, user_id, found, *, preserve_missing=False):
     existing = {
         row["relative_path"]: dict(row)
         for row in conn.execute(
@@ -94,7 +94,9 @@ def _apply(conn, user_id, found):
         )
     }
     for relative, row in existing.items():
-        if relative not in found or row["content_hash"] != found[relative][1]:
+        if (relative not in found and not preserve_missing) or (
+            relative in found and row["content_hash"] != found[relative][1]
+        ):
             notes.delete_note(conn, user_id, row["note_id"])
             conn.execute("DELETE FROM notes_files WHERE user_id=? AND relative_path=?", (user_id, relative))
     for relative, (text, content_hash) in found.items():
@@ -121,7 +123,12 @@ def configure(conn, user_id: str, value: str | None):
             "INSERT INTO notes_folders VALUES (?,?,'ready') ON CONFLICT(user_id) DO UPDATE SET path=excluded.path,state='ready'",
             (user_id, "drive:" + root),
         )
-        _apply(conn, user_id, found)
+        _apply(
+            conn,
+            user_id,
+            found,
+            preserve_missing=bool(settings().context_dev_api_key and not settings().google_application_credentials),
+        )
         db.kv_set(conn, "notes-sync:" + user_id, str(int(time.time())))
         return
     folder = resolve_folder(value)

@@ -4,6 +4,7 @@ from curator_core.config import CoreSettings, cached_settings
 class CurationSettings(CoreSettings):
     agora_notes_roots: str = ""
     google_application_credentials: str = ""
+    context_dev_api_key: str = ""
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
     scoring_backend: str = "decisions"
