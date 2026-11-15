@@ -1,8 +1,32 @@
 # Agora
 
-A finite daily selection of original social posts, matched to the reader's interests and their own original notes. Feedback silently updates Markdown configuration. The main interface displays no generated prose.
+**The modern public square.** A social feed where you decide what's in it. Try it at [feed.ilia.fi](https://feed.ilia.fi).
 
-Built at Junction 2026 by Blanka Bartfai, Ilia Zalesskii, Miro Keimiöniemi and Zuhair Khan. Live at [feed.ilia.fi](https://feed.ilia.fi).
+Built at Junction 2026 by Blanka Bartfai, Ilia Zalesskii, Miro Keimiöniemi and Zuhair Khan.
+
+## Why
+
+Agora comes from a need we see across Gen Z, ourselves included. Gen Z spends more than six hours a day on their phones, mostly on social media. Eight in ten young people say they've seen misinformation online, and nearly half say social media is bad for their mental health. Most of us know this and keep scrolling anyway, because the feed is built to keep us there.
+
+Social media makes money the longer you stay, so the feed shows you whatever keeps you there, and outrage and propaganda work well for that. By propaganda we don't only mean bots. We mean anything someone else wants you to see, chosen for you without asking.
+
+Agora works the other way around. You decide what's in your feed.
+
+## What it does
+
+- **Tell your feed** in plain words what you want more or less of, for example "more European politics, less American" or "more startup posts", and it adjusts.
+- **A feed you can finish.** Each feed has a limited number of posts (you can raise the limit), so you can actually reach the end.
+- **Filtered before it reaches you.** Clickbait, rage bait, spam and coordinated campaigns are removed.
+- **Your notes, connected.** If you keep notes, Agora can link them to related conversations, so the thought you wrote down at 2am has somewhere to go. It helps you share it in your own words, but it doesn't write for you.
+- **Visible ranking.** The ranking formula is shown in the app, so you can see why each post is in your feed.
+
+## How it works
+
+Agora reads the public Bluesky stream, about 2.7 million posts a day. It narrows those down to posts that match what you asked for, then runs each one through a small, cheap model we set up to spot toxic content. We tuned it to be careful about what it removes, because we'd rather let a borderline post through than hide a real person. On our test sample it agrees with Claude Opus, a much more expensive model, about 90% of the time.
+
+Your feedback updates a plain Markdown configuration with full revision history, which you can read and restore in settings. The feed itself shows only original posts and your original note passages, never generated text. Private notes are processed by a self-hosted Gemma model on Modal and are never sent to Gemini.
+
+We want social media to feel like a public square again: somewhere you go to talk, disagree and learn something, and then leave.
 
 ## Architecture
 
@@ -55,7 +79,7 @@ On first sign-in, complete **Setup** to confirm Bluesky and optionally connect u
 
 ## Built with
 
-- [Gemini](https://ai.google.dev/) filters and scores public posts and screens out clickbait, ragebait, spam and misinformation.
+- [Gemini](https://ai.google.dev/) matches public posts to what readers asked for and filters out clickbait, rage bait, spam and coordinated campaigns.
 - [Modal](https://modal.com/) serves the private Gemma model that edits profiles and matches notes to posts.
 - [Hostinger](https://www.hostinger.com/) hosts the application, SQLite state and the live site.
 - [CRACI](https://craci.com/) runs CI: lint, tests and image builds, with deny-by-default network egress.
