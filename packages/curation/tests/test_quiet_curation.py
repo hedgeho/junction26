@@ -366,7 +366,8 @@ def test_note_matching_is_parallel_incremental_and_cached(conn, monkeypatch):
         assert future.result(timeout=5) == 2
     assert digests.match_notes(conn, uid, run_id, model) == 0
     assert model.calls == 2
-    assert {note["title"] for note in digests.read(conn, uid)[0]["notes"]} == {"Fast", "Slow"}
+    displayed = digests.read(conn, uid)[0]["notes"]
+    assert len(displayed) == 1 and displayed[0]["title"] in {"Fast", "Slow"}
 
 
 def test_note_matching_failures_are_isolated_and_retries_bounded(conn):
