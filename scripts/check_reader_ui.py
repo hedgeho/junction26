@@ -349,6 +349,13 @@ async def main():
         # Streamed note matches must never hold up the feed, and can change after a ready batch.
         raw = await (await page.request.get(ORIGIN + "/me")).text()
         note_html = raw.replace('class="note-matches"', 'class="note-matches" data-live-notes')
+        if 'id="note-matching-status"' not in note_html:
+            note_html = note_html.replace(
+                '<section class="more-section"',
+                '<p class="note-matching-status help" role="status"><span id="note-matching-status"></span> '
+                '<a id="note-matching-settings" href="/settings" hidden>Check notes connection</a></p>'
+                '<section class="more-section"',
+            )
         await page.route("**/me?audit-notes=1", lambda route: route.fulfill(content_type="text/html", body=note_html))
         note_state = {"state": "processing", "items": {keys[0]: []}}
         await page.route("**/api/note-matches", lambda route: route.fulfill(json=note_state))
@@ -374,11 +381,78 @@ async def main():
             "Exact original excerpt.\n<script>not executable</script>"
         )
         assert await posts.first.locator(".note-match script").count() == 0
-        note_state = {"state": "ready", "items": {keys[0]: []}}
+        await expect(page.locator("#note-matching-status")).to_have_text(
+            "1 passage from your notes matches this selection."
+        )
+        await page.unroute("**/api/social-action")
+        await page.route("**/api/social-action", social_action)
+        before_note_actions = len(social)
+        use_note = posts.first.locator(".use-note")
+        await expect(use_note).to_be_enabled()
+        await posts.first.scroll_into_view_if_needed()
+        await page.screenshot(path=str(OUT / "note-match-desktop.png"))
+        await use_note.click()
+        await expect(page.locator("#social-context-text")).to_have_text(originals[0])
+        await expect(page.locator("#social-text")).to_have_value(
+            "Exact original excerpt.\n<script>not executable</script>"
+        )
+        await expect(page.locator("#social-note-help")).to_contain_text("Your original words from A test note")
+        assert len(social) == before_note_actions
+        await page.set_viewport_size({"width": 390, "height": 844})
+        assert await page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        await page.screenshot(path=str(OUT / "note-comment-mobile.png"))
+        await page.set_viewport_size({"width": 1440, "height": 1000})
+        await page.locator("#social-text").fill("Keep my existing draft")
+        await page.locator("#social-close").click()
+        await use_note.click()
+        await expect(page.locator("#social-text")).to_have_value("Keep my existing draft")
+        await expect(page.locator("#social-note-help")).to_contain_text("Your unsent comment is kept")
+        await page.locator("#social-text").fill("")
+        await page.locator("#social-close").click()
+        await use_note.click()
+        await page.locator("#social-text").press("Control+Enter")
+        await expect(page.locator("#social-dialog")).not_to_be_visible()
+        assert len(social) == before_note_actions + 1 and social[-1] == "comment"
+        checks.append(
+            "exact note excerpt opens contextual comment, keeps existing draft and posts only on explicit confirmation"
+        )
+
+        long_excerpt = "Original passage. " * 30
+        note_state["items"][keys[0]][0]["text"] = long_excerpt
         await page.clock.fast_forward(31000)
-        await expect(posts.first.locator(".note-match")).to_have_count(0)
+        await expect(posts.first.locator(".note-match blockquote")).to_have_text(long_excerpt)
+        await use_note.click()
+        await expect(page.locator("#social-text")).to_have_value(long_excerpt)
+        await expect(page.locator("#social-form button[type=submit]")).to_be_disabled()
+        await expect(page.locator("#social-note-help")).to_contain_text("300 characters or fewer")
+        await page.locator("#social-text").press("Control+Enter")
+        assert len(social) == before_note_actions + 1
+        await expect(page.locator("#social-dialog")).to_be_visible()
+        await page.locator("#social-text").fill("Original passage.")
+        await expect(page.locator("#social-form button[type=submit]")).to_be_enabled()
+        await page.locator("#social-text").fill("")
+        await page.locator("#social-close").click()
+        checks.append("long note excerpts are never truncated, cannot post over limit and remain editable")
+
+        for state_name, message in [
+            ("ready", "No passages from your notes match this selection."),
+            ("retrying", "Checking your notes again after an interruption..."),
+            ("partial", "Some notes could not be checked. No matching passages found so far."),
+            ("no_notes", "No notes have been imported yet."),
+            ("unavailable", "Note matching is unavailable right now."),
+        ]:
+            note_state = {"state": state_name, "items": {keys[0]: []}}
+            await page.clock.fast_forward(31000)
+            await expect(posts.first.locator(".note-match")).to_have_count(0)
+            await expect(page.locator("#note-matching-status")).to_have_text(message)
+            if state_name in {"no_notes", "unavailable"}:
+                await expect(page.locator("#note-matching-settings")).to_be_visible()
+            else:
+                await expect(page.locator("#note-matching-settings")).to_be_hidden()
         await page.clock.resume()
-        checks.append("note matches stream after the feed, stay source-only and refresh after completion")
+        checks.append(
+            "notes stream after feed with clear empty, retrying, partial, missing-note and unavailable states"
+        )
 
         await page.goto(ORIGIN + "/settings#configuration")
         assert await page.locator("#configuration").evaluate("(n)=>n.open")

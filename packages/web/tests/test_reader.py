@@ -299,6 +299,37 @@ def test_notes_connection_is_minimal_and_accepts_multiple_links(conn, monkeypatc
     assert client.get("/settings").status_code == 200
 
 
+def test_note_matching_distinguishes_missing_notes_provider_and_empty_results(conn, monkeypatch):
+    from curator_core.config import clear_settings
+    from curator_curation import notes
+
+    uid = seed(conn)
+    client = client_for()
+    assert client.get("/api/note-matches").json()["state"] == "no_notes"
+    notes.import_note(conn, uid, "Owned note", "Original thoughts about compilers")
+    monkeypatch.setenv("GEMMA_URL", "")
+    monkeypatch.setenv("GEMMA_TOKEN", "")
+    clear_settings()
+    assert client.get("/api/note-matches").json()["state"] == "unavailable"
+    monkeypatch.setenv("GEMMA_URL", "https://gemma.example/v1")
+    monkeypatch.setenv("GEMMA_TOKEN", "test")
+    clear_settings()
+    run = digests.latest(conn, uid)
+    for state in ("processing", "retrying", "partial", "ready"):
+        db.kv_set(
+            conn,
+            "note-matching:" + uid,
+            json.dumps({"run_id": run["id"], "state": state, "completed": 2, "total": 3}),
+        )
+        result = client.get("/api/note-matches").json()
+        assert result["state"] == state
+        assert result["match_count"] == 0
+        assert result["completed"] == 2 and result["total"] == 3
+    db.kv_set(conn, "note-matching:" + uid, json.dumps({"run_id": "older-run", "state": "ready", "total": 3}))
+    result = client.get("/api/note-matches").json()
+    assert result["state"] == "waiting" and result["total"] == result["completed"] == 0
+
+
 def test_note_matches_api_is_owned_incremental_and_source_only(conn, monkeypatch):
     from curator_core.config import clear_settings
     from curator_curation import notes
@@ -325,6 +356,10 @@ def test_note_matches_api_is_owned_incremental_and_source_only(conn, monkeypatch
     after = client.get("/api/note-matches").json()
     assert after["state"] == "ready" and after["run_id"] == run["id"]
     assert next(iter(after["items"].values()))[0]["text"] == "Exact original note text"
+    assert after["match_count"] == 1 and after["completed"] == after["total"] == 1
+    page = client.get("/me").text
+    assert "From your notes &middot; Original title" in page
+    assert 'class="use-note" disabled>Use as comment</button>' in page
     other = "did:plc:other-reader"
     add_user(conn, other)
     assert all(not matches for matches in client_for(other).get("/api/note-matches").json()["items"].values())

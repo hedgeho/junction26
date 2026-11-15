@@ -85,6 +85,12 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 .post-actions a svg { width: 13px; height: 13px; }
 .note-match { border-left: 2px solid var(--primary); padding-left: 16px; margin: 20px 0 12px; }
 .note-match blockquote { margin: 8px 0; font-family: Newsreader, Georgia, serif; font-size: 15px; color: var(--ink); }
+.use-note { padding: 4px 0; border: 0; background: none; color: var(--primary); font: inherit; font-size: 12px; cursor: pointer; text-underline-offset: 3px; }
+.use-note:hover, .use-note:focus-visible { text-decoration: underline; }
+.use-note:disabled { color: var(--muted); cursor: default; }
+.note-matching-status { margin: 24px 0 0; }
+.social-count.over-limit { color: var(--danger); }
+
 .notice { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 9px; margin: 0 0 20px; font-size: 12px; color: var(--muted); background: var(--soft); }
 .notice[hidden] { display: none; }
 .notice a { white-space: nowrap; }

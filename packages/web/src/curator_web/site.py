@@ -230,13 +230,20 @@ def note_matches_api(request: Request):
         configured = bool(curation_settings().gemma_url and curation_settings().gemma_token)
         has_notes = connection.execute("SELECT 1 FROM note_versions WHERE user_id=?", (user_id,)).fetchone()
         state = progress.get("state", "waiting") if run and progress.get("run_id") == run["id"] else "waiting"
-        if not configured or not has_notes:
-            state = "ready"
+        if not has_notes:
+            state = "no_notes"
+        elif not configured:
+            state = "unavailable"
+        items = {post["key"]: post["notes"] for post in digests.read(connection, user_id)}
+        current_progress = progress if run and progress.get("run_id") == run["id"] else {}
         return JSONResponse(
             {
                 "run_id": run["id"] if run else None,
                 "state": state,
-                "items": {post["key"]: post["notes"] for post in digests.read(connection, user_id)},
+                "completed": current_progress.get("completed", 0),
+                "total": current_progress.get("total", 0),
+                "match_count": sum(len(matches) for matches in items.values()),
+                "items": items,
             },
             headers={"Cache-Control": "no-store"},
         )

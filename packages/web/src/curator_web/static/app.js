@@ -62,7 +62,7 @@ function pollStatus(url, node, isDone, render, options = {}) {
    delay = options.delay ? options.delay(result) : 1500;
    render(result);
    if (isDone(result)) return;
-  } catch (_) { delay = Math.min(delay * 2, 30000); }
+  } catch (_) { delay = Math.min(delay * 2, 30000); options.retrying?.(); }
   finally { clearTimeout(timeout); }
   setTimeout(poll, delay);
  }
@@ -500,6 +500,23 @@ try {
  const metadata = JSON.parse(document.getElementById('post-metadata')?.textContent || '{}');
  postCards.forEach(post => { if (metadata[post.dataset.postKey]) renderPostDetails(post, metadata[post.dataset.postKey]); });
 } catch (_) { /* The original source text is still readable if metadata is unavailable. */ }
+function noteMatchingStatus(result) {
+ const node = document.getElementById('note-matching-status');
+ if (!node) return;
+ const count = postCards.reduce((total, post) => total + post.querySelectorAll('.note-match').length, 0);
+ const found = `${count} ${count === 1 ? 'passage' : 'passages'} from your notes ${count === 1 ? 'matches' : 'match'} this selection.`;
+ const messages = {
+  ready:count ? found : 'No passages from your notes match this selection.',
+  no_notes:'No notes have been imported yet.',
+  unavailable:'Note matching is unavailable right now.',
+  partial:count ? `${found} Some notes could not be checked.` : 'Some notes could not be checked. No matching passages found so far.',
+  retrying:count ? `${found} Retrying the remaining notes...` : 'Checking your notes again after an interruption...',
+  offline:'Could not check your notes. Retrying...',
+  expired:result.message,
+ };
+ node.textContent = messages[result.state] || (count ? `${found} Checking the remaining notes...` : 'Looking for passages from your notes...');
+ document.getElementById('note-matching-settings').hidden = !['no_notes','unavailable'].includes(result.state);
+}
 if (document.querySelector('[data-live-notes]')) {
  const noteTarget = document.querySelector('[data-live-notes]');
  pollStatus('/api/note-matches', noteTarget, () => false, result => {
@@ -508,17 +525,28 @@ if (document.querySelector('[data-live-notes]')) {
    const container = post.querySelector('.note-matches');
    if (!container || !Array.isArray(result.items[post.dataset.postKey])) return;
    const matches = result.items[post.dataset.postKey];
-   const signature = JSON.stringify(matches.map(note => note.chunk_id));
+   const signature = JSON.stringify(matches.map(note => [note.chunk_id, note.title, note.text]));
    if (container.dataset.signature === signature) return;
    container.dataset.signature = signature;
    container.replaceChildren(...matches.map(note => {
     const aside = document.createElement('aside'); aside.className = 'note-match'; aside.dataset.chunkId = note.chunk_id;
-    const title = document.createElement('span'); title.className = 'meta'; title.textContent = note.title;
+    const title = document.createElement('span'); title.className = 'meta'; title.textContent = 'From your notes \u00b7 ' + note.title;
     const excerpt = document.createElement('blockquote'); excerpt.className = 'source-text'; excerpt.textContent = note.text;
-    aside.append(title, excerpt); return aside;
+    aside.append(title, excerpt);
+    const comment = post.querySelector('.social-interact[data-action="comment"]');
+    if (comment && post.querySelector('.post-actions')?.dataset.platform === 'bluesky') {
+     const use = document.createElement('button'); use.type = 'button'; use.className = 'use-note'; use.textContent = 'Use as comment'; use.disabled = comment.disabled;
+     aside.append(use);
+    }
+    return aside;
    }));
   });
- }, {delay:result => ['ready','partial'].includes(result.state) ? 30000 : 2000, unavailable:() => {}});
+  noteMatchingStatus(result);
+ }, {
+  delay:result => ['ready','partial','no_notes','unavailable'].includes(result.state) ? 30000 : 2000,
+  unavailable:message => noteMatchingStatus({state:'expired',message}),
+  retrying:() => noteMatchingStatus({state:'offline'}),
+ });
 }
 if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
  .then(response => response.ok && !response.redirected ? response.json() : null)
@@ -551,17 +579,39 @@ const socialDialog = document.getElementById('social-dialog');
 const socialForm = document.getElementById('social-form');
 let socialTarget = null;
 let socialOpener = null;
-function openComposer(target, author, text, source) {
+function updateComposerLength() {
+ const length = Array.from(document.getElementById('social-text').value).length;
+ const count = socialForm.querySelector('.social-count');
+ count.textContent = `${length}/300`; count.classList.toggle('over-limit', length > 300);
+ socialForm.querySelector('[type=submit]').disabled = length > 300 || socialForm.getAttribute('aria-busy') === 'true';
+}
+function openComposer(target, author, text, source, note = null) {
  if (socialForm.getAttribute('aria-busy') === 'true') return;
  socialTarget = target; socialOpener = document.activeElement;
  setSocialContext(author, text, source);
  document.getElementById('social-title').textContent = target.action === 'comment' ? 'Comment' : 'Repost with comment';
  const input = document.getElementById('social-text');
- input.value = socialDrafts.get(target.key) || ''; input.setCustomValidity('');
+ const draft = socialDrafts.get(target.key) || '';
+ input.value = draft || note?.text || ''; input.setCustomValidity('');
+ if (note && !draft) socialDrafts.set(target.key, input.value);
+ const help = document.getElementById('social-note-help'); help.hidden = !note;
+ help.textContent = !note ? '' : draft ? 'Your unsent comment is kept. Clear it before using a note passage.' : `Your original words from ${note.title}. Review before posting.`;
+ if (note && !draft && Array.from(input.value).length > 300) help.textContent += ' Choose a passage of 300 characters or fewer.';
  socialForm.querySelector('.social-dialog-status').textContent = '';
- socialForm.querySelector('.social-count').textContent = `${input.value.length}/300`;
+ updateComposerLength();
  socialDialog.showModal(); input.focus();
 }
+postCards.forEach(post => post.addEventListener('click', event => {
+ const button = event.target.closest('.use-note');
+ if (!button || button.disabled || !post.contains(button)) return;
+ const comment = post.querySelector('.social-interact[data-action="comment"]');
+ if (!comment || comment.disabled) return;
+ const note = button.closest('.note-match');
+ openComposer({post, action:'comment', key:post.dataset.postKey + ':comment'}, post.querySelector('.author')?.textContent, post.querySelector('.post-text')?.textContent, post, {
+  title:note.querySelector('.meta').textContent.replace(/^From your notes [\u00b7] /, ''),
+  text:note.querySelector('blockquote').textContent,
+ });
+}));
 const ownComments = new Map();
 const deletedComments = new Set();
 const deletedQuotes = new Set();
@@ -631,6 +681,7 @@ if (blueskyCards.length) fetch('/api/social-state', {cache:'no-store', headers:{
   post.querySelector('.repost-menu-open').disabled = false;
   setRepostState(post, !!state.repost);
   (data.contributions?.[post.dataset.postKey.slice('bluesky:'.length)] || []).forEach(item => renderContribution(post, item));
+  post.querySelectorAll('.use-note').forEach(button => { button.disabled = false; });
   post.querySelectorAll('.social-interact').forEach(button => {
    button.disabled = false;
    if (button.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(!!state[button.dataset.action]));
@@ -668,11 +719,12 @@ if (socialDialog) {
  input.addEventListener('input', () => {
   input.setCustomValidity('');
   if (socialTarget) socialDrafts.set(socialTarget.key, input.value);
-  socialForm.querySelector('.social-count').textContent = `${input.value.length}/300`;
+  updateComposerLength();
  });
  socialForm.addEventListener('submit', async event => {
   event.preventDefault(); if (!socialTarget || socialForm.getAttribute('aria-busy') === 'true') return;
   if (!input.value.trim()) { input.setCustomValidity('Write your comment before posting.'); input.reportValidity(); return; }
+  if (Array.from(input.value).length > 300) { input.setCustomValidity('Choose a passage of 300 characters or fewer.'); input.reportValidity(); return; }
   const target = socialTarget, value = input.value;
   const button = socialForm.querySelector('[type=submit]'), close = document.getElementById('social-close');
   socialForm.setAttribute('aria-busy', 'true'); button.disabled = close.disabled = input.readOnly = true;
@@ -683,7 +735,7 @@ if (socialDialog) {
   }
   catch (error) { socialForm.querySelector('.social-dialog-status').textContent = error.message; }
   finally {
-   socialForm.removeAttribute('aria-busy'); button.disabled = close.disabled = input.readOnly = false; button.textContent = 'Post';
+   socialForm.removeAttribute('aria-busy'); close.disabled = input.readOnly = false; button.textContent = 'Post'; updateComposerLength();
    document.dispatchEvent(new Event('feedback-draft-change'));
   }
  });

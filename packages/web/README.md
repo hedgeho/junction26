@@ -50,3 +50,10 @@ The reader uses shared local `static/app.css` and `static/app.js`, with fingerpr
 ## Post presentation metadata
 
 The reader renders optional author handles and avatars, rich-text facets, image galleries and external link cards. The public Bluesky AppView supplies these asynchronously for displayed posts; failure leaves the original text visible. Stored media and author metadata fill in when the AppView has none, which covers X posts. Source pipelines supply `author_handle`, `author_avatar` and `media` through the importer (see `packages/core/README.md`). The reader receives `media` as JSON shaped as `{"images":[{"url":"https://...","full_url":"https://...","alt":"..."}],"external":{"url":"https://...","title":"...","description":"...","image":"https://..."}}`; `facets` is a JSON array of `{"start":0,"end":5,"url":"https://..."}` using UTF-8 byte offsets into the exact source text. Images and links must use HTTPS. Facets are not yet persisted by the importer.
+
+
+## Notes as comments
+
+Relevant original note passages appear below their matched feed posts after the feed is ready. **Use as comment** opens the Bluesky composer with the exact excerpt and the source post as context. It does not post automatically or overwrite an existing comment draft. Passages longer than 300 characters remain complete; the reader must select or shorten the text before posting. Original notes are never modified. X posting is not connected, so X matches remain readable excerpts.
+
+A single status below the selection explains whether notes are being checked, no match was found, some checks failed, notes have not been imported, or the matching service is unavailable. Settings provides the connection recovery path. An empty match result does not trigger additional model calls; the existing success cache and bounded retries remain in use.
