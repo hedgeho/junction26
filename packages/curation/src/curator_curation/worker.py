@@ -123,8 +123,13 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
             ),
         )
         batches.append((batch, request, wanted if cfg.score_images and cfg.scoring_backend != "gemma" else {}))
-    errors = 0
+    errors = skipped = 0
     image_s, model_s = [], []
+
+    def refund(count):
+        with db.tx(conn):
+            used = int(db.kv_get(conn, budget) or "0")
+            db.kv_set(conn, budget, str(max(0, used - count)))
 
     def run_batch(request, wanted):
         t0 = time.monotonic()
@@ -146,15 +151,17 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                 result = future.result()
                 expected = {p.key for p in batch}
                 ids = [r.post_key for r in result.items]
-                if len(ids) != len(expected) or set(ids) != expected:
+                if not ids or len(ids) != len(set(ids)) or not set(ids) <= expected:
                     raise ValueError("invalid assessment coverage")
-            except Exception:  # noqa: BLE001 - isolate provider failures
+            except Exception as exc:  # noqa: BLE001 - isolate provider failures
                 errors += 1
-                log.warning("Scoring batch failed; retry next cycle")
-                with db.tx(conn):
-                    used = int(db.kv_get(conn, budget) or "0")
-                    db.kv_set(conn, budget, str(max(0, used - len(batch))))
+                log.warning("Scoring batch failed (%s); retry next cycle", type(exc).__name__)
+                refund(len(batch))
                 continue
+            # Posts a model skipped stay unscored and are retried in a later batch.
+            if missing := len(expected) - len(ids):
+                skipped += missing
+                refund(missing)
             with db.tx(conn):
                 if digests.revision(profiles.head(conn, uid)) != profile_revision:
                     return total
@@ -206,6 +213,7 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
         scoring_s=round(time.monotonic() - scoring_started, 3),
         batches=len(batches),
         batch_errors=errors,
+        skipped=skipped,
         scored=total,
         image_fetch_max_s=round(max(image_s, default=0), 3),
         model_call_p50_s=round(sorted(model_s)[len(model_s) // 2], 3) if model_s else 0,
@@ -233,6 +241,8 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
         last = digests.latest(conn, uid)
         if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
             score_ahead(conn, scorer, did, uid, triager)
+            if stale_empty_digest(conn, uid, last):
+                digests.build(conn, uid, scorer_version())
             return
         db.kv_set(conn, "curation-state:" + uid, "processing")
         current = profiles.head(conn, uid)
@@ -255,10 +265,23 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
         timing["total_s"] = round(time.monotonic() - started, 3)
         db.kv_set(conn, "curation-timing:" + uid, json.dumps(timing))
         log.info("curation timing %s", json.dumps(timing))
-    except Exception:  # noqa: BLE001 - sanitize external provider errors at the boundary
+    except Exception as exc:  # noqa: BLE001 - sanitize external provider errors at the boundary
         if uid:
             db.kv_set(conn, "curation-state:" + uid, "failed")
-        log.warning("curation cycle failed for a reader; retry next cycle")
+        log.warning("curation cycle failed for a reader (%s); retry next cycle", type(exc).__name__)
+
+
+def stale_empty_digest(conn, uid: str, last) -> bool:
+    """An empty digest is rebuilt once posts included for the reader were assessed after it was built."""
+    if conn.execute("SELECT 1 FROM digest_items WHERE run_id=?", (last["id"],)).fetchone():
+        return False
+    return bool(
+        conn.execute(
+            """SELECT 1 FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
+            AND decision='include' AND created_at>=?""",
+            (uid, digests.revision(profiles.head(conn, uid)), scorer_version(), last["created_at"]),
+        ).fetchone()
+    )
 
 
 def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
@@ -278,8 +301,8 @@ def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
         return
     try:
         score_user(conn, scorer, did, None, triager, limit=cfg.score_batch_size)
-    except Exception:  # noqa: BLE001 - the current digest stays valid; retry next interval
-        log.warning("Background scoring failed for a reader; retry next interval")
+    except Exception as exc:  # noqa: BLE001 - the current digest stays valid; retry next interval
+        log.warning("Background scoring failed for a reader (%s); retry next interval", type(exc).__name__)
 
 
 def _curate_in_own_connection(scorer, gemma, did: str, triager, seeder) -> None:

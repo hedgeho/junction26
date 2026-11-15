@@ -100,7 +100,7 @@ class GeminiScorer:
         result = Assessments.model_validate_json(response.text or "")
         expected = {p.post_key for p in request.candidates}
         actual = [p.post_key for p in result.items]
-        if len(actual) != len(expected) or set(actual) != expected:
+        if len(actual) != len(set(actual)) or not set(actual) <= expected:
             raise ValueError("invalid assessment coverage")
         return result
 

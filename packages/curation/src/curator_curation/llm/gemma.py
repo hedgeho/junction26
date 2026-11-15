@@ -83,7 +83,7 @@ class GemmaClient:
         result = self._call(instruction, json.loads(request.payload()), Assessments)
         expected = {post.post_key for post in request.candidates}
         ids = [item.post_key for item in result.items]
-        if len(ids) != len(expected) or set(ids) != expected:
+        if len(ids) != len(set(ids)) or not set(ids) <= expected:
             raise ValueError("invalid assessment coverage")
         return result
 
