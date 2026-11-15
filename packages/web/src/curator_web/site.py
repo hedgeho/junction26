@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from curator_core import db
-from curator_curation import digests, drive_notes, funnel, health, jobs, note_folders, profiles
+from curator_curation import digests, drive_notes, funnel, health, jobs, note_folders, profile_edits, profiles
 from curator_curation.config import settings as curation_settings
 from curator_curation.readers import ensure_user
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
@@ -701,8 +701,11 @@ def edit_profile(request: Request, kind: str, body: str = Form(..., max_length=2
     kind = {"feed-curation": "public", "note-matching": "private"}.get(kind, kind)
     c = db.connect()
     try:
-        # Drop derived retrieval terms on a manual edit rather than applying stale terms.
-        profiles.save(c, reader(request, c), kind, body, revision or None)
+        # Search terms written in the profile win; a profile without term lines keeps its current terms.
+        uid = reader(request, c)
+        current = profiles.head(c, uid, kind)
+        terms = profile_edits.search_terms(body) or (json.loads(current["search_terms"]) if current else [])
+        profiles.save(c, uid, kind, body, revision or None, terms=terms)
     except profiles.RevisionConflict:
         raise HTTPException(409, "Configuration changed; reload and retry") from None
     except ValueError:

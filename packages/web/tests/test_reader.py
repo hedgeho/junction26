@@ -120,6 +120,20 @@ def test_profile_edit_requires_current_revision_and_escapes_html(conn):
     assert profiles.markdown(conn, uid) == body
 
 
+def test_profile_edit_takes_written_search_terms_and_keeps_unwritten_ones(conn):
+    uid = seed(conn)
+    client = client_for()
+    revision = profiles.save(conn, uid, "public", "Goals: birds", profiles.head(conn, uid)["id"], terms=["birds"])
+    body = "Goals: birds, volleyball\n\n- [search_term] volleyball\n- [search_term] Volleyball\n- [search_term] qubit\n"
+    data = {"csrf": "csrf-test", "body": body, "revision": revision}
+    assert client.post("/settings/profile/public", data=data, follow_redirects=False).status_code == 303
+    head = profiles.head(conn, uid)
+    assert json.loads(head["search_terms"]) == ["volleyball", "qubit"]
+    data = {"csrf": "csrf-test", "body": "Goals: volleyball, junction", "revision": head["id"]}
+    assert client.post("/settings/profile/public", data=data, follow_redirects=False).status_code == 303
+    assert json.loads(profiles.head(conn, uid)["search_terms"]) == ["volleyball", "qubit"]
+
+
 def test_settings_blocks_and_dismissal_apply_immediately(conn):
     uid = seed(conn)
     client = client_for()

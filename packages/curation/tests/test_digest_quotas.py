@@ -117,3 +117,19 @@ def test_background_scoring_covers_a_full_batch_each_interval(conn, monkeypatch)
     db.kv_set(conn, "background-scored:" + uid, "0")
     worker.run_cycle(conn, scorer)
     assert len(scorer.scored) == 1 + 40
+
+
+def test_shown_posts_return_on_later_days_only_when_configured(conn, monkeypatch):
+    uid = reader(conn)
+    strangers(conn, 3)
+    insert_post(conn, "did:plc:other", "1", "STRONG dismissed post about a compiler")
+    worker.run_cycle(conn, ScriptedScorer({"STRONG": ("include", 0.95, 0.9)}))
+    shown = {p["key"] for p in digests.read(conn, uid)}
+    dismissed = shown.pop()
+    conn.execute("INSERT INTO dismissed_posts VALUES (?,?,unixepoch())", (uid, dismissed))
+    conn.execute("UPDATE digest_runs SET day='2000-01-01'")
+    config = digests.config_for(conn, uid)
+    assert digests.seen(conn, uid, config) == shown | {dismissed}
+    monkeypatch.setenv("HIDE_SHOWN_POSTS", "false")
+    clear_settings()
+    assert digests.seen(conn, uid, config) == {dismissed}

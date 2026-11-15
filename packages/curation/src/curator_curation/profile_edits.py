@@ -33,6 +33,15 @@ def render(head: str, items: list[tuple[str, str]], tail: str) -> str:
 TERM = "search_term"
 
 
+def search_terms(markdown: str) -> list[str]:
+    """`[search_term]` lines in a profile, deduplicated and capped like model-proposed terms."""
+    out = []
+    for category, text in parse(markdown)[1]:
+        if category == TERM and text and len(text) <= 80 and text.casefold() not in map(str.casefold, out):
+            out.append(text)
+    return out[:MAX_TERMS]
+
+
 def numbered(markdown: str) -> tuple[str, list[dict]]:
     """Editable lines for the model. Legacy `[search_term]` lines are terms, not preferences, so they are left out."""
     head, items, _ = parse(markdown)

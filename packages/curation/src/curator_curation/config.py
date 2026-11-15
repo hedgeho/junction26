@@ -33,6 +33,7 @@ class CurationSettings(CoreSettings):
     decision_tokens_per_minute: int = 500000  # Input tokens per process, scoring and triage combined; 0 = unlimited
     social_slots: int = 3  # Digest positions reserved for followed authors that pass the filter
     serendipity_share: float = 0.1  # Digest share for substantive, clean posts just outside the profile
+    hide_shown_posts: bool = True  # Leave posts delivered on earlier days out of later digests
     background_score_interval_s: int = 60  # Score new candidates ahead of refreshes this often
     background_score_size: int = 200  # Candidates scored per background interval
     daily_scoring_cap: int = 30000

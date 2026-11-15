@@ -70,6 +70,8 @@ def assessments(conn, uid, profile, scorer_version: str):
 def seen(conn, uid, config) -> set[str]:
     """Dismissed posts and posts delivered on earlier days."""
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
+    if not settings().hide_shown_posts:
+        return dismissed
     previous = {
         r[0]
         for r in conn.execute(
