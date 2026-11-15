@@ -44,8 +44,7 @@ def page(request, name, context):
     token = request.session.setdefault("csrf", secrets.token_urlsafe(32))
     static = Path(__file__).parent / "static"
     version = max(
-        (static / name).stat().st_mtime_ns
-        for name in ("app.css", "app.js", "theme.js", "landing.css", "landing.js")
+        (static / name).stat().st_mtime_ns for name in ("app.css", "app.js", "theme.js", "landing.css", "landing.js")
     )
     return templates.TemplateResponse(request, name, dict(context, csrf=token, asset_version=version))
 
