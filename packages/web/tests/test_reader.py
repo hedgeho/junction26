@@ -442,7 +442,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     client = client_for()
     page = client.get("/me").text
     assert "What would you like to see more of?" in page
-    assert "Tell us what you want to see more of to get more posts." in page
+    assert "This guides your whole feed." in page
     for action in ("Comment", "Like", "Save"):
         assert f'aria-label="{action}"' in page
     assert 'aria-label="Repost options"' in page
@@ -762,3 +762,20 @@ def test_delete_quote_on_reply_removes_only_its_stored_reference(conn, monkeypat
     assert client_for().post("/api/comment/delete", data=data).json() == {"deleted": True}
     assert calls == [(DID, reply, quote)]
     assert not conn.execute("SELECT 1 FROM social_contributions WHERE record_uri=?", (quote,)).fetchone()
+
+
+def test_feedback_ajax_returns_owned_job_and_fresh_key(conn):
+    uid = seed(conn)
+    post_key = digests.read(conn, uid)[0]["key"]
+    client = client_for()
+    response = client.post(
+        "/me/feedback",
+        data={"csrf": "csrf-test", "text": "More like this", "key": "ajax-one", "post_key": post_key},
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["next_key"] != "ajax-one"
+    assert client.get("/api/jobs/" + payload["job_id"]).json() == {"state": "queued"}
+    row = conn.execute("SELECT post_context FROM feedback_jobs WHERE id=?", (payload["job_id"],)).fetchone()
+    assert "Original human post" in row["post_context"]

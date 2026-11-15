@@ -23,3 +23,9 @@ Run a synthetic profile update first, then a synthetic chunk match, before impor
 The endpoint exposes only authenticated chat completions. Application schema validation and ID checks remain mandatory. It returns model output only to the backend; the reader never receives it directly. The Gemini API key is not needed in Modal.
 
 References: Modal Web Functions (`https://modal.com/docs/guide/webhooks`), Gemma/vLLM example (`https://modal.com/docs/examples/vllm_inference`), vLLM CLI (`https://docs.vllm.ai/en/latest/cli/serve/`).
+
+## Notes-aware feed scoring
+
+Set `SCORING_BACKEND=gemma` on the application host and restart both web and curation processes. Gemma then scores feed candidates as well as processing feedback and note matches. The worker queues note-derived feed-profile updates when this backend is enabled. Existing Gemini installations keep their current backend until explicitly changed. If a feed profile has incorporated notes, switching back to Gemini is blocked rather than sending those interests to Gemini.
+
+A Drive folder requires a Drive API service-account JSON at `GOOGLE_APPLICATION_CREDENTIALS`, accessible inside both application containers. Share the folder with the service-account email as Viewer; access granted to a separate Google account does not grant this service account access. Keep the JSON outside Git. Model and Drive access must be checked against the live deployment; tests use mocked services.

@@ -253,3 +253,10 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .comment-actions .social-action svg { width: 15px; height: 15px; }
 .comment-quotes:not(:empty) { margin: 8px 0; }
 .quoted-comment { padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+
+.feedback-context { padding: 15px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--background, #f8f9f7); }
+.feedback-context span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; }
+.feedback-context strong { display: block; font-size: 12px; }
+.feedback-context p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.feedback-progress { min-height: 0; margin: 9px 0 0; color: var(--muted); font-size: 12px; }
+.feedback-progress:empty { display: none; }
