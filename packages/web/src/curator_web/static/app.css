@@ -286,6 +286,17 @@ main.landing { width: 100%; padding: 0; }
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; margin-top: 28px; }
 .landing-button { min-height: 52px; padding: 13px 20px; border-radius: 4px; font-size: 13px; }
 .landing-button span { margin-left: 12px; }
+.network-cta .network-label { position: relative; display: inline-grid; min-width: 91px; margin-left: 0; text-align: left; }
+.network-cta .network-label > span { grid-area: 1 / 1; margin: 0; white-space: nowrap; }
+.network-threads { opacity: 0; animation: network-threads 8s infinite; }
+.network-bluesky { animation: network-bluesky 8s infinite; }
+@keyframes network-bluesky { 0%, 43%, 100% { opacity: 1; } 50%, 93% { opacity: 0; } }
+@keyframes network-threads { 0%, 43%, 100% { opacity: 0; } 50%, 93% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+ .network-cta .network-label { display: inline; min-width: 0; }
+ .network-cta .network-label > span { display: inline; opacity: 1; }
+ .network-threads::before { content: " / "; }
+}
 .story-link { font-size: 12px; font-weight: 600; text-decoration: none; }
 .story-link span { margin-left: 7px; }
 .hero-art { position: relative; display: grid; place-items: center; aspect-ratio: 1; background: var(--soft); color: var(--primary); }
