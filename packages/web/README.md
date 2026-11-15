@@ -1,6 +1,6 @@
 # Source-only web reader
 
-FastAPI/Jinja serves a finite daily selection. Feedback is queued, with fixed status labels. The main page and `/api/digest` return original posts and exact note slices only. Settings provide deliberate access to public/private Markdown configuration, revision restore, delivery settings and read-only Markdown folder connections.
+FastAPI/Jinja serves a finite daily selection. Feedback is queued and reports actual configuration changes. The main page and `/api/digest` return original posts and exact note slices. Settings contain connections and Feed curation / Note matching Markdown files, with independent revision histories and restore. The post limit is edited directly on the feed.
 
 Bluesky OAuth identifies the reader. It does not provide X sign-in; X public posts use the normalized pipeline contract and render through their own canonical source URLs. The optional Bluesky feed endpoint projects only Bluesky items from the same digest, without generated feedContext or a popular fallback.
 
@@ -10,7 +10,9 @@ All cookie-authenticated form mutations require a CSRF token. Private responses 
 uv run curator-web
 ```
 
-Open the loopback IP in development as described in the root README. No publication/write-to-notes APIs exist. Note removal deletes the imported snapshot and derived matches, not an external original. Profile and feedback retention/account erasure are not automated in this demo.
+Open the loopback IP in development as described in the root README. Explicit user-initiated Bluesky interactions publish through the user's OAuth session; curation never publishes automatically. No write-to-notes APIs exist. Note removal deletes the imported snapshot and derived matches, not an external original. Profile and feedback retention/account erasure are not automated in this demo.
+
+Feedback requests retain separate drafts, idempotency keys and progress for each post. A completed request cannot overwrite another post's editor. New selections wait for open panels, pending feedback and unsent feedback/comment/quote drafts before reloading. Imported author/media metadata is embedded as escaped JSON and rendered immediately; public AppView hydration enhances it asynchronously. Note matches poll slowly after completion so newly processed or removed excerpts can update an already open feed. Long comment chains cap their visual indentation on narrow screens.
 
 ## Agora sources
 

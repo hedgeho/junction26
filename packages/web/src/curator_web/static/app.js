@@ -29,55 +29,109 @@ document.querySelectorAll('time[datetime]').forEach(node => {
  const date = new Date(node.dateTime);
  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric'}).format(date);
 });
-function pollStatus(url, node, isDone, render) {
- let delay = 3000;
+async function readJSON(url, options = {}) {
+ let response;
+ try { response = await fetch(url, {cache:'no-store', ...options, headers:{Accept:'application/json', ...options.headers}}); }
+ catch (_) { throw new Error('Connection lost. Check the result before trying again.'); }
+ if (response.redirected || response.status === 401) throw new Error('Your session expired. Reload the page to reconnect.');
+ let result;
+ try { result = await response.json(); } catch (_) { throw new Error('Could not complete this request. Please try again.'); }
+ if (!response.ok) {
+  const error = new Error(response.status === 403 && result.detail === 'Invalid request' ? 'Your session expired. Reload the page to reconnect.' : typeof result.detail === 'string' ? result.detail : 'Could not complete this request. Please try again.');
+  error.status = response.status; throw error;
+ }
+ return result;
+}
+function pollStatus(url, node, isDone, render, options = {}) {
+ let delay = 1500, stopped = false;
  async function poll() {
+  if (stopped) return;
+  if (document.hidden) { setTimeout(poll, 3000); return; }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-   const response = await fetch(url, {cache:'no-store', headers:{Accept:'application/json'}});
+   const response = await fetch(url, {cache:'no-store', headers:{Accept:'application/json'}, signal:controller.signal});
+   if (response.redirected || [401,403,404].includes(response.status)) {
+    const message = response.status === 404 ? 'This request is no longer available.' : 'Your session expired. Reload the page to reconnect.';
+    if (options.unavailable) options.unavailable(message);
+    else if (node) { node.classList.remove('is-working'); node.textContent = message; }
+    return;
+   }
    if (!response.ok || response.redirected) throw new Error('status unavailable');
    const result = await response.json();
-   delay = 3000;
+   delay = options.delay ? options.delay(result) : 1500;
    render(result);
    if (isDone(result)) return;
   } catch (_) { delay = Math.min(delay * 2, 30000); }
+  finally { clearTimeout(timeout); }
   setTimeout(poll, delay);
  }
  setTimeout(poll, delay);
+ return () => { stopped = true; };
 }
 const feedbackDrafts = new Map();
+const socialDrafts = new Map();
+const feedbackStates = new Map();
+function feedbackState(form) {
+ const key = form.querySelector('[name="post_key"]')?.value || 'feed';
+ if (!feedbackStates.has(key)) feedbackStates.set(key, {key:crypto.randomUUID(), busy:false, message:'', working:false});
+ return feedbackStates.get(key);
+}
+function renderFeedbackState(form, state = feedbackState(form)) {
+ if (feedbackState(form) !== state) return;
+ form.querySelector('[name="key"]').value = state.key;
+ const status = form.querySelector('.feedback-progress');
+ status.classList.toggle('is-working', state.working); status.textContent = state.message;
+ form.toggleAttribute('aria-busy', state.busy);
+ if (state.busy) form.setAttribute('aria-busy', 'true');
+ form.querySelectorAll('button[type="submit"]').forEach(button => button.disabled = state.busy);
+}
 document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventListener('submit', async event => {
  event.preventDefault();
- const input = form.querySelector('textarea'), status = form.querySelector('.feedback-progress');
+ const state = feedbackState(form); if (state.busy) return;
+ const input = form.querySelector('textarea');
+ if (!input.value.trim()) { input.setCustomValidity('Tell your feed what you would like to change.'); input.reportValidity(); return; }
  const buttons = [...form.querySelectorAll('button[type="submit"]')], button = event.submitter || buttons[0];
  const isMore = button?.getAttribute('formaction') === '/me/more';
  const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value;
- buttons.forEach(item => item.disabled = true); status.classList.add('is-working'); status.textContent = 'Listening to your feed...';
- try {
-  const response = await fetch(button?.hasAttribute('formaction') ? button.formAction : form.action, {method:'POST', body:new FormData(form), headers:{Accept:'application/json'}});
-  if (response.status === 409) throw new Error('Your feed changed. Reload it before sending this request.');
-  if (!response.ok || response.redirected) throw new Error();
-  const result = await response.json(); const keyField = form.querySelector('[name="key"]'); keyField.value = keyField.defaultValue = result.next_key;
-  input.value = ''; if (postKey) feedbackDrafts.delete(postKey);
+ state.busy = state.working = true;
+ const update = message => { state.message = message; renderFeedbackState(form, state); };
+ const finish = message => {
+  state.busy = state.working = false; update(message);
   document.dispatchEvent(new Event('feedback-draft-change'));
-  status.textContent = 'Finding the right place for this...';
-  pollStatus('/api/jobs/' + result.job_id, status, result => ['applied','failed'].includes(result.state), result => {
-   if (result.state === 'queued') status.textContent = 'Your feed is listening...';
-   else if (result.state === 'processing') status.textContent = 'Connecting this with what your feed knows...';
+ };
+ const failed = message => {
+  if (postKey && !feedbackDrafts.get(postKey)?.trim()) feedbackDrafts.set(postKey, text);
+  if (feedbackState(form) === state && !input.value.trim()) input.value = postKey ? feedbackDrafts.get(postKey) : text;
+  finish(message);
+ };
+ update('Shaping your future feed...');
+ try {
+  const payload = new FormData(form); payload.set('key', state.key);
+  const result = await readJSON(button?.hasAttribute('formaction') ? button.formAction : form.action, {method:'POST', body:payload});
+  state.key = result.next_key;
+  if (postKey && feedbackDrafts.get(postKey) === text) feedbackDrafts.delete(postKey);
+  if (feedbackState(form) === state && input.value === text) input.value = '';
+  document.dispatchEvent(new Event('feedback-draft-change'));
+  update('Feedback received. Updating your preferences...');
+  pollStatus('/api/jobs/' + result.job_id, null, result => ['applied','failed'].includes(result.state), result => {
+   if (result.state === 'queued' || result.state === 'processing') update('Updating your feed preferences...');
    else if (result.state === 'failed') {
-    status.classList.remove('is-working'); status.textContent = 'Could not update your feed. Please try again.';
-    if (!input.value.trim()) { input.value = text; if (postKey) feedbackDrafts.set(postKey, text); }
+    failed('Could not update your feed. Your feedback is here to try again.');
    } else if (result.state === 'applied') {
     const summary = result.changes?.length ? result.changes.join('; ') : 'Your existing preferences were kept.';
-    if (!isMore) { status.classList.remove('is-working'); status.textContent = summary; return; }
-    status.textContent = summary + ' Finding posts for this request...';
-    pollStatus('/api/curation', status, state => ['ready','failed','offline','not_configured'].includes(state.state), state => {
-     if (state.state === 'ready') { status.classList.remove('is-working'); status.textContent = 'Your new selection is ready.'; refreshFeedWhenSafe(); }
-     else if (['failed','offline','not_configured'].includes(state.state)) { status.classList.remove('is-working'); status.textContent = 'Your preferences are saved. ' + state.label; }
-    });
+    if (!isMore) { finish(summary); return; }
+    update(summary + ' Selecting posts for this request...');
+    pollStatus('/api/curation', null, result => ['ready','failed','offline','not_configured'].includes(result.state), result => {
+     if (result.state === 'ready') { finish('Your new selection is ready.'); refreshFeedWhenSafe(); }
+     else if (['failed','offline','not_configured'].includes(result.state)) finish('Your preferences are saved. ' + result.label);
+    }, {unavailable:finish});
    }
-  });
- } catch (error) { status.classList.remove('is-working'); status.textContent = error.message || 'Could not save your feedback. Please try again.'; }
- finally { buttons.forEach(item => item.disabled = false); }
+  }, {unavailable:finish});
+ } catch (error) { finish(error.message || 'Could not save your feedback. Please try again.'); }
+}));
+document.querySelectorAll('.feed-feedback-form textarea').forEach(input => input.addEventListener('input', () => {
+ input.setCustomValidity(''); document.dispatchEvent(new Event('feedback-draft-change'));
 }));
 document.addEventListener('keydown', event => {
  if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing) return;
@@ -89,35 +143,29 @@ document.querySelectorAll('time[data-epoch]').forEach(node => {
  const date = new Date(Number(node.dataset.epoch) * 1000);
  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {dateStyle:'medium',timeStyle:'short'}).format(date);
 });
-function refreshFeedWhenSafe() {
- const dialog = document.querySelector('dialog[open]');
- const draft = document.getElementById('more-feedback');
- const panel = document.getElementById('feedback-panel');
- const feedbackDraft = document.getElementById('feedback');
- if (panel && !panel.hidden) { panel.addEventListener('feedback-close', refreshFeedWhenSafe, {once:true}); return; }
- if (feedbackDraft?.value.trim() || [...feedbackDrafts.values()].some(value => value.trim())) {
-  const waitForClear = () => {
-   if (!feedbackDraft?.value.trim() && ![...feedbackDrafts.values()].some(value => value.trim())) {
-    document.removeEventListener('feedback-draft-change', waitForClear); refreshFeedWhenSafe();
-   }
-  };
-  document.addEventListener('feedback-draft-change', waitForClear); return;
- }
- if (dialog) { dialog.addEventListener('close', refreshFeedWhenSafe, {once:true}); return; }
- if (draft?.value.trim()) {
-  const waitForClear = () => {
-   if (!draft.value.trim()) { draft.removeEventListener('input', waitForClear); refreshFeedWhenSafe(); }
-  };
-  draft.addEventListener('input', waitForClear);
+let feedRefreshPending = false;
+function refreshFeedWhenSafe() { feedRefreshPending = true; tryRefreshFeed(); }
+function tryRefreshFeed() {
+ if (!feedRefreshPending) return;
+ const hasDraft = document.getElementById('more-feedback')?.value.trim() || [...feedbackDrafts.values(), ...socialDrafts.values()].some(value => value.trim());
+ const editing = document.querySelector('dialog[open]') || (feedbackPanel && !feedbackPanel.hidden);
+ const busy = [...feedbackStates.values()].some(state => state.busy);
+ if (hasDraft || editing || busy) {
+  const message = document.getElementById('feed-ready-message');
+  if (message) { message.hidden = false; message.textContent = hasDraft ? 'Your new selection is ready. Finish or clear your draft to view it.' : 'Your new selection is ready. Close the open panel to view it.'; }
   return;
  }
+ feedRefreshPending = false;
  location.reload();
 }
+document.addEventListener('feedback-draft-change', tryRefreshFeed);
+document.addEventListener('input', tryRefreshFeed);
+document.addEventListener('close', tryRefreshFeed, true);
 const pending = document.getElementById('curation-pending');
 if (pending) pollStatus('/api/curation', pending, result => result.state === 'ready', result => {
  if (result.state === 'ready') refreshFeedWhenSafe();
  else pending.textContent = result.label;
-});
+}, {delay:result => result.state === 'processing' ? 1500 : 15000});
 const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
  pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {
@@ -144,6 +192,7 @@ if (limitDialog && limitOpen) {
 }
 const feedbackPanel = document.getElementById('feedback-panel');
 if (feedbackPanel) {
+ feedbackPanel.addEventListener('feedback-close', tryRefreshFeed);
  let trigger;
  const form = feedbackPanel.querySelector('form');
  const feedbackInput = document.getElementById('feedback');
@@ -168,7 +217,7 @@ if (feedbackPanel) {
   document.getElementById('feedback-post').value = key;
   document.getElementById('feedback-context-author').textContent = post.querySelector('.author')?.textContent || 'Post';
   document.getElementById('feedback-context-text').textContent = post.querySelector('.post-text')?.textContent || '';
-  form.querySelector('.feedback-progress').textContent = '';
+  renderFeedbackState(form);
   const original = document.getElementById('feedback-original');
   const source = post.querySelector('.post-actions')?.dataset.platform === 'bluesky' && safeHttps(post.dataset.sourceUrl);
   original.hidden = !source; if (source) original.href = source;
@@ -334,7 +383,10 @@ function renderPostDetails(post, details) {
   box.hidden = false;
  }
  renderPostText(post.querySelector('.post-text'), details.facets || []);
- const container = post.querySelector('.post-embeds');
+ renderEmbeds(post.querySelector('.post-embeds'), details);
+}
+function renderEmbeds(container, details) {
+ container.replaceChildren();
  const images = Array.isArray(details.images) ? details.images.slice(0, 4) : [];
  const grid = document.createElement('div'); grid.className = 'post-images';
  for (const image of images) {
@@ -364,9 +416,14 @@ function renderPostDetails(post, details) {
  }
 }
 const postCards = [...document.querySelectorAll('.post[data-post-key]')];
+postCards.forEach(post => renderPostText(post.querySelector('.post-text')));
+try {
+ const metadata = JSON.parse(document.getElementById('post-metadata')?.textContent || '{}');
+ postCards.forEach(post => { if (metadata[post.dataset.postKey]) renderPostDetails(post, metadata[post.dataset.postKey]); });
+} catch (_) { /* The original source text is still readable if metadata is unavailable. */ }
 if (document.querySelector('[data-live-notes]')) {
  const noteTarget = document.querySelector('[data-live-notes]');
- pollStatus('/api/note-matches', noteTarget, result => ['ready', 'partial'].includes(result.state), result => {
+ pollStatus('/api/note-matches', noteTarget, () => false, result => {
   if (!result.items) return;
   postCards.forEach(post => {
    const container = post.querySelector('.note-matches');
@@ -382,9 +439,8 @@ if (document.querySelector('[data-live-notes]')) {
     aside.append(title, excerpt); return aside;
    }));
   });
- });
+ }, {delay:result => ['ready','partial'].includes(result.state) ? 30000 : 2000, unavailable:() => {}});
 }
-postCards.forEach(post => renderPostText(post.querySelector('.post-text')));
 if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
  .then(response => response.ok && !response.redirected ? response.json() : null)
  .then(data => { if (data?.items) postCards.forEach(post => {const details = data.items[post.dataset.postKey]; if (details) renderPostDetails(post, details);}); })
@@ -410,20 +466,30 @@ function setSocialContext(author, text, source) {
  document.getElementById('social-context-author').textContent = author || '';
  document.getElementById('social-context-text').textContent = text || '';
  const media = document.getElementById('social-context-media');
- media.replaceChildren(...[...(source?.querySelectorAll('.post-embeds img') || [])].slice(0,4).map(img => img.cloneNode()));
+ media.replaceChildren(...[...(source?.querySelectorAll('.post-embeds img, .comment-embeds img') || [])].slice(0,4).map(img => img.cloneNode()));
 }
 const socialDialog = document.getElementById('social-dialog');
 const socialForm = document.getElementById('social-form');
 let socialTarget = null;
+let socialOpener = null;
+function openComposer(target, author, text, source) {
+ if (socialForm.getAttribute('aria-busy') === 'true') return;
+ socialTarget = target; socialOpener = document.activeElement;
+ setSocialContext(author, text, source);
+ document.getElementById('social-title').textContent = target.action === 'comment' ? 'Comment' : 'Repost with comment';
+ const input = document.getElementById('social-text');
+ input.value = socialDrafts.get(target.key) || ''; input.setCustomValidity('');
+ socialForm.querySelector('.social-dialog-status').textContent = '';
+ socialForm.querySelector('.social-count').textContent = `${input.value.length}/300`;
+ socialDialog.showModal(); input.focus();
+}
 const ownComments = new Map();
 const deletedComments = new Set();
 const deletedQuotes = new Set();
 async function deleteContribution(post, uri, parentUri, kind) {
  const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
  payload.set('post_key', post.dataset.postKey); payload.set('comment_uri', uri); payload.set('parent_uri', parentUri); payload.set('kind', kind);
- const response = await fetch('/api/comment/delete', {method:'POST', body:payload});
- const result = await response.json();
- if (!response.ok) throw new Error(result.detail || 'Could not delete your post');
+ await readJSON('/api/comment/delete', {method:'POST', body:payload});
 }
 function quoteDeleteButton(post, uri, parentUri, onDeleted) {
  if (!uri) return null;
@@ -468,9 +534,7 @@ async function sendSocial(post, action, text = '') {
  const body = new FormData();
  body.set('csrf', document.querySelector('input[name="csrf"]').value);
  body.set('post_key', post.dataset.postKey); body.set('action', action); body.set('text', text);
- const response = await fetch('/api/social-action', {method:'POST', body});
- const result = await response.json();
- if (!response.ok) throw new Error(result.detail || 'Could not complete action');
+ const result = await readJSON('/api/social-action', {method:'POST', body});
  const button = post.querySelector(`.social-interact[data-action="${action}"]`);
  if (button?.hasAttribute('aria-pressed')) button.setAttribute('aria-pressed', String(result.active));
  if (action === 'repost') setRepostState(post, result.active);
@@ -484,7 +548,7 @@ if (blueskyCards.length) fetch('/api/social-state', {cache:'no-store', headers:{
  .then(async response => { if (!response.ok || response.redirected) throw new Error(); return response.json(); })
  .then(data => blueskyCards.forEach(post => {
   const state = data.items[post.dataset.postKey.slice('bluesky:'.length)];
-  if (!state) { post.querySelector('.social-status').textContent = 'Post unavailable on Bluesky.'; return; }
+ if (!state) { post.querySelector('.social-status').textContent = 'Post unavailable on Bluesky.'; return; }
   post.querySelector('.repost-menu-open').disabled = false;
   setRepostState(post, !!state.repost);
   (data.contributions?.[post.dataset.postKey.slice('bluesky:'.length)] || []).forEach(item => renderContribution(post, item));
@@ -499,12 +563,8 @@ blueskyCards.forEach(post => post.querySelectorAll('.social-interact').forEach(b
  const menu = post.querySelector('.repost-menu');
  menu.hidden = true; post.querySelector('.repost-menu-open').setAttribute('aria-expanded', 'false');
  if (action === 'comment' || action === 'quote') {
-  socialTarget = {post, action};
-  setSocialContext(post.querySelector('.author')?.textContent, post.querySelector('.post-text')?.textContent, post);
-  document.getElementById('social-title').textContent = action === 'comment' ? 'Comment' : 'Repost with comment';
-  document.getElementById('social-text').value = '';
-  socialForm.querySelector('.social-dialog-status').textContent = '';
-  socialDialog.showModal(); document.getElementById('social-text').focus(); return;
+  openComposer({post, action, key:post.dataset.postKey + ':' + action}, post.querySelector('.author')?.textContent, post.querySelector('.post-text')?.textContent, post);
+  return;
  }
  button.disabled = true;
  try { await sendSocial(post, action); } catch (error) { post.querySelector('.social-status').textContent = error.message; }
@@ -523,12 +583,30 @@ document.querySelectorAll('.repost-control').forEach(control => {
 });
 if (socialDialog) {
  document.getElementById('social-close').addEventListener('click', () => socialDialog.close());
+ socialDialog.addEventListener('cancel', event => { if (socialForm.getAttribute('aria-busy') === 'true') event.preventDefault(); });
+ socialDialog.addEventListener('close', () => socialOpener?.focus());
+ const input = document.getElementById('social-text');
+ input.addEventListener('input', () => {
+  input.setCustomValidity('');
+  if (socialTarget) socialDrafts.set(socialTarget.key, input.value);
+  socialForm.querySelector('.social-count').textContent = `${input.value.length}/300`;
+ });
  socialForm.addEventListener('submit', async event => {
-  event.preventDefault(); if (!socialTarget) return;
-  const button = socialForm.querySelector('[type=submit]'); button.disabled = true;
-  try { const value = document.getElementById('social-text').value; if (socialTarget.submit) await socialTarget.submit(value); else await sendSocial(socialTarget.post, socialTarget.action, value); socialDialog.close(); }
+  event.preventDefault(); if (!socialTarget || socialForm.getAttribute('aria-busy') === 'true') return;
+  if (!input.value.trim()) { input.setCustomValidity('Write your comment before posting.'); input.reportValidity(); return; }
+  const target = socialTarget, value = input.value;
+  const button = socialForm.querySelector('[type=submit]'), close = document.getElementById('social-close');
+  socialForm.setAttribute('aria-busy', 'true'); button.disabled = close.disabled = input.readOnly = true;
+  button.textContent = 'Posting...';
+  try {
+   if (target.submit) await target.submit(value); else await sendSocial(target.post, target.action, value);
+   socialDrafts.delete(target.key); socialDialog.close();
+  }
   catch (error) { socialForm.querySelector('.social-dialog-status').textContent = error.message; }
-  finally { button.disabled = false; }
+  finally {
+   socialForm.removeAttribute('aria-busy'); button.disabled = close.disabled = input.readOnly = false; button.textContent = 'Post';
+   document.dispatchEvent(new Event('feedback-draft-change'));
+  }
  });
 }
 
@@ -581,19 +659,20 @@ function makeComment(post, item, parentUri) {
   head.append(remove);
  }
  const text = document.createElement('div'); text.className = 'source-text'; text.textContent = item.text; renderPostText(text, item.facets);
- body.append(head, text); row.append(body); wrapper.append(row);
+ const embeds = document.createElement('div'); embeds.className = 'comment-embeds'; renderEmbeds(embeds, item);
+ body.append(head, text, embeds); row.append(body); wrapper.append(row);
  if (item.uri) {
   let replies = [];
   const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'thread-more'; toggle.hidden = !(item.reply_count > 0); toggle.textContent = `Show replies (${item.reply_count || 0})`; toggle.setAttribute('aria-expanded', 'false');
   const children = document.createElement('div'); children.className = 'thread-children'; children.hidden = true;
   async function openReplies() {
    children.hidden = false; toggle.hidden = false; toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = 'Hide replies';
-   if (replies.length) renderCommentBatch(post, children, replies, item.uri, null); else children.textContent = 'Loading replies?';
+   if (replies.length) renderCommentBatch(post, children, replies, item.uri, null); else children.textContent = 'Loading replies...';
    try {
     const response = await fetch('/api/comments?' + new URLSearchParams({post_key:post.dataset.postKey, parent_uri:item.uri}), {cache:'no-store', headers:{Accept:'application/json'}});
     if (!response.ok || response.redirected) throw new Error();
     const data = await response.json();
-    for (const own of replies) if (!data.items.some(reply => own.uri && reply.uri === own.uri)) data.items.push(own);
+    for (const own of replies) if (own.is_self && !deletedComments.has(own.uri) && !data.items.some(reply => own.uri && reply.uri === own.uri)) data.items.push(own);
     replies = data.items; renderCommentBatch(post, children, replies, item.uri, data.total);
    } catch (_) {
     if (replies.length) renderCommentBatch(post, children, replies, item.uri, null);
@@ -634,22 +713,17 @@ function makeComment(post, item, parentUri) {
   async function interact(action, text = '') {
    const payload = new FormData(); payload.set('csrf', document.querySelector('input[name="csrf"]').value);
    payload.set('post_key', post.dataset.postKey); payload.set('target_uri', item.uri); payload.set('action', action); payload.set('text', text);
-   const response = await fetch('/api/social-action', {method:'POST', body:payload}); const result = await response.json();
-   if (!response.ok) throw new Error(result.detail || 'Could not complete action');
+   const result = await readJSON('/api/social-action', {method:'POST', body:payload});
    message.textContent = ''; return result;
   }
   function compose(action) {
-   setSocialContext(item.author, item.text);
-   socialTarget = {post, action, submit:async value => {
+   openComposer({post, action, key:item.uri + ':' + action, submit:async value => {
     const result = await interact(action, value);
     if (action === 'comment') {
      replies.push({uri:result.record_uri, text:value, author:'You', is_self:true, reply_count:0, state:{like:false, repost:false, save:false}});
      item.reply_count = (item.reply_count || 0) + 1; openReplies();
     } else addQuote({uri:result.record_uri, text:value});
-   }};
-   document.getElementById('social-title').textContent = action === 'comment' ? 'Comment' : 'Repost with comment';
-   document.getElementById('social-text').value = ''; socialForm.querySelector('.social-dialog-status').textContent = '';
-   socialDialog.showModal(); document.getElementById('social-text').focus();
+   }}, item.author, item.text, row);
   }
   const comment = iconButton('comment', 'Reply'); comment.disabled = !item.state; comment.addEventListener('click', () => compose('comment')); actions.append(comment);
   const repostControl = document.createElement('div'); repostControl.className = 'repost-control';
@@ -691,7 +765,7 @@ function renderComments(post) {
 async function showComments(post) {
  const button = post.querySelector('.comments-toggle'), section = post.querySelector('.comments-list');
  section.hidden = false; button.setAttribute('aria-expanded', 'true'); button.textContent = 'Hide comments';
- if (ownComments.get(post)?.length) renderComments(post); else section.textContent = 'Loading comments?';
+ if (ownComments.get(post)?.length) renderComments(post); else section.textContent = 'Loading comments...';
  try {
   const response = await fetch('/api/comments?' + new URLSearchParams({post_key:post.dataset.postKey}), {cache:'no-store', headers:{Accept:'application/json'}});
   if (!response.ok || response.redirected) throw new Error();

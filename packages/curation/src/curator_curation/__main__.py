@@ -38,14 +38,20 @@ def main() -> None:
                 )
             private = GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
             private.update_profile("# Interests\nCompilers", "Prefer detailed technical results")
-            private.match(
-                {"text": "A compiler benchmark", "context": ""},
+            private.match_note(
+                [{"post_key": "x:synthetic", "text": "A compiler benchmark", "context": ""}],
                 [{"chunk_id": "synthetic", "text": "Original compiler benchmarking thoughts"}],
                 "",
             )
+            private.select_feed(
+                [{"post_key": "x:synthetic", "text": "A reproducible compiler benchmark", "context": ""}],
+                1,
+                "# Interests\nCompiler research",
+                {"instruction": "Compiler benchmarks", "visible_posts": []},
+            )
         except Exception:  # noqa: BLE001 - never echo private provider errors
             parser.exit(1, "Provider check failed; verify configuration and endpoint health.\n")
-        print("Gemini and Gemma checks passed.")
+        print("Configured scoring, Gemma profile updates, note matching and final selection passed.")
     elif args.cmd == "timings":
         conn = db.connect()
         for row in conn.execute("SELECT key,value FROM kv WHERE key LIKE 'curation-timing:%' ORDER BY key"):

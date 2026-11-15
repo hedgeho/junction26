@@ -26,7 +26,7 @@ uv run curator-web
 
 Run processes in separate terminals. Open `http://127.0.0.1:8000` for development OAuth. Configure providers using `.env.example` and `deploy/modal/README.md`; model-dependent work remains pending without credentials. Set `GEMINI_MODEL` to an available event-account model.
 
-Sign in through Bluesky, enter interests, and wait for processing. Settings provide optional Markdown access, version restore, delivery limits/timezone/blocks and private note import/removal. Notes are immutable snapshots; import a new snapshot and remove the old one when updating a note.
+Sign in through Bluesky and complete setup; no initial interests are required. Adjust the post limit on the feed. Tell your feed updates future preferences, while Show more builds a new selection for the immediate request. Settings contain connections and the Feed curation / Note matching files with revision history and restore. Notes are read-only snapshots, refreshed periodically from connected sources.
 
 ```sh
 uv run curator-curate once --user did:plc:example
@@ -36,16 +36,17 @@ uv run python -m pytest
 uv run --exact --package curator-curation python -m pytest packages/curation
 uv run python -m ruff check .
 uv run python -m ruff format --check .
+uv run --with playwright python scripts/check_reader_ui.py
 ```
 
-`check-providers` performs synthetic live requests using configured credentials. Other tests mock model responses. See `packages/core/README.md` for the import contract. Add numbered migrations; never edit deployed migrations. Coordinate schema and deploy changes with the pipeline owner.
+`check-providers` performs synthetic live requests using configured credentials. The browser check requires local real feed data and Chromium (Microsoft Edge on Windows); it copies SQLite and profile files into temporary storage, blocks remote social writes, and simulates social/model failures. Reports and screenshots go to ignored `data/ui-audit/`. Package tests mock model responses. See `packages/core/README.md` for the import contract. Add numbered migrations; never edit deployed migrations. Coordinate schema and deploy changes with the pipeline owner.
 
 ## Deployment
 
 Hostinger instructions remain in `deploy/hostinger/README.md`. SQLite and profile files stay on one host; never share its WAL file via Modal Volumes. Modal persists model weights only. Configure HTTPS, a strong session secret and a 512 KiB proxy body limit.
 
-The optional Bluesky feed projects only Bluesky digest items, with no generated reasons or popular fallback. Existing publishing scripts register the feed record; no social-post or notes publishing workflow exists.
+The optional Bluesky feed projects only Bluesky digest items, with no generated reasons or popular fallback. Publishing scripts register the feed record. The web client supports explicit user-initiated Bluesky comments, quotes, likes, reposts, saves and deletion of the user's own contributions. Original notes are never edited or published.
 
 `TECHNICAL_PLAN.md` records scope. `DESIGN.md` describes implemented behavior and remaining limits. Live model quality, GPU fit and production deployment require separate smoke checks.
 
-On first sign-in, complete **Setup** to connect your personalized Bluesky feed and optionally a Markdown notes folder. Local notes default to `notes/` (ignored by Git); a hosted app also accepts a link-shared Google Drive folder through Context.dev, or a private folder shared with its service account as Viewer. See [notes setup](packages/web/README.md#notes-local-or-google-drive). No sample-data preview is included.
+On first sign-in, complete **Setup** to confirm Bluesky and optionally connect up to ten Google Drive notes folders. A hosted app accepts link-shared folders through Context.dev, or private folders shared with its service account as Viewer. Local imports remain available to operators using `notes/` (ignored by Git). See [notes setup](packages/web/README.md#notes-connections). No sample-data preview is included.

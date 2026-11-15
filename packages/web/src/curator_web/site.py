@@ -176,12 +176,14 @@ def me(request: Request):
             "SELECT id,state,mode FROM feedback_jobs WHERE user_id=? AND source_chunk_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
             (uid,),
         ).fetchone()
+        posts = reader_posts(c, uid, current_did(request))
         return page(
             request,
             "me.html",
             {
                 "user": user,
-                "posts": reader_posts(c, uid, current_did(request)),
+                "posts": posts,
+                "post_metadata": {post["key"]: post_details.imported_details(post) for post in posts},
                 "daily_limit": digests.config_for(c, uid)["daily_limit"],
                 "job": dict(pending) if pending else None,
                 "curation_status": health.filtering_status(c, uid),
@@ -307,6 +309,8 @@ async def comments_api(request: Request, post_key: str, parent_uri: str = ""):
                     "handle": details["author_handle"],
                     "avatar": details["author_avatar"],
                     "facets": details["facets"],
+                    "images": details["images"],
+                    "external": details["external"],
                     "created_at": record.get("createdAt"),
                     "is_self": author.get("did") == did,
                     "reply_count": details["reply_count"],
@@ -715,10 +719,14 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
         source_notes = c.execute(
             "SELECT id,title FROM note_versions WHERE user_id=? ORDER BY created_at DESC", (uid,)
         ).fetchall()
-        history = c.execute(
-            "SELECT id,kind,created_at,parent_id FROM profile_revisions WHERE user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20",
-            (uid,),
-        ).fetchall()
+        history = [
+            row
+            for kind in profiles.KINDS
+            for row in c.execute(
+                "SELECT id,kind,created_at,parent_id FROM profile_revisions WHERE user_id=? AND kind=? ORDER BY created_at DESC,rowid DESC LIMIT 20",
+                (uid, kind),
+            )
+        ]
         return page(
             request,
             "settings.html",
@@ -772,7 +780,7 @@ def edit_profile(request: Request, kind: str, body: str = Form(..., max_length=2
         raise HTTPException(400, "Invalid configuration") from None
     finally:
         c.close()
-    return redirect("/settings")
+    return redirect("/settings#configuration")
 
 
 @router.post("/settings/restore/{revision_id}")
@@ -783,7 +791,7 @@ def restore_profile(request: Request, revision_id: str, expected: str = Form("")
         row = c.execute("SELECT * FROM profile_revisions WHERE user_id=? AND id=?", (uid, revision_id)).fetchone()
         if not row:
             raise HTTPException(404)
-        body = profiles._path(uid, row["kind"], row["id"]).read_text(encoding="utf-8")
+        body = profiles._path(uid, row["kind"], row["id"]).read_bytes().decode("utf-8")
         profiles.save(
             c,
             uid,
@@ -797,7 +805,7 @@ def restore_profile(request: Request, revision_id: str, expected: str = Form("")
         raise HTTPException(409, "Configuration changed; reload and retry") from None
     finally:
         c.close()
-    return redirect("/settings")
+    return redirect("/settings#configuration")
 
 
 @router.post("/settings/delivery")

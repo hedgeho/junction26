@@ -14,7 +14,7 @@
     </fieldset>
   </section>
   {% if error %}<p class="error" role="alert" id="setup-error">{{ error }}</p>{% endif %}
-  {% if curation_status.state in ['not_configured', 'offline', 'failed'] %}<div class="notice" role="status" style="margin-top:24px"><span>{{ curation_status.label }}</span><a href="/settings#services">Service details</a></div>{% endif %}
+  {% if curation_status.state in ['not_configured', 'offline', 'failed'] %}<div class="notice" role="status" style="margin-top:24px"><span>{{ curation_status.label }}</span></div>{% endif %}
   <button class="primary">Open feed <svg class="small-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
 </form>
 {% endblock %}

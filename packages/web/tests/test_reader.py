@@ -539,7 +539,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     client = client_for()
     page = client.get("/me").text
     assert "Shape your feed" in page
-    assert "Remember this for later" in page
+    assert "Remember for future picks" in page
     for action in ("Comment", "Like", "Save"):
         assert f'aria-label="{action}"' in page
     assert 'aria-label="Repost options"' in page
@@ -1073,3 +1073,121 @@ def test_version_history_explains_literal_changes(conn):
     assert "Previous versions" in page
     assert "More design research" in page
     assert "Restore this version" in page
+
+
+def test_feed_embeds_imported_metadata_before_remote_hydration(conn):
+    import re
+
+    uid = seed(
+        conn,
+        media=json.dumps(
+            [
+                {
+                    "type": "image",
+                    "thumb": "https://cdn.bsky.app/thumb.png",
+                    "full": "https://cdn.bsky.app/full.png",
+                    "alt": "An original image",
+                }
+            ]
+        ),
+    )
+    post = digests.read(conn, uid)[0]
+    html = client_for().get("/me").text
+    metadata = json.loads(
+        re.search(r'<script id="post-metadata" type="application/json">(.*?)</script>', html).group(1)
+    )
+    assert list(metadata) == [post["key"]]
+    assert metadata[post["key"]]["author_name"] == post["author"]
+    assert metadata[post["key"]]["images"][0]["alt"] == "An original image"
+    assert "/settings#services" not in html
+
+
+def test_source_metadata_cannot_break_out_of_json_script(conn, monkeypatch):
+    import re
+
+    uid = seed(conn)
+    posts = digests.read(conn, uid)
+    posts[0]["author_handle"] = '</script><script>alert("source")</script>'
+    monkeypatch.setattr("curator_web.site.reader_posts", lambda *_: posts)
+    html = client_for().get("/me").text
+    encoded = re.search(r'<script id="post-metadata" type="application/json">(.*?)</script>', html).group(1)
+    assert "</script>" not in encoded
+    assert next(iter(json.loads(encoded).values()))["author_handle"] == '</script><script>alert("source")</script>'
+
+
+def test_configuration_history_retains_both_kinds_independently(conn):
+    uid = seed(conn)
+    old_private = profiles.save(conn, uid, "private", "# Notes\n- [topic] Earlier note interests", None)
+    profiles.save(conn, uid, "private", "# Notes\n- [topic] Current note interests", old_private)
+    for number in range(25):
+        current = profiles.head(conn, uid)
+        profiles.save(conn, uid, "public", f"# Feed preference revision {number}", current["id"] if current else None)
+    html = client_for().get("/settings").text
+    assert f"/settings/restore/{old_private}" in html
+    assert "Earlier note interests" in html
+
+
+def test_more_request_uses_gemma_alongside_normal_decision_scoring(conn):
+    from curator_curation.config import settings as curation_settings
+    from curator_curation.llm.schemas import ProfileProposal
+
+    uid = seed(conn)
+    old_keys = {post["key"] for post in digests.read(conn, uid)}
+    for number in range(2):
+        insert_post(conn, f"did:plc:fresh{number}", str(number), f"Original compiler implementation research {number}")
+    calls = []
+
+    class NormalScorer:
+        def score(self, request):
+            raise AssertionError("One-time instructions must not go to the public scorer")
+
+    class Gemma:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current, search_terms=[])
+
+        def score(self, request):
+            calls.append(request)
+            return Assessments(
+                items=[
+                    Assessment(
+                        post_key=post.post_key, decision="include", relevance=0.9, substance=0.8, opportunity=0.7
+                    )
+                    for post in request.candidates
+                ]
+            )
+
+        def select_feed(self, posts, limit, profile, request):
+            assert "Only compiler research now" in request["instruction"]
+            return [post["post_key"] for post in posts][:limit]
+
+    assert curation_settings().scoring_backend == "decisions"
+    before = digests.latest(conn, uid)["id"]
+    client_for().post(
+        "/me/more", data={"csrf": "csrf-test", "key": "private-request", "text": "Only compiler research now"}
+    )
+    worker.run_cycle(conn, NormalScorer(), Gemma())
+    assert calls and "Only compiler research now" in calls[0].explicit_profile
+    assert digests.latest(conn, uid)["id"] != before
+    assert len(digests.read(conn, uid)) == 2
+    assert not old_keys.intersection(post["key"] for post in digests.read(conn, uid))
+    versions = {
+        row[0]
+        for row in conn.execute("SELECT scorer_version FROM assessments_v2 WHERE scorer_version LIKE '%:request:%'")
+    }
+    assert versions and all(version.startswith("gemma-v1:") for version in versions)
+    assert not conn.execute("SELECT 1 FROM feed_requests WHERE user_id=?", (uid,)).fetchone()
+    assert curation_settings().scoring_backend == "decisions"
+
+
+def test_restore_profile_keeps_original_unicode_and_line_endings(conn):
+    uid = seed(conn)
+    original = "# Interests\r\n\r\n- [topic] Compiler research and \u03bb calculus\r\n"
+    first = profiles.save(conn, uid, "public", original, profiles.head(conn, uid)["id"])
+    second = profiles.save(conn, uid, "public", "# Changed\n- [topic] Other interests\n", first)
+    result = client_for().post(
+        "/settings/restore/" + first,
+        data={"csrf": "csrf-test", "expected": second},
+        follow_redirects=False,
+    )
+    assert result.status_code == 303 and result.headers["location"] == "/settings#configuration"
+    assert profiles.markdown(conn, uid) == original

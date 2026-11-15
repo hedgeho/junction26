@@ -61,3 +61,20 @@ def test_unsafe_links_and_images_are_not_returned():
     result = post_details.bluesky_details(view, text)
     assert not result["author_avatar"]
     assert result["facets"] == [] and result["images"] == []
+
+
+def test_malformed_optional_metadata_does_not_hide_original_text():
+    text = "Original link"
+    record = {
+        "text": text,
+        "facets": [
+            {"index": "invalid", "features": []},
+            {"index": {"byteStart": 0, "byteEnd": 8}, "features": [None, "invalid"]},
+        ],
+    }
+    assert post_details.facets(record, text) == []
+    for embed in (
+        {"$type": "app.bsky.embed.recordWithMedia#view", "media": "invalid"},
+        {"$type": "app.bsky.embed.external#view", "external": ["invalid"]},
+    ):
+        assert post_details.media(embed) == ([], None)

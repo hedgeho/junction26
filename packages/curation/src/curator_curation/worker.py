@@ -29,13 +29,14 @@ _notes_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-wor
 _notes_future = None
 
 
-def scorer_version() -> str:
+def scorer_version(backend: str | None = None) -> str:
     cfg = settings()
-    if cfg.scoring_backend == "gemma":
+    backend = backend or cfg.scoring_backend
+    if backend == "gemma":
         return f"gemma-v1:{cfg.gemma_model}"
-    if cfg.scoring_backend == "decisions":
+    if backend == "decisions":
         return f"{DECISION_SCORER_VERSION}:{cfg.gemini_decision_model}"
-    if cfg.scoring_backend == "generative":
+    if backend == "generative":
         return f"{SCORER_VERSION}:{cfg.gemini_model}"
     raise ValueError("unsupported scoring backend")
 
@@ -69,16 +70,25 @@ def budget_key(uid: str) -> str:
 
 
 def score_user(
-    conn, scorer, did: str, timing: dict | None = None, triager=None, limit: int | None = None, request=None
+    conn,
+    scorer,
+    did: str,
+    timing: dict | None = None,
+    triager=None,
+    limit: int | None = None,
+    request=None,
+    *,
+    backend: str | None = None,
 ) -> int:
     cfg = settings()
+    backend = backend or cfg.scoring_backend
     timing = {} if timing is None else timing
     started = time.monotonic()
     uid = profiles.bootstrap(conn, did)
-    if cfg.scoring_backend != "gemma" and db.kv_get(conn, "notes-in-feed-profile:" + uid):
+    if backend != "gemma" and db.kv_get(conn, "notes-in-feed-profile:" + uid):
         raise RuntimeError("Note-derived feed profiles require Gemma scoring")
     profile = profiles.head(conn, uid)
-    version = scorer_version() + (":request:" + request["job_id"] if request else "")
+    version = scorer_version(backend) + (":request:" + request["job_id"] if request else "")
     config = digests.config_for(conn, uid)
     profile_revision = digests.revision(profile)
     terms = json.loads(profile["search_terms"]) if profile else []
@@ -136,7 +146,7 @@ def score_user(
                 for p in batch
             ),
         )
-        batches.append((batch, request, wanted if cfg.score_images and cfg.scoring_backend != "gemma" else {}))
+        batches.append((batch, request, wanted if cfg.score_images and backend != "gemma" else {}))
     errors = skipped = 0
     image_s, model_s = [], []
 
@@ -263,7 +273,7 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
             if state["state"] != "applied":
                 db.kv_set(conn, "curation-state:" + uid, "processing")
                 return
-            if not gemma or settings().scoring_backend != "gemma":
+            if not gemma:
                 raise RuntimeError("A one-time feed request requires Gemma")
         last = digests.latest(conn, uid)
         if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
@@ -279,11 +289,15 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
                 db.kv_set(conn, "curation-state:" + uid, "failed")
             return
         timing = {"started_at": int(time.time())}
-        score_user(conn, scorer, did, timing, triager, request=request)
+        # Immediate requests stay on the private model path even when normal
+        # curation uses Gemini Decisions. Their scores have their own scale/cache.
+        backend = "gemma" if request else settings().scoring_backend
+        request_scorer = gemma if request and settings().scoring_backend != "gemma" else scorer
+        score_user(conn, request_scorer, did, timing, triager, request=request, backend=backend)
         if digests.revision(profiles.head(conn, uid)) != digests.revision(current):
             return
         t = time.monotonic()
-        version = scorer_version() + (":request:" + request["job_id"] if request else "")
+        version = scorer_version(backend) + (":request:" + request["job_id"] if request else "")
         run_id = digests.build(conn, uid, version, selector=gemma, request=request)
         timing["digest_s"] = round(time.monotonic() - t, 3)
         if not run_id:

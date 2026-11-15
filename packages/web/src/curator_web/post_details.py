@@ -21,14 +21,20 @@ def facets(record, text):
         return []
     result = []
     length = len(text.encode("utf-8"))
-    for facet in record.get("facets") or []:
+    raw_facets = record.get("facets")
+    for facet in raw_facets if isinstance(raw_facets, list) else []:
         if not isinstance(facet, dict):
             continue
-        index = facet.get("index") or {}
+        index = facet.get("index")
+        if not isinstance(index, dict):
+            continue
         start, end = index.get("byteStart"), index.get("byteEnd")
         if type(start) is not int or type(end) is not int or not 0 <= start < end <= length:
             continue
-        for feature in facet.get("features") or []:
+        features = facet.get("features")
+        for feature in features if isinstance(features, list) else []:
+            if not isinstance(feature, dict):
+                continue
             kind = feature.get("$type")
             if kind == "app.bsky.richtext.facet#link":
                 url = https_url(feature.get("uri"))
@@ -49,9 +55,12 @@ def media(embed):
         return [], None
     if embed.get("$type") == "app.bsky.embed.recordWithMedia#view":
         embed = embed.get("media") or {}
+        if not isinstance(embed, dict):
+            return [], None
     images = []
     if embed.get("$type") == "app.bsky.embed.images#view":
-        for image in (embed.get("images") or [])[:4]:
+        raw_images = embed.get("images")
+        for image in raw_images[:4] if isinstance(raw_images, list) else []:
             if not isinstance(image, dict):
                 continue
             thumb = https_url(image.get("thumb"))
@@ -61,6 +70,8 @@ def media(embed):
     external = None
     if embed.get("$type") == "app.bsky.embed.external#view":
         item = embed.get("external") or {}
+        if not isinstance(item, dict):
+            return images, None
         url = https_url(item.get("uri"))
         if url:
             external = {
@@ -73,8 +84,10 @@ def media(embed):
 
 
 def bluesky_details(view, text):
-    author = view.get("author") or {}
-    record = view.get("record") or {}
+    author = view.get("author")
+    author = author if isinstance(author, dict) else {}
+    record = view.get("record")
+    record = record if isinstance(record, dict) else {}
     handle = author.get("handle") if isinstance(author.get("handle"), str) else ""
     name = author.get("displayName") if isinstance(author.get("displayName"), str) else ""
     images, external = media(view.get("embed")) if record.get("text") == text else ([], None)
