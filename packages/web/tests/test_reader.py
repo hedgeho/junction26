@@ -607,7 +607,16 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     assert config["daily_limit"] == 10
     assert digests.delivery_limit(config) == 10
     assert conn.execute("SELECT count(*) FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()[0] == 1
+    limits = []
+    original_score_user = worker.score_user
+
+    def record_score_limit(*args, **kwargs):
+        limits.append(kwargs.get("limit"))
+        return original_score_user(*args, **kwargs)
+
+    monkeypatch.setattr(worker, "score_user", record_score_limit)
     worker.run_cycle(conn, Scorer(), Gemma())
+    assert limits == [40]
     assert "technical research" in profiles.markdown(conn, uid)
     assert len(digests.read(conn, uid)) <= 10
     assert not conn.execute("SELECT 1 FROM feed_requests WHERE user_id=?", (uid,)).fetchone()

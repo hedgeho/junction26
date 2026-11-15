@@ -293,7 +293,12 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
         # curation uses Gemini Decisions. Their scores have their own scale/cache.
         backend = "gemma" if request else settings().scoring_backend
         request_scorer = gemma if request and settings().scoring_backend != "gemma" else scorer
-        score_user(conn, request_scorer, did, timing, triager, request=request, backend=backend)
+        request_limit = (
+            min(settings().candidates_per_cycle, max(config["daily_limit"] * 2, settings().score_batch_size * 2))
+            if request
+            else None
+        )
+        score_user(conn, request_scorer, did, timing, triager, limit=request_limit, request=request, backend=backend)
         if digests.revision(profiles.head(conn, uid)) != digests.revision(current):
             return
         t = time.monotonic()
