@@ -10,7 +10,7 @@ class CurationSettings(CoreSettings):
     gemini_decision_model: str = "gemini-decision-1"
     gemma_url: str = ""  # OpenAI-compatible /v1 base URL on Modal
     gemma_token: str = ""
-    gemma_model: str = "google/gemma-3-1b-it"
+    gemma_model: str = "google/gemma-3-12b-it"
     inference_timeout_s: float = 120
     score_batch_size: int = 20
     score_concurrency: int = 3
