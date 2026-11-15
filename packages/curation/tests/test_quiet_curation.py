@@ -678,6 +678,21 @@ def test_decision_scorer_rejects_missing_or_invalid_answers():
         decision_scorer(lambda **kwargs: SimpleNamespace(answers=wrong_type)).score(request)
 
 
+def test_decision_scorer_drops_only_the_post_with_an_invalid_answer():
+    request = PublicScoringRequest(
+        "Public",
+        (
+            PublicCandidate("x:bad", "x", "Bad text", "", False, False),
+            PublicCandidate("x:good", "x", "Good text", "", False, False),
+        ),
+    )
+
+    def create(**kwargs):
+        return SimpleNamespace(answers={} if "x:bad" in kwargs["input"][0]["text"] else decision_answers())
+
+    assert [i.post_key for i in decision_scorer(create).score(request).items] == ["x:good"]
+
+
 def test_failed_batches_return_their_scoring_budget(conn):
     uid, _ = setup(conn)
 
@@ -787,7 +802,7 @@ def test_feedback_is_preserved_when_model_only_changes_search_terms(conn):
     assert json.loads(profiles.head(conn, uid)["search_terms"]) == current_terms
 
 
-def test_decision_scorer_excludes_policy_blocked_posts_but_raises_other_errors():
+def test_decision_scorer_excludes_policy_blocked_posts_but_leaves_other_errors_unscored():
     class Blocked(Exception):
         status_code = 400
 
@@ -807,8 +822,10 @@ def test_decision_scorer_excludes_policy_blocked_posts_but_raises_other_errors()
 
     result = decision_scorer(create).score(request("x:ok", "x:blocked"))
     assert [(i.post_key, i.decision) for i in result.items] == [("x:ok", "include"), ("x:blocked", "exclude")]
+    result = decision_scorer(create).score(request("x:ok", "x:broken"))
+    assert [i.post_key for i in result.items] == ["x:ok"]
     with pytest.raises(Blocked):
-        decision_scorer(create).score(request("x:ok", "x:broken"))
+        decision_scorer(create).score(request("x:broken"))
 
 
 def add_threads_post(conn, native_id: str, text: str) -> str:
