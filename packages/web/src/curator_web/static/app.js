@@ -521,12 +521,49 @@ function noteMatchingStatus(result) {
   partial:count ? `${found} Some notes could not be checked.` : 'Some notes could not be checked. No matching passages found so far.',
   retrying:count ? `${found} Retrying the remaining notes...` : 'Checking your notes again after an interruption...',
   offline:'Could not check your notes. Retrying...',
+  degraded:'Showing available note passages. Live matching status is unavailable; retrying...',
   expired:result.message,
  };
  node.textContent = messages[result.state] || (count ? `${found} Checking the remaining notes...` : 'Looking for passages from your notes...');
  document.getElementById('note-matching-settings').hidden = !['no_notes','unavailable'].includes(result.state);
 }
 let stopNoteMatching;
+function pollNoteMatches(render) {
+ let stopped = false, delay = 1500;
+ async function poll() {
+  if (stopped) return;
+  if (document.hidden) { setTimeout(poll, 3000); return; }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+   let response = await fetch('/api/note-matches', {cache:'no-store', headers:{Accept:'application/json'}, signal:controller.signal});
+   let fallback = response.status === 404 && !response.redirected;
+   if (fallback) response = await fetch('/api/digest', {cache:'no-store', headers:{Accept:'application/json'}, signal:controller.signal});
+   if (response.redirected || [401,403].includes(response.status)) {
+    if (!stopped) noteMatchingStatus({state:'expired', message:'Your session expired. Reload the page to reconnect.'});
+    return;
+   }
+   if (!response.ok) throw new Error('Note matching unavailable');
+   const data = await response.json();
+   if (stopped) return;
+   if (fallback) {
+    if (!Array.isArray(data.items)) throw new Error('Invalid digest');
+    render({state:'degraded', items:Object.fromEntries(data.items.map(post => [post.key, post.notes || []]))});
+    delay = 10000;
+   } else {
+    render(data);
+    delay = ['ready','partial','no_notes','unavailable'].includes(data.state) ? 30000 : 2000;
+   }
+  } catch (_) {
+   if (stopped) return;
+   noteMatchingStatus({state:'offline'});
+   delay = Math.min(delay * 2, 30000);
+  } finally { clearTimeout(timeout); }
+  if (!stopped) setTimeout(poll, delay);
+ }
+ setTimeout(poll, delay);
+ return () => { stopped = true; };
+}
 function startNoteMatching() {
  stopNoteMatching?.();
  const noteTarget = document.getElementById('note-matching-status');
@@ -534,7 +571,7 @@ function startNoteMatching() {
  noteTarget.parentElement.hidden = !postCards.length;
  if (!postCards.length) return;
  noteTarget.textContent = 'Looking for passages from your notes...';
- stopNoteMatching = pollStatus('/api/note-matches', noteTarget, () => false, result => {
+ stopNoteMatching = pollNoteMatches(result => {
   if (!result.items) return;
   postCards.forEach(post => {
    const container = post.querySelector('.note-matches');
@@ -557,10 +594,6 @@ function startNoteMatching() {
    }));
   });
   noteMatchingStatus(result);
- }, {
-  delay:result => ['ready','partial','no_notes','unavailable'].includes(result.state) ? 30000 : 2000,
-  unavailable:message => noteMatchingStatus({state:'expired',message}),
-  retrying:() => noteMatchingStatus({state:'offline'}),
  });
 }
 function hydratePostCards(page = document) {

@@ -495,6 +495,39 @@ async def main():
                 await expect(page.locator("#note-matching-settings")).to_be_visible()
             else:
                 await expect(page.locator("#note-matching-settings")).to_be_hidden()
+        await page.unroute("**/api/note-matches")
+        note_requests = []
+
+        async def transient_missing_notes(route):
+            note_requests.append(route.request.url)
+            if len(note_requests) == 1:
+                await route.fulfill(status=404, json={"detail": "Not Found"})
+            else:
+                await route.fulfill(json={"state": "ready", "items": {keys[0]: []}})
+
+        await page.route("**/api/note-matches", transient_missing_notes)
+        await page.route(
+            "**/api/digest",
+            lambda route: route.fulfill(
+                json={
+                    "items": [
+                        {
+                            "key": keys[0],
+                            "notes": [{"chunk_id": "fallback", "title": "Saved note", "text": "Available passage"}],
+                        }
+                    ]
+                }
+            ),
+        )
+        await page.clock.fast_forward(31000)
+        await expect(page.locator("#note-matching-status")).to_contain_text("Live matching status is unavailable")
+        await expect(posts.first.locator(".note-match blockquote")).to_have_text("Available passage")
+        await page.clock.fast_forward(11000)
+        await expect(page.locator("#note-matching-status")).to_have_text(
+            "No passages from your notes match this selection."
+        )
+        assert len(note_requests) >= 2
+        checks.append("note matches fall back to the digest on 404 and recover automatically")
         await page.clock.resume()
         checks.append(
             "notes stream after feed with clear empty, retrying, partial, missing-note and unavailable states"
