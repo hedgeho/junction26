@@ -53,6 +53,13 @@ The optional Bluesky feed projects only Bluesky digest items, with no generated 
 
 On first sign-in, complete **Setup** to confirm Bluesky and optionally connect up to ten Google Drive notes folders. A hosted app accepts link-shared folders through Context.dev, or private folders shared with its service account as Viewer. Local imports remain available to operators using `notes/` (ignored by Git). See [notes setup](packages/web/README.md#notes-connections). No sample-data preview is included.
 
+## Built with
+
+- [Gemini](https://ai.google.dev/) filters and scores public posts and screens out clickbait, ragebait, spam and misinformation.
+- [Modal](https://modal.com/) serves the private Gemma model that edits profiles and matches notes to posts.
+- [Hostinger](https://www.hostinger.com/) hosts the application, SQLite state and the live site.
+- [CRACI](https://craci.com/) runs CI: lint, tests and image builds, with deny-by-default network egress.
+
 ## License
 
 [MIT](LICENSE)
