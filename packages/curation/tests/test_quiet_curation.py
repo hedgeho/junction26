@@ -554,3 +554,59 @@ def test_pending_rebuild_keeps_the_last_selection_instead_of_raw_candidates(conn
     body = profiles.markdown(conn, uid) + "\n- More: something new"
     profiles.save(conn, uid, "public", body, profiles.head(conn, uid)["id"])
     assert [p["key"] for p in digests.read(conn, uid)] == [key]
+
+
+def test_note_derived_feed_profile_requires_gemma_and_blocks_gemini(conn, monkeypatch):
+    from curator_core import db
+    from curator_core.config import clear_settings
+
+    monkeypatch.setenv("SCORING_BACKEND", "gemma")
+    clear_settings()
+    uid, _ = setup(conn)
+    note = notes.import_note(conn, uid, "Thinking", "Working through a new compiler idea")
+    chunk = conn.execute("SELECT id FROM note_chunks WHERE note_id=?", (note,)).fetchone()[0]
+    jobs.enqueue_note_feed_chunk(conn, uid, chunk)
+    assert jobs.process_one(conn, FakeGemma())
+    assert jobs.process_one(conn, FakeGemma())
+    assert "new compiler idea" in profiles.markdown(conn, uid, "public")
+    assert db.kv_get(conn, "notes-in-feed-profile:" + uid) == "1"
+    monkeypatch.setenv("SCORING_BACKEND", "generative")
+    clear_settings()
+    scorer = FakeScorer()
+    with pytest.raises(RuntimeError, match="require Gemma"):
+        worker.score_user(conn, scorer, DID)
+    assert scorer.requests == []
+    clear_settings()
+
+
+def test_feedback_preserves_post_context_after_source_disappears(conn):
+    uid, key = setup(conn)
+    job = jobs.enqueue(conn, uid, "public", "I like this depth", "post-snapshot", key)
+    conn.execute("DELETE FROM posts")
+
+    class CapturingGemma(FakeGemma):
+        def update_profile(self, current, feedback, terms=()):
+            self.feedback = feedback
+            return super().update_profile(current, feedback, terms)
+
+    gemma = CapturingGemma()
+    assert jobs.process_one(conn, gemma)
+    assert "concrete compiler evaluation" in gemma.feedback
+    assert "I like this depth" in gemma.feedback
+    assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
+
+
+def test_feedback_is_preserved_when_model_only_changes_search_terms(conn):
+    uid, key = setup(conn)
+    original = profiles.markdown(conn, uid)
+    current_terms = json.loads(profiles.head(conn, uid)["search_terms"])
+
+    class MissedEdit:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current, search_terms=["unrelated"])
+
+    jobs.enqueue(conn, uid, "public", "Less hype, but keep technical depth", "missed-edit", key)
+    assert jobs.process_one(conn, MissedEdit())
+    assert "- [feedback] Less hype, but keep technical depth" in profiles.markdown(conn, uid)
+    assert original.strip() in profiles.markdown(conn, uid)
+    assert json.loads(profiles.head(conn, uid)["search_terms"]) == current_terms

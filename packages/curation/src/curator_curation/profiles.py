@@ -94,6 +94,8 @@ def save(
                 ),
             )
             conn.execute("INSERT OR REPLACE INTO profile_heads VALUES (?,?,?)", (user_id, kind, revision))
+            if source_chunk_id and kind == "public":
+                db.kv_set(conn, "notes-in-feed-profile:" + user_id, "1")
             conn.execute("INSERT OR IGNORE INTO reader_settings(user_id) VALUES (?)", (user_id,))
             conn.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (user_id,))
     except Exception:

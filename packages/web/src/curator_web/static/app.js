@@ -45,6 +45,35 @@ function pollStatus(url, node, isDone, render) {
  setTimeout(poll, delay);
 }
 const feedbackDrafts = new Map();
+document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventListener('submit', async event => {
+ event.preventDefault();
+ const input = form.querySelector('textarea'), status = form.querySelector('.feedback-progress'), button = form.querySelector('[type="submit"]');
+ const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value;
+ button.disabled = true; status.textContent = 'Saving your feedback?';
+ try {
+  const response = await fetch(form.action, {method:'POST', body:new FormData(form), headers:{Accept:'application/json'}});
+  if (!response.ok || response.redirected) throw new Error();
+  const result = await response.json(); const keyField = form.querySelector('[name="key"]'); keyField.value = keyField.defaultValue = result.next_key;
+  input.value = ''; if (postKey) feedbackDrafts.delete(postKey);
+  document.dispatchEvent(new Event('feedback-draft-change'));
+  status.textContent = 'Saved ? updating your preferences?';
+  pollStatus('/api/jobs/' + result.job_id, status, result => ['applied','failed'].includes(result.state), result => {
+   if (result.state === 'queued') status.textContent = 'Saved ? waiting to update your preferences?';
+   else if (result.state === 'processing') status.textContent = 'Updating your preferences?';
+   else if (result.state === 'failed') {
+    status.textContent = 'Could not update your preferences. Please try again.';
+    if (!input.value.trim()) { input.value = text; if (postKey) feedbackDrafts.set(postKey, text); }
+   } else if (result.state === 'applied') {
+    status.textContent = 'Preferences updated ? finding posts?';
+    pollStatus('/api/curation', status, state => state.state === 'ready', state => {
+     if (state.state === 'ready') { status.textContent = 'Feed updated'; refreshFeedWhenSafe(); }
+     else if (state.state === 'failed' || state.state === 'offline' || state.state === 'not_configured') status.textContent = 'Preferences updated ? ' + state.label;
+    });
+   }
+  });
+ } catch (_) { status.textContent = 'Could not save your feedback. Please try again.'; }
+ finally { button.disabled = false; }
+}));
 function refreshFeedWhenSafe() {
  const dialog = document.querySelector('dialog[open]');
  const draft = document.getElementById('more-feedback');
@@ -124,6 +153,9 @@ if (feedbackPanel) {
    form.reset(); feedbackInput.value = feedbackDrafts.get(key) || '';
   }
   document.getElementById('feedback-post').value = key;
+  document.getElementById('feedback-context-author').textContent = post.querySelector('.author')?.textContent || 'Post';
+  document.getElementById('feedback-context-text').textContent = post.querySelector('.post-text')?.textContent || '';
+  form.querySelector('.feedback-progress').textContent = '';
   const original = document.getElementById('feedback-original');
   const source = post.querySelector('.post-actions')?.dataset.platform === 'bluesky' && safeHttps(post.dataset.sourceUrl);
   original.hidden = !source; if (source) original.href = source;

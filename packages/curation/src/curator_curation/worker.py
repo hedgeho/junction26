@@ -29,6 +29,8 @@ log = logging.getLogger(__name__)
 
 def scorer_version() -> str:
     cfg = settings()
+    if cfg.scoring_backend == "gemma":
+        return f"gemma-v1:{cfg.gemma_model}"
     if cfg.scoring_backend == "decisions":
         return f"{DECISION_SCORER_VERSION}:{cfg.gemini_decision_model}"
     if cfg.scoring_backend == "generative":
@@ -37,6 +39,8 @@ def scorer_version() -> str:
 
 
 def make_scorer(cfg):
+    if cfg.scoring_backend == "gemma":
+        return GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
     if cfg.scoring_backend == "decisions":
         return GeminiDecisionScorer(
             cfg.gemini_api_key,
@@ -67,6 +71,8 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
     timing = {} if timing is None else timing
     started = time.monotonic()
     uid = profiles.bootstrap(conn, did)
+    if cfg.scoring_backend != "gemma" and db.kv_get(conn, "notes-in-feed-profile:" + uid):
+        raise RuntimeError("Note-derived feed profiles require Gemma scoring")
     profile = profiles.head(conn, uid)
     version = scorer_version()
     config = digests.config_for(conn, uid)
@@ -116,7 +122,7 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                 for p in batch
             ),
         )
-        batches.append((batch, request, wanted if cfg.score_images else {}))
+        batches.append((batch, request, wanted if cfg.score_images and cfg.scoring_backend != "gemma" else {}))
     errors = 0
     image_s, model_s = [], []
 
@@ -299,11 +305,20 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None, seeder
         for _ in range(10):
             if not jobs.process_one(conn, gemma):
                 break
-    if scorer is None and cfg.gemini_api_key:
+    if cfg.scoring_backend == "gemma":
+        conn.execute(
+            "UPDATE feedback_jobs SET state='queued',attempts=0,error_code=NULL WHERE error_code='private_scoring_required'"
+        )
+        for row in conn.execute("SELECT c.id,n.user_id FROM note_chunks c JOIN note_versions n ON n.id=c.note_id"):
+            jobs.enqueue_note_feed_chunk(conn, row["user_id"], row["id"])
+    if scorer is None and (
+        (cfg.scoring_backend == "gemma" and cfg.gemma_url and cfg.gemma_token)
+        or (cfg.scoring_backend != "gemma" and cfg.gemini_api_key)
+    ):
         scorer = make_scorer(cfg)
     if triager is None:
         triager = make_triager(cfg)
-    if seeder is None and cfg.gemini_api_key:
+    if seeder is None and cfg.scoring_backend != "gemma" and cfg.gemini_api_key:
         seeder = make_seeder(cfg)
     dids = [
         row["did"]
