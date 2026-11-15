@@ -640,17 +640,24 @@ def feedback(
     c = db.connect()
     try:
         uid = reader(request, c)
-        if post_key and post_key not in {p["key"] for p in digests.read(c, uid)}:
-            raise HTTPException(404)
-        job_id = jobs.enqueue(
-            c,
-            uid,
-            kind,
-            text,
-            key,
-            post_key or None,
-            feed_context=feed_context(c, uid, visible_post_key) if not post_key else "",
-        )
+        with db.tx(c):
+            accepted = c.execute(
+                "SELECT id FROM feedback_jobs WHERE user_id=? AND idempotency_key=?", (uid, key)
+            ).fetchone()
+            if accepted:
+                job_id = accepted["id"]
+            else:
+                if post_key and post_key not in {p["key"] for p in digests.read(c, uid)}:
+                    raise HTTPException(404)
+                job_id = jobs.enqueue(
+                    c,
+                    uid,
+                    kind,
+                    text,
+                    key,
+                    post_key or None,
+                    feed_context=feed_context(c, uid, visible_post_key) if not post_key else "",
+                )
     except ValueError:
         raise HTTPException(400, "Invalid feedback") from None
     finally:

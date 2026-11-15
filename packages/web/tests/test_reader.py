@@ -592,6 +592,9 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     client = client_for()
     page = client.get("/me").text
     assert "Shape your feed" in page
+    assert 'class="feed-feedback-form"' in page
+    assert 'formaction="/me/more"' not in page
+    assert 'class="more-action-primary"' not in page
     assert "Saved for future picks" in page
     for action in ("Comment", "Like", "Save"):
         assert f'aria-label="{action}"' in page

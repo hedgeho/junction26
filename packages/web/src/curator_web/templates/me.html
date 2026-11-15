@@ -6,7 +6,7 @@
  <div id="feed-posts">
  {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}" data-source-url="{{ post.url }}">
-  <div class="quote-contributions" aria-label="Your quote posts"></div>
+  <div class="quote-contributions" role="group" aria-label="Your quote posts"></div>
   <div class="post-original"><div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ platform_names[post.platform] }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
   <div class="source-text post-text">{{ post.text }}</div>
   <div class="post-embeds"></div>

@@ -75,3 +75,61 @@ def test_recovery_key_is_bounded_and_required(conn):
     browser = client("did:plc:recovery-bounds")
     assert browser.get("/api/feedback-status").status_code == 422
     assert browser.get("/api/feedback-status", params={"key": "x" * 129}).status_code == 422
+
+
+def test_accepted_post_feedback_can_be_retried_after_source_disappears(conn):
+    did = "did:plc:feedback-replay"
+    add_user(conn, did)
+    uid = profiles.bootstrap(conn, did)
+    db.kv_set(conn, "setup:" + uid, "done")
+    uri = insert_post(conn, "did:plc:original", "replay", "Careful technical writing")
+    browser = client(did)
+    data = {
+        "csrf": "csrf-test",
+        "key": "accepted-before-deletion",
+        "text": "More careful technical writing",
+        "post_key": "bluesky:" + uri,
+    }
+    first = browser.post("/me/feedback", data=data, headers={"accept": "application/json"})
+    assert first.status_code == 202
+    conn.execute("DELETE FROM posts WHERE uri=?", (uri,))
+    replay = browser.post("/me/feedback", data=data, headers={"accept": "application/json"})
+    assert replay.status_code == 202
+    assert replay.json()["job_id"] == first.json()["job_id"]
+    assert conn.execute("SELECT count(*) FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()[0] == 1
+    assert (
+        "Careful technical writing"
+        in conn.execute("SELECT post_context FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()[0]
+    )
+    assert (
+        browser.post(
+            "/me/feedback", data=data | {"key": "new-after-deletion"}, headers={"accept": "application/json"}
+        ).status_code
+        == 404
+    )
+
+
+def test_concurrent_post_feedback_replays_create_one_durable_job(conn):
+    from concurrent.futures import ThreadPoolExecutor
+
+    did = "did:plc:feedback-concurrent"
+    add_user(conn, did)
+    uid = profiles.bootstrap(conn, did)
+    db.kv_set(conn, "setup:" + uid, "done")
+    uri = insert_post(conn, "did:plc:original", "concurrent", "Careful technical writing")
+    data = {
+        "csrf": "csrf-test",
+        "key": "one-concurrent-submission",
+        "text": "More careful technical writing",
+        "post_key": "bluesky:" + uri,
+    }
+
+    def submit(_):
+        response = client(did).post("/me/feedback", data=data, headers={"accept": "application/json"})
+        assert response.status_code == 202
+        return response.json()["job_id"]
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        identifiers = list(pool.map(submit, range(8)))
+    assert len(set(identifiers)) == 1
+    assert conn.execute("SELECT count(*) FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()[0] == 1
