@@ -39,7 +39,9 @@ def apply(markdown: str, terms: list[str], edits) -> tuple[str, list[str]]:
     head, items, tail = parse(markdown)
     if any(not 0 <= i < len(items) for i in edits.remove):
         raise ValueError("unknown preference id")
-    kept = [item for i, item in enumerate(items) if i not in set(edits.remove)]
+    # Removals only replace lines; a small model's bare removals were often the opposite of the feedback.
+    removed_ids = set(edits.remove) if edits.add else set()
+    kept = [item for i, item in enumerate(items) if i not in removed_ids]
     for line in edits.add:
         item = (line.category, " ".join(line.text.split()))
         if item[1] and item not in kept:

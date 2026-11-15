@@ -64,3 +64,8 @@ def test_gemma_sees_numbered_lines_and_terms_not_a_document(monkeypatch):
     assert seen["preferences"][2] == {"id": 2, "category": "rule", "text": "Exclude: furries"}
     assert seen["search_terms"] == ["birds"] and "current_markdown" not in seen
     assert result.search_terms == ["birds", "kingfisher"]
+
+
+def test_bare_removals_are_ignored_so_lines_change_only_by_replacement():
+    markdown, _ = profile_edits.apply(FLAT, [], ProfileEdits(remove=[2]))
+    assert "- [rule] Exclude: furries\n" in markdown
