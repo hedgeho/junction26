@@ -20,9 +20,11 @@ class PreferenceLine(StrictModel):
 class ProfileEdits(StrictModel):
     # Every list is required in the schema, so guided decoding cannot shortcut to an empty object.
     model_config = ConfigDict(
-        extra="forbid", json_schema_extra={"required": ["remove", "add", "add_terms", "remove_terms", "replacement"]}
+        extra="forbid",
+        json_schema_extra={"required": ["action", "remove", "add", "add_terms", "remove_terms", "replacement"]},
     )
 
+    action: Literal["keep", "patch", "replace"] = "patch"
     remove: list[int] = Field(default_factory=list, max_length=20)
     add: list[PreferenceLine] = Field(default_factory=list, max_length=5)
     add_terms: list[str] = Field(default_factory=list, max_length=10)

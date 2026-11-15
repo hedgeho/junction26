@@ -46,8 +46,9 @@ def test_post_feedback_receipt_recovered_by_submission_key(conn, remove_source):
         conn.execute("DELETE FROM posts WHERE uri=?", (uri,))
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             assert "Detailed compiler benchmarks" in feedback
+            assert context["user_instruction"] == "More reproducible benchmarks"
             return ProfileProposal(
                 markdown=current + "\n- [topic] Prefer reproducible compiler benchmarks\n", search_terms=list(terms)
             )

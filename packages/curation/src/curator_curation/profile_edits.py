@@ -118,8 +118,20 @@ def numbered(markdown: str) -> tuple[str, list[dict]]:
 
 
 def apply(markdown: str, terms: list[str], edits) -> tuple[str, list[str]]:
-    if edits.replacement is not None:
-        return edits.replacement.markdown, list(edits.replacement.search_terms)
+    if edits.action == "keep":
+        return markdown, list(terms)
+    if edits.action == "replace":
+        if edits.replacement is None:
+            raise ValueError("replacement action requires the complete profile")
+        additions = edits.model_copy(update={"action": "patch", "replacement": None, "remove": []})
+        replacement, replacement_terms = apply(
+            edits.replacement.markdown, list(edits.replacement.search_terms), additions
+        )
+        if not replacement_terms and all(
+            not line.strip() or re.match(r"^\s*#{1,6}\s", line) for line in replacement.splitlines()
+        ):
+            replacement = ""
+        return replacement, replacement_terms
     if not (edits.remove or edits.add or edits.add_terms or edits.remove_terms):
         return markdown, list(terms)
     head, items, tail = parse(markdown)

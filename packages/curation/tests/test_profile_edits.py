@@ -119,7 +119,7 @@ def test_narrow_contextual_feedback_preserves_unrelated_interests(monkeypatch):
     original = "# Profile\n\n- [topic] Prefer in-depth compiler evaluations with reproducible benchmarks\n"
 
     def call(self, instruction, payload, schema, max_tokens):
-        assert "keep unrelated interests" in instruction
+        assert "Keep unrelated preferences" in instruction
         return ProfileEdits(add=[PreferenceLine(category="rule", text="Exclude marketing announcements")])
 
     monkeypatch.setattr(GemmaClient, "_call", call)

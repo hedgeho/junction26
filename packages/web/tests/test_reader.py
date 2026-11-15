@@ -577,7 +577,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     selected_keys = []
 
     class Gemma:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current + "\n- [topic] Current: technical research\n", search_terms=[])
 
         def select_feed(self, posts, limit, profile, request):
@@ -604,7 +604,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypat
     assert 'id="feedback-dialog"' not in page
     assert 'name="kind"' not in page
     assert "Tell your feed" in page
-    assert 'formaction="/me/more"' in page
+    assert 'formaction="/me/more"' not in page
     assert client.post("/me/more", data={"key": "more-one", "text": "More technical research"}).status_code == 403
     data = {"csrf": "csrf-test", "key": "more-one", "text": "More technical research"}
     assert client.post("/me/more", data=data, follow_redirects=False).status_code == 303
@@ -1024,7 +1024,7 @@ def test_feed_request_uses_visible_context_is_one_shot_and_respects_cap(conn, mo
             )
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current + "\n- [topic] Tentative: technical posts\n", search_terms=[])
 
         def select_feed(self, posts, limit, profile, request):
@@ -1072,7 +1072,7 @@ def test_failed_final_selection_preserves_feed_and_request(conn, monkeypatch):
             )
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current, search_terms=[])
 
         def select_feed(self, posts, limit, profile, request):
@@ -1095,7 +1095,7 @@ def test_preference_feedback_keeps_current_selection_and_reports_changes(conn):
     conn.execute("UPDATE reader_settings SET refresh_requested=0 WHERE user_id=?", (uid,))
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current + "\n- [topic] More research\n", search_terms=[])
 
     client = client_for()
@@ -1206,7 +1206,7 @@ def test_more_request_uses_gemma_alongside_normal_decision_scoring(conn):
             raise AssertionError("One-time instructions must not go to the public scorer")
 
     class Gemma:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current, search_terms=[])
 
         def score(self, request):
@@ -1298,7 +1298,7 @@ def test_feedback_result_reports_its_exact_revision_and_survives_feed_reload(con
     ).json()
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(
                 markdown=current + "\n" + "".join(f"- [topic] Research {i}\n" for i in range(7)), search_terms=[]
             )
@@ -1347,9 +1347,10 @@ def test_feedback_model_gets_source_context_and_saves_only_principles(conn, monk
     )
     assert response.status_code == 202
     assert jobs.process_one(conn, GemmaClient("https://gemma.example/v1", "test", "test"))
-    prompt = seen["payload"]["feedback"]
+    prompt = seen["payload"]["source_context"]
     assert source_text in prompt and "Reproducible benchmark methodology" in prompt
     assert "I want more of this" in prompt
+    assert seen["payload"]["feedback"].startswith("I want more of this")
     assert "standalone curation principle" in seen["instruction"]
     assert "Never save the feedback verbatim" in prompt
     profile = profiles.markdown(conn, uid)

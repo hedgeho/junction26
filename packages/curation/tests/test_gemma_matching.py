@@ -114,7 +114,7 @@ def test_warmup_prepares_only_fixed_schemas_with_empty_synthetic_payloads(conn, 
 
         assert payload == {}
         expected = {
-            name: [] if field.get("type") == "array" else None
+            name: "keep" if name == "action" else [] if field.get("type") == "array" else None
             for name, field in schema.model_json_schema()["properties"].items()
         }
         assert json.loads(instruction.split(": ", 1)[1]) == expected

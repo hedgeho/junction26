@@ -131,6 +131,7 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
     origin = "feedback:" + job["id"]
     try:
         feedback = job["feedback"]
+        instruction = job["feedback"]
         has_source_context = False
         if job["post_key"]:
             post = get_post(conn, job["post_key"])
@@ -162,11 +163,13 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
                 + "\n</user_feedback>"
             )
         if job["mode"] == "more":
-            feedback += (
+            selection_scope = (
                 "\nBy default this request affects only the next feed selection; do not persist temporary interests. "
                 "If the user's own feedback explicitly asks to change, forget or replace lasting preferences, "
                 "compile that change at its requested scope."
             )
+            feedback += selection_scope
+            instruction += selection_scope
         if job["source_chunk_id"]:
             if job["kind"] == "public" and settings().scoring_backend != "gemma":
                 conn.execute(
@@ -193,6 +196,7 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
                 "Do not quote or summarize the source; retain only useful interests and qualifications.\n"
                 "<original_note>\n" + source_text + "\n</original_note>"
             )
+            instruction = feedback.split("\n<original_note>", 1)[0]
         # Recover a crash after the profile switch but before job completion.
         existing = conn.execute(
             "SELECT id FROM profile_revisions WHERE user_id=? AND origin=?", (job["user_id"], origin)
@@ -206,7 +210,7 @@ def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
             if not has_source_context and profile_edits.unresolved_reference(job["feedback"]):
                 proposal = ProfileProposal(markdown=body, search_terms=terms)
             else:
-                proposal = gemma.update_profile(body, feedback, terms)
+                proposal = gemma.update_profile(body, feedback, terms, user_instruction=instruction)
             _, old_preferences, _ = profile_edits.parse(body)
             _, proposed_preferences, _ = profile_edits.parse(proposal.markdown)
             raw_feedback = " ".join(job["feedback"].split()).casefold()

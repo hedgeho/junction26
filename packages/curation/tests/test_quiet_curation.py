@@ -29,7 +29,7 @@ class FakeGemma:
             ]
         )
 
-    def update_profile(self, current, feedback, terms=()):
+    def update_profile(self, current, feedback, terms=(), **context):
         return ProfileProposal(markdown=current + "\n" + feedback, search_terms=["compilers"])
 
     def match(self, post, chunks, private_profile):
@@ -107,7 +107,7 @@ def test_provider_failure_preserves_profile_and_sanitizes_error(conn):
     jid = jobs.enqueue(conn, uid, "private", "private sentinel", "fail")
 
     class Broken:
-        def update_profile(self, *args):
+        def update_profile(self, *args, **context):
             raise RuntimeError("sensitive provider body")
 
     for _ in range(3):
@@ -278,7 +278,7 @@ def test_note_removal_during_inference_cannot_reintroduce_private_profile_data(c
     note = notes.import_note(conn, uid, "Remove while processing", "private original")
 
     class Removed(FakeGemma):
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             notes.delete_note(conn, uid, note)
             return super().update_profile(current, feedback, terms)
 
@@ -420,7 +420,7 @@ def test_note_profile_jobs_run_after_feed_publication(conn):
     observed = []
 
     class Model(FakeGemma):
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             observed.append(db.kv_get(conn, "curation-state:" + uid))
             return super().update_profile(current, feedback, terms)
 
@@ -776,7 +776,7 @@ def test_feedback_preserves_post_context_after_source_disappears(conn):
     conn.execute("DELETE FROM posts")
 
     class CapturingGemma(FakeGemma):
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             self.feedback = feedback
             return super().update_profile(current, feedback, terms)
 
@@ -804,7 +804,7 @@ def test_feedback_snapshots_quoted_and_parent_context_before_sources_disappear(c
     conn.execute("DELETE FROM posts")
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             assert "A reproducible optimization benchmark" in feedback
             assert "Comparison of compiler tradeoffs" in feedback
             assert "Quoted post by" in feedback and "Reply parent by" in feedback
@@ -821,7 +821,7 @@ def test_feed_snapshot_is_retained_when_sources_change(conn):
     conn.execute("DELETE FROM posts")
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             assert "A reproducible compiler evaluation" in feedback
             return ProfileProposal(markdown=current + "\n- [topic] Prefer reproducible compiler evaluations\n")
 
@@ -844,7 +844,7 @@ def test_image_descriptions_and_link_previews_ground_post_feedback(conn):
     conn.execute("DELETE FROM posts")
 
     class Model:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             assert "Image description: A compiler performance comparison chart" in feedback
             assert (
                 "Linked page preview: Reproducible compiler research Benchmark methodology and source code" in feedback
@@ -861,7 +861,7 @@ def test_empty_post_without_descriptive_context_does_not_invent_an_interest(conn
     parent = profiles.head(conn, uid)["id"]
 
     class UnexpectedModel:
-        def update_profile(self, *args):
+        def update_profile(self, *args, **context):
             pytest.fail("An author identity alone is not sufficient source context")
 
     job = jobs.enqueue(conn, uid, "public", "I want more of this", "empty-post", key)
@@ -888,7 +888,7 @@ def test_unresolved_feedback_without_sources_is_an_exact_noop(conn, mode, feed_c
     original = profiles.markdown(conn, uid)
 
     class UnexpectedModel:
-        def update_profile(self, *args):
+        def update_profile(self, *args, **context):
             pytest.fail("Vague feedback without sources must not invent a preference")
 
     job = jobs.enqueue(conn, uid, "public", "I want more of this", "unresolved", mode=mode, feed_context=feed_context)
@@ -904,7 +904,7 @@ def test_feedback_is_not_copied_when_model_only_changes_search_terms(conn, feedb
     original = profiles.markdown(conn, uid)
 
     class MissedEdit:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current, search_terms=["compiler benchmarks"])
 
     jobs.enqueue(conn, uid, "public", feedback, "missed-edit", key)
@@ -920,7 +920,7 @@ def test_verbatim_feedback_proposals_are_retried_without_changing_profile(conn, 
     original = profiles.markdown(conn, uid)
 
     class VerbatimModel:
-        def update_profile(self, current, feedback, terms=()):
+        def update_profile(self, current, feedback, terms=(), **context):
             return ProfileProposal(markdown=current + f"\n- [{category}] I want more of this\n", search_terms=[])
 
     job = jobs.enqueue(conn, uid, "public", "I want more of this", "verbatim", key, mode=mode)

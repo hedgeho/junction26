@@ -17,7 +17,7 @@ from playwright.async_api import async_playwright, expect
 
 
 class Model:
-    def update_profile(self, current, feedback, terms=()):
+    def update_profile(self, current, feedback, terms=(), **context):
         return ProfileProposal(
             markdown=current + "\n- [rule] Prefer thoughtful writing with concrete evidence\n",
             search_terms=list(terms),
