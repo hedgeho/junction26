@@ -134,7 +134,8 @@ def compute(conn, uid: str, did: str) -> dict:
     stored = max(_stored(conn, since), len(recalled))
 
     version = worker.scorer_version()
-    revision = digests.revision(profile)
+    # Count against the profile revision that built the edition on screen, not a newer one still being scored.
+    revision = last["profile_revision"] if edition else digests.revision(profile)
     hashes = {
         r[0]: r[1]
         for r in conn.execute(
@@ -151,7 +152,7 @@ def compute(conn, uid: str, did: str) -> dict:
         for p in unassessed
     ]
 
-    rows, nearby = digests.assessments(conn, uid, profile, version)
+    rows, nearby = digests.assessments(conn, uid, revision, version)
     rows = [r for r in rows if r["post_key"] in assessed]
     nearby = [r for r in nearby if r["post_key"] in assessed]
     relevant = len(rows) + len(nearby)
@@ -165,9 +166,13 @@ def compute(conn, uid: str, did: str) -> dict:
     eligible = list({p.key: p for _, p in [*main, *serendipity]}.values())
     shown = set(edition)
     selection = digests.Selection()
-    for post in sorted((p for p in eligible if p.key in shown), key=lambda p: edition.index(p.key)):
+    # The feed page shows at most the current daily limit, even from an edition built under a larger one.
+    for post in sorted((p for p in eligible if p.key in shown), key=lambda p: edition.index(p.key))[
+        : digests.delivery_limit(config)
+    ]:
         selection.add(post)
-    later += [selection.conflict(p) or "limit" for p in eligible if p.key not in shown]
+    delivered = {p.key for p in selection.posts}
+    later += [selection.conflict(p) or "limit" for p in eligible if p.key not in delivered]
 
     flags = [triage.flags_of(conn, p) for _, p in main]
     downranked = {name: sum(name in triage.downranks(f) for f in flags) for name in triage.DOWNRANK_AT}

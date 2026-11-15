@@ -131,3 +131,20 @@ def test_funnel_shows_the_opus_check_only_for_the_scorer_it_measured(conn, monke
     assert "hackathon" in check["method"]
     monkeypatch.setattr(worker, "scorer_version", lambda: "decision-v3:other")
     assert funnel.compute(conn, uid, DID)["check"] is None
+
+
+def test_funnel_counts_the_edition_on_screen_while_a_newer_profile_is_unscored(conn):
+    uid, _ = seed(conn)
+    before = by_key(funnel.compute(conn, uid, DID))
+    profiles.save(conn, uid, "public", "# Compilers and type systems\n", profiles.head(conn, uid)["id"])
+    after = by_key(funnel.compute(conn, uid, DID))
+    assert after["delivered"]["count"] == before["delivered"]["count"] == len(digests.read(conn, uid)) == 4
+    assert after["scored"]["count"] == before["scored"]["count"]
+
+
+def test_funnel_delivers_no_more_than_the_page_shows_after_the_limit_drops(conn):
+    uid, _ = seed(conn)
+    conn.execute("UPDATE reader_settings SET daily_limit=3 WHERE user_id=?", (uid,))
+    stages = by_key(funnel.compute(conn, uid, DID))
+    assert stages["delivered"]["count"] == len(digests.read(conn, uid)) == 3
+    assert drops(stages["clean"])["limit"] == 1

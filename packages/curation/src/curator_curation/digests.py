@@ -54,20 +54,20 @@ def relevance_floor(scorer_version: str) -> float:
     return settings().minimum_relevance
 
 
-def assessments(conn, uid, profile, scorer_version: str):
+def assessments(conn, uid, profile_revision: str, scorer_version: str):
     """Digest-eligible assessments: (requested, nearby). Nearby is substantive but outside the profile."""
     decisions = scorer_version.startswith(DECISION_SCORER_VERSION)
     threshold = relevance_floor(scorer_version)
     rows = conn.execute(
         """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
         AND decision='include' AND relevance>=?""",
-        (uid, revision(profile), scorer_version, threshold),
+        (uid, profile_revision, scorer_version, threshold),
     ).fetchall()
     nearby = (
         conn.execute(
             """SELECT * FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
             AND decision='exclude' AND relevance>=0.5 AND substance>=0.75""",
-            (uid, revision(profile), scorer_version),
+            (uid, profile_revision, scorer_version),
         ).fetchall()
         if decisions
         else []
@@ -210,7 +210,7 @@ def build(conn, uid, scorer_version: str, selector=None, request=None) -> str | 
     config = config_for(conn, uid)
     if not config:
         return None
-    rows, nearby = assessments(conn, uid, profile, scorer_version)
+    rows, nearby = assessments(conn, uid, revision(profile), scorer_version)
     skip = seen(conn, uid, config)
     if request:
         visible = json.loads(request["feed_context"])
