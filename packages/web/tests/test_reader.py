@@ -823,3 +823,9 @@ def test_feedback_ajax_returns_owned_job_and_fresh_key(conn):
     assert client.get("/api/jobs/" + payload["job_id"]).json() == {"state": "queued"}
     row = conn.execute("SELECT post_context FROM feedback_jobs WHERE id=?", (payload["job_id"],)).fetchone()
     assert "Original human post" in row["post_context"]
+
+
+def test_theme_toggle_has_an_icon_not_a_placeholder(conn):
+    html = TestClient(create_app(), base_url="https://feed.example.com").get("/").text
+    assert 'aria-hidden="true">?<' not in html
+    assert 'aria-hidden="true">&#9680;<' in html
