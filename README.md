@@ -1,5 +1,7 @@
 # Agora
 
+**Junction table: A168.**
+
 **The modern public square.** A social feed where you decide what's in it. Try it at [feed.ilia.fi](https://feed.ilia.fi), or browse the [demo feed](https://feed.ilia.fi/demo) without a Bluesky account.
 
 Built at Junction 2026 by Blanka Bartfai, Ilia Zalesskii, Miro Keimiöniemi and Zuhair Khan.
