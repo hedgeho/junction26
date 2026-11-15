@@ -22,7 +22,7 @@ Agora works the other way around. You decide what's in your feed.
 
 ## How it works
 
-Agora reads the public Bluesky stream, about 2.7 million posts a day. It narrows those down to posts that match what you asked for, then runs each one through a small, cheap model we set up to spot toxic content. We tuned it to be careful about what it removes, because we'd rather let a borderline post through than hide a real person. On our test sample it agrees with Claude Opus, a much more expensive model, about 90% of the time.
+Agora reads the public Bluesky stream, about 2.7 million posts a day. It narrows those down to posts that match what you asked for, then runs each one through a small, cheap model we set up to spot toxic content. We tuned it to be careful about what it removes, because we'd rather let a borderline post through than hide a real person. On our test sample it agrees with Claude Opus, a much more expensive model, about 90% of the time. The evaluations are in [`experiments/`](experiments/README.md).
 
 Your feedback updates a plain Markdown configuration with full revision history, which you can read and restore in settings. The feed itself shows only original posts and your original note passages, never generated text. Private notes are processed by a self-hosted Gemma model on Modal and are never sent to Gemini.
 

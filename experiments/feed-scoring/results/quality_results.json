@@ -1,0 +1,181 @@
+{
+ "synth": {
+  "heuristic": {
+   "clickbait": {
+    "auc": 0.6714285714285715,
+    "precision": 0.875,
+    "recall": 0.35
+   },
+   "ragebait": {
+    "auc": 0.6214285714285714,
+    "precision": 0.8333333333333334,
+    "recall": 0.25
+   },
+   "misinformation": {
+    "auc": 0.5214285714285715,
+    "precision": 0.5,
+    "recall": 0.05
+   },
+   "spam_promo": {
+    "auc": 0.6785714285714286,
+    "precision": 0.5714285714285714,
+    "recall": 0.4
+   },
+   "any_bad": {
+    "precision": 0.7931034482758621,
+    "recall": 0.2875,
+    "false_pos_on_benign": 0.075
+   }
+  },
+  "tagger:haiku_b20_low": {
+   "clickbait": {
+    "auc": 0.9694642857142858,
+    "precision": 0.5263157894736842,
+    "recall": 1.0
+   },
+   "ragebait": {
+    "auc": 0.9964285714285713,
+    "precision": 0.7407407407407407,
+    "recall": 1.0
+   },
+   "misinformation": {
+    "auc": 0.9783928571428571,
+    "precision": 0.72,
+    "recall": 0.9
+   },
+   "spam_promo": {
+    "auc": 0.9917857142857143,
+    "precision": 0.8421052631578947,
+    "recall": 0.8
+   },
+   "any_bad": {
+    "precision": 0.9736842105263158,
+    "recall": 0.925,
+    "false_pos_on_benign": 0.025
+   }
+  },
+  "tagger:sonnet_b20_low": {
+   "clickbait": {
+    "auc": 0.9992857142857142,
+    "precision": 0.5882352941176471,
+    "recall": 1.0
+   },
+   "ragebait": {
+    "auc": 1.0,
+    "precision": 0.9090909090909091,
+    "recall": 1.0
+   },
+   "misinformation": {
+    "auc": 0.9874999999999999,
+    "precision": 0.7407407407407407,
+    "recall": 1.0
+   },
+   "spam_promo": {
+    "auc": 0.9994642857142858,
+    "precision": 0.95,
+    "recall": 0.95
+   },
+   "any_bad": {
+    "precision": 1.0,
+    "recall": 0.9875,
+    "false_pos_on_benign": 0.0
+   }
+  },
+  "judge:opus": {
+   "clickbait": {
+    "auc": 0.9607142857142857,
+    "precision": 0.6451612903225806,
+    "recall": 1.0
+   },
+   "ragebait": {
+    "auc": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+   },
+   "misinformation": {
+    "auc": 0.9857142857142857,
+    "precision": 0.8333333333333334,
+    "recall": 1.0
+   },
+   "spam_promo": {
+    "auc": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+   },
+   "any_bad": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "false_pos_on_benign": 0.0
+   }
+  },
+  "judge:sonnet": {
+   "clickbait": {
+    "auc": 0.9535714285714285,
+    "precision": 0.6060606060606061,
+    "recall": 1.0
+   },
+   "ragebait": {
+    "auc": 0.9928571428571429,
+    "precision": 0.9090909090909091,
+    "recall": 1.0
+   },
+   "misinformation": {
+    "auc": 0.975,
+    "precision": 0.7407407407407407,
+    "recall": 1.0
+   },
+   "spam_promo": {
+    "auc": 0.9964285714285714,
+    "precision": 0.9523809523809523,
+    "recall": 1.0
+   },
+   "any_bad": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "false_pos_on_benign": 0.0
+   }
+  }
+ },
+ "real": {
+  "clickbait": {
+   "n_pos": 11,
+   "auc": 0.9774738535800482,
+   "ap": 0.6257142660727053,
+   "precision@0.5": 0.4666666666666667,
+   "recall@0.5": 0.6363636363636364,
+   "heuristic_auc": 0.49262536873156343
+  },
+  "ragebait": {
+   "n_pos": 52,
+   "auc": 0.9813177594217862,
+   "ap": 0.8566164994425863,
+   "precision@0.5": 0.6190476190476191,
+   "recall@0.5": 1.0,
+   "heuristic_auc": 0.5693082085699536
+  },
+  "misinformation": {
+   "n_pos": 7,
+   "auc": 0.9048313202832152,
+   "ap": 0.7457142857142856,
+   "precision@0.5": 0.2857142857142857,
+   "recall@0.5": 0.8571428571428571,
+   "heuristic_auc": NaN
+  },
+  "spam_promo": {
+   "n_pos": 68,
+   "auc": 0.9880840634125991,
+   "ap": 0.9757159833616643,
+   "precision@0.5": 0.9545454545454546,
+   "recall@0.5": 0.9264705882352942,
+   "heuristic_auc": 0.6399666249478515
+  },
+  "low_effort": {
+   "n_pos": 92,
+   "auc": 0.8030628581058308,
+   "ap": 0.622596643930766,
+   "precision@0.5": 0.4855072463768116,
+   "recall@0.5": 0.7282608695652174,
+   "heuristic_auc": NaN
+  }
+ }
+}
