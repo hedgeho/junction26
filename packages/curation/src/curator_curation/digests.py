@@ -186,11 +186,11 @@ def match_notes(conn, uid, run_id, gemma) -> int:
 
 def read(conn, uid) -> list[dict]:
     run = latest(conn, uid)
-    profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
     if not config:
         return []
-    if not run or run["profile_revision"] != revision(profile) or config["refresh_requested"]:
+    # A rebuild in progress keeps the last selection on screen; unscored candidates only fill a reader's first wait.
+    if not run:
         return initial_feed(conn, uid, config)
     dismissed = {r[0] for r in conn.execute("SELECT post_key FROM dismissed_posts WHERE user_id=?", (uid,))}
     posts = []

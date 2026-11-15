@@ -11,6 +11,7 @@ def prune(conn, retention_hours: int) -> int:
     with db.tx(conn):
         n = conn.execute("DELETE FROM posts WHERE indexed_at < ?", (cutoff,)).rowcount
         n += conn.execute("DELETE FROM social_posts WHERE observed_at < ? AND deleted=0", (cutoff,)).rowcount
+        conn.execute("DELETE FROM followed_engagement WHERE at < ?", (cutoff,))
         # Keep normalized tombstones while a legacy row exists, so it cannot reappear.
         conn.execute(
             """DELETE FROM social_posts WHERE observed_at<? AND deleted=1

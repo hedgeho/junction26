@@ -1,3 +1,6 @@
+import asyncio
+import contextlib
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -7,12 +10,32 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import feedgen, oauth, site
+from . import bluesky_feed, feedgen, oauth, site
 from .config import settings
+
+log = logging.getLogger(__name__)
+
+
+async def sync_for_you_forever(interval_s: int) -> None:
+    while True:
+        try:
+            await bluesky_feed.sync_all()
+        except Exception:  # noqa: BLE001 - keep provider/OAuth error payloads out of logs
+            log.warning("For You background sync failed; retrying next interval")
+        await asyncio.sleep(interval_s)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    interval = settings().for_you_sync_interval_s
+    task = asyncio.create_task(sync_for_you_forever(interval)) if interval > 0 else None
+    yield
+    if task:
+        task.cancel()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Agora")
+    app = FastAPI(title="Agora", lifespan=lifespan)
     app.add_middleware(SessionMiddleware, secret_key=settings().session_secret, https_only=not oauth.is_dev())
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 

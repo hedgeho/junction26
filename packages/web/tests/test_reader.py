@@ -433,7 +433,7 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
             )
 
     class Gemma:
-        def update_profile(self, current, feedback):
+        def update_profile(self, current, feedback, terms=()):
             return ProfileProposal(markdown=current + "\n" + feedback, search_terms=[])
 
     conn.execute("UPDATE reader_settings SET refresh_requested=1 WHERE user_id=?", (uid,))

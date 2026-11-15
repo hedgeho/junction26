@@ -12,7 +12,7 @@ DID = "did:plc:reader"
 
 
 class FakeGemma:
-    def update_profile(self, current, feedback):
+    def update_profile(self, current, feedback, terms=()):
         return ProfileProposal(markdown=current + "\n" + feedback, search_terms=["compilers"])
 
     def match(self, post, chunks, private_profile):
@@ -254,9 +254,9 @@ def test_note_removal_during_inference_cannot_reintroduce_private_profile_data(c
     note = notes.import_note(conn, uid, "Remove while processing", "private original")
 
     class Removed(FakeGemma):
-        def update_profile(self, current, feedback):
+        def update_profile(self, current, feedback, terms=()):
             notes.delete_note(conn, uid, note)
-            return super().update_profile(current, feedback)
+            return super().update_profile(current, feedback, terms)
 
     jobs.process_one(conn, Removed())
     assert profiles.head(conn, uid, "private") is None
@@ -512,3 +512,45 @@ def test_failed_batches_return_their_scoring_budget(conn):
 
     worker.run_cycle(conn, Down())
     assert int(conn.execute("SELECT value FROM kv WHERE key=?", (worker.budget_key(uid),)).fetchone()[0]) == 0
+
+
+def test_discovery_prefers_posts_gaining_engagement_fastest(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    fast = insert_post(conn, "did:plc:a", "fast", "Fresh post taking off", age_s=1800, likes=40)
+    slow = insert_post(conn, "did:plc:b", "slow", "Old post that drifted up", age_s=20 * 3600, likes=60)
+    insert_post(conn, "did:plc:c", "reply", "Busy reply", age_s=600, likes=90, reply_parent="at://x/y/z")
+    keys = [p.key for p in public_candidates(conn, DID, [], 6)]
+    assert keys[:2] == ["bluesky:" + fast, "bluesky:" + slow]
+
+
+def test_recall_includes_posts_liked_by_followed_accounts(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    conn.execute("INSERT INTO follows VALUES (?,?)", (DID, "did:plc:friend"))
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    liked = insert_post(conn, "did:plc:stranger", "liked", "Older post a friend liked", age_s=7200)
+    once = insert_post(conn, "did:plc:other", "once", "Post liked by a stranger", age_s=7200)
+    now = int(time.time())
+    conn.execute("INSERT INTO followed_engagement VALUES ('did:plc:friend',?,'like',?)", (liked, now))
+    conn.execute("INSERT INTO followed_engagement VALUES ('did:plc:nobody',?,'like',?)", (once, now))
+    keys = [p.key for p in public_candidates(conn, DID, [], 3)]
+    assert keys[0] == "bluesky:" + liked
+    assert "bluesky:" + once not in keys
+
+
+def test_pending_rebuild_keeps_the_last_selection_instead_of_raw_candidates(conn):
+    uid, key = setup(conn)
+    worker.run_cycle(conn, FakeScorer())
+    assert [p["key"] for p in digests.read(conn, uid)] == [key]
+    for i in range(5):
+        insert_post(conn, f"did:plc:raw{i}", str(i), f"Unscored keyword match {i}")
+    conn.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (uid,))
+    body = profiles.markdown(conn, uid) + "\n- More: something new"
+    profiles.save(conn, uid, "public", body, profiles.head(conn, uid)["id"])
+    assert [p["key"] for p in digests.read(conn, uid)] == [key]
