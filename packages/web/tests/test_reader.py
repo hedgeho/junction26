@@ -1293,4 +1293,5 @@ def test_configuration_diff_history_paginates_without_gaps_or_other_readers(conn
     assert first + second == list(reversed(revisions))
     assert "history-older" not in older
     assert client.get("/settings/history/unknown").status_code == 404
+    assert client.get("/settings/history/feed-curation?before=" + str(2**64)).status_code == 404
     assert "Other reader secret" not in html + older

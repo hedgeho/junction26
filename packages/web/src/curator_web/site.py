@@ -782,7 +782,7 @@ def revision_history(conn, uid: str, kind: str, before: int = 0, limit: int = 20
 @router.get("/settings/history/{kind}", response_class=HTMLResponse)
 def configuration_history(request: Request, kind: str, before: int = 0):
     kind = {"feed-curation": "public", "note-matching": "private"}.get(kind, kind)
-    if kind not in profiles.KINDS or before < 0:
+    if kind not in profiles.KINDS or not 0 <= before <= 2**63 - 1:
         raise HTTPException(404)
     c = db.connect()
     try:
