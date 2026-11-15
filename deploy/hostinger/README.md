@@ -1,7 +1,6 @@
 # Hostinger hackathon box
 
-Serves https://feed.ilia.fi from the organizer-provided Hostinger KVM (195.179.193.90).
-The DNS record lives in `~/personal/vps_deployment/dns/ilia_fi.tf`.
+Serves https://feed.ilia.fi from the organizer-provided Hostinger KVM.
 
 ## Deploy
 
@@ -12,7 +11,7 @@ tests pass. Once that run is green:
 
 ```sh
 deploy/hostinger/deploy.sh                       # pulls the image for your HEAD commit
-deploy/hostinger/deploy.sh root@195.179.193.90   # anyone else whose key is on the box
+deploy/hostinger/deploy.sh root@<host>           # anyone else whose key is on the box
 deploy/hostinger/deploy.sh --local               # fallback: build the working tree on the box
 ```
 
@@ -33,7 +32,7 @@ and `journalctl -u agora-autodeploy.service` for deployment status.
 
 ### Registry login (once per box)
 
-The package is private, so the box needs a read-only token. Create a classic GitHub PAT with
+If the package is private, the box needs a read-only token. Create a classic GitHub PAT with
 only the `read:packages` scope, then:
 
 ```sh

@@ -1,4 +1,4 @@
-ï»¿# Technical plan: quiet social curation and private notes matching
+# Technical plan: quiet social curation and private notes matching
 
 Date: 2026-11-14. Reviewed repository: `956622f` (`deploy: Hostinger hackathon box at feed.ilia.fi`).
 Status: implementation reference. Core daily-reader flow implemented; see DESIGN.md for integration limits and live validation requirements.

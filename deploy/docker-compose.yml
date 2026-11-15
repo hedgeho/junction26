@@ -1,5 +1,5 @@
 # Local/dev compose; run from the repo root: docker compose -f deploy/docker-compose.yml up
-# The production variant lives in vps_deployment (see deploy/vps_deployment.md).
+# Production uses deploy/hostinger/docker-compose.yml.
 x-curator: &curator
   build:
     context: ..

@@ -2,6 +2,8 @@
 
 A finite daily selection of original social posts, matched to the reader's interests and their own original notes. Feedback silently updates Markdown configuration. The main interface displays no generated prose.
 
+Built at Junction 2026 by [hedgeho](https://github.com/hedgeho), [MiroKeimioniemi](https://github.com/MiroKeimioniemi) and [MZuhairKhan](https://github.com/MZuhairKhan). Live at [feed.ilia.fi](https://feed.ilia.fi).
+
 ## Architecture
 
 - `core`: shared SQLite schema, migrations and platform-neutral source read contract.
@@ -50,3 +52,7 @@ The optional Bluesky feed projects only Bluesky digest items, with no generated 
 `TECHNICAL_PLAN.md` records scope. `DESIGN.md` describes implemented behavior and remaining limits. Live model quality, GPU fit and production deployment require separate smoke checks.
 
 On first sign-in, complete **Setup** to confirm Bluesky and optionally connect up to ten Google Drive notes folders. A hosted app accepts link-shared folders through Context.dev, or private folders shared with its service account as Viewer. Local imports remain available to operators using `notes/` (ignored by Git). See [notes setup](packages/web/README.md#notes-connections). No sample-data preview is included.
+
+## License
+
+[MIT](LICENSE)
