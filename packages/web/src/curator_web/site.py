@@ -224,7 +224,7 @@ def me(request: Request):
         uid = reader(request, c)
         user = c.execute("SELECT * FROM users WHERE did=?", (current_did(request),)).fetchone()
         pending = c.execute(
-            "SELECT id,state,mode FROM feedback_jobs WHERE user_id=? AND source_chunk_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
+            "SELECT id,state,mode,idempotency_key FROM feedback_jobs WHERE user_id=? AND source_chunk_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
             (uid,),
         ).fetchone()
         posts = reader_posts(c, uid, current_did(request))

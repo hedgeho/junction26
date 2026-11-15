@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import bluesky_feed, feedgen, oauth, site, threads_callbacks
+from . import bluesky_feed, feedback_status, feedgen, oauth, site, threads_callbacks
 from .config import settings
 
 log = logging.getLogger(__name__)
@@ -83,4 +83,5 @@ def create_app() -> FastAPI:
     app.include_router(feedgen.router)
     app.include_router(threads_callbacks.router)
     app.include_router(site.router)
+    app.include_router(feedback_status.router)
     return app

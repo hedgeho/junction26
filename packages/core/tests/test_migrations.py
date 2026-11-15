@@ -99,3 +99,31 @@ def test_multiple_note_sources_migration_preserves_existing_snapshots(tmp_path):
     connection.execute("INSERT INTO notes_folders VALUES ('reader','drive:secondfolder123','ready')")
     connection.execute("INSERT INTO notes_files VALUES ('reader','entry.md','second-note-id','drive:secondfolder123')")
     assert connection.execute("SELECT count(*) FROM notes_files").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_feedback_context_repair_preserves_jobs_and_optional_context(tmp_path, legacy):
+    path = tmp_path / "feedback-upgrade.db"
+    connection = _migrate_before(path, "0021")
+    if legacy:
+        connection.execute("ALTER TABLE feedback_jobs DROP COLUMN feed_context")
+    connection.execute(
+        "INSERT INTO feedback_jobs (id,user_id,kind,feedback,idempotency_key,state,attempts,lease_until,error_code,created_at,applied_revision,source_chunk_id,post_key,post_context,mode) VALUES ('job','reader','public','More of this','submission','applied',2,9,'old-error',42,'revision',NULL,'bluesky:post','Original source context','preference')"
+    )
+    if not legacy:
+        connection.execute("UPDATE feedback_jobs SET feed_context='Exact feed context'")
+    before = dict(connection.execute("SELECT * FROM feedback_jobs").fetchone())
+    db.migrate(connection)
+    after = dict(connection.execute("SELECT * FROM feedback_jobs").fetchone())
+    assert after == before | {"feed_context": None if legacy else "Exact feed context"}
+    db.migrate(connection)
+    assert dict(connection.execute("SELECT * FROM feedback_jobs").fetchone()) == after
+    connection.execute(
+        "INSERT INTO feedback_jobs(id,user_id,kind,feedback,idempotency_key,created_at,feed_context) VALUES ('new','reader','public','Thoughtful writing','new-key',43,'New source context')"
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "INSERT INTO feedback_jobs(id,user_id,kind,feedback,idempotency_key,created_at) VALUES ('duplicate','reader','public','Duplicate','submission',44)"
+        )
+    assert connection.execute("SELECT 1 FROM sqlite_master WHERE name='feedback_pending'").fetchone()
+    connection.close()
