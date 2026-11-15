@@ -31,3 +31,8 @@ class ChunkMatch(StrictModel):
 
 class Matches(StrictModel):
     items: list[ChunkMatch] = Field(max_length=3)
+
+
+class SeedProfile(StrictModel):
+    interests: list[str] = Field(max_length=8)
+    search_terms: list[str] = Field(max_length=12)

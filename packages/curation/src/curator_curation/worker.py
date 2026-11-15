@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from curator_core import db
 
-from . import digests, jobs, media, note_folders, profiles, screen, triage
+from . import digests, jobs, media, note_folders, profiles, screen, seed, triage
 from .candidates import public_candidates
 from .config import settings
 from .llm.gemini import (
@@ -17,6 +17,7 @@ from .llm.gemini import (
     SCORER_VERSION,
     GeminiDecisionScorer,
     GeminiDecisionTriager,
+    GeminiProfileSeeder,
     GeminiScorer,
     PublicCandidate,
     PublicScoringRequest,
@@ -209,15 +210,21 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
     return total
 
 
-def curate_reader(conn, scorer, gemma, did: str, triager=None) -> None:
+def make_seeder(cfg):
+    return GeminiProfileSeeder(cfg.gemini_api_key, cfg.gemini_model, cfg.inference_timeout_s)
+
+
+def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> None:
     started = time.monotonic()
     uid = None
     try:
         uid = profiles.bootstrap(conn, did)
-        config = digests.config_for(conn, uid)
-        last = digests.latest(conn, uid)
         if scorer is None:
             return
+        if seeder and not profiles.head(conn, uid):
+            seed.maybe_seed(conn, did, uid, seeder)
+        config = digests.config_for(conn, uid)
+        last = digests.latest(conn, uid)
         if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
             score_ahead(conn, scorer, did, uid, triager)
             return
@@ -269,15 +276,15 @@ def score_ahead(conn, scorer, did: str, uid: str, triager=None) -> None:
         log.warning("Background scoring failed for a reader; retry next interval")
 
 
-def _curate_in_own_connection(scorer, gemma, did: str, triager) -> None:
+def _curate_in_own_connection(scorer, gemma, did: str, triager, seeder) -> None:
     conn = db.connect()
     try:
-        curate_reader(conn, scorer, gemma, did, triager)
+        curate_reader(conn, scorer, gemma, did, triager, seeder)
     finally:
         conn.close()
 
 
-def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> None:
+def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None, seeder=None) -> None:
     cfg = settings()
     db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
     for row in conn.execute("SELECT user_id FROM notes_folders").fetchall():
@@ -296,6 +303,8 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> Non
         scorer = make_scorer(cfg)
     if triager is None:
         triager = make_triager(cfg)
+    if seeder is None and cfg.gemini_api_key:
+        seeder = make_seeder(cfg)
     dids = [
         row["did"]
         for row in conn.execute(
@@ -304,10 +313,10 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None) -> Non
     ]
     if cfg.reader_concurrency <= 1 or len(dids) <= 1:
         for did in dids:
-            curate_reader(conn, scorer, gemma, did, triager)
+            curate_reader(conn, scorer, gemma, did, triager, seeder)
         return
     with ThreadPoolExecutor(max_workers=cfg.reader_concurrency) as executor:
-        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did, triager) for did in dids]:
+        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did, triager, seeder) for did in dids]:
             future.result()
 
 
