@@ -22,7 +22,7 @@
       <a href="/settings" {% if request.url.path == '/settings' %}aria-current="page"{% endif %}>Settings</a>
     </nav>
     {% endif %}
-    <button class="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme"><span aria-hidden="true">?</span><span class="theme-label">Theme</span></button>
+    <button class="theme-toggle" type="button" aria-label="Switch color theme" title="Switch color theme"><span aria-hidden="true">&#9680;</span><span class="theme-label">Theme</span></button>
     </div>
   </header>
   <main id="main"{% block main_attributes %}{% endblock %}>{% block body %}{% endblock %}</main>
