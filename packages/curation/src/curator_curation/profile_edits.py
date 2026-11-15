@@ -56,6 +56,12 @@ def apply(markdown: str, terms: list[str], edits) -> tuple[str, list[str]]:
     lines = [line for line in edits.add if line.category != TERM]
     removed_ids = {i for i in edits.remove if items[i][0] != TERM} if lines else set()
     kept = [item for i, item in enumerate(items) if i not in removed_ids]
+    for i in sorted(removed_ids):
+        category, text = items[i]
+        if category == "topic":
+            historical = ("history", "Previously: " + text)
+            if historical not in kept:
+                kept.append(historical)
     for line in lines:
         item = (line.category, " ".join(line.text.split()))
         if item[1] and item not in kept:

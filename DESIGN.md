@@ -4,7 +4,7 @@ Implemented from `TECHNICAL_PLAN.md`, 2026-11-14. Replaces the original continuo
 
 ## Visible behavior
 
-The daily reader displays original posts and exact note chunks. Feedback produces fixed statuses without a conversational reply. Generated Markdown configuration is accessible through secondary settings. There are no generated summaries, reply drafts, explanations or bridge sentences, and no source-writing or publishing actions.
+The daily reader displays original posts and exact note chunks. Feedback updates Markdown configuration and reports progress plus a concise summary of actual profile changes. Configuration and revision history are accessible through settings. The reader displays original posts and supports user-initiated social actions; source notes are never modified.
 
 ## State and compute
 
@@ -44,7 +44,7 @@ Tests cover source-only responses, public allowlists, idempotent feedback, revis
 
 The product name in the UI is Agora. The visual language uses the brand's chalk, ink and olive palette, a meander mark and a restrained sun accent. Light and dark themes follow the system preference initially and allow a locally saved override. Shared local CSS/JavaScript provide responsive layouts, accessible dialogs, form loading states and conditional fields. The landing page loads its reference typefaces from Google Fonts, with local fallbacks; there are no browser-side model calls.
 
-The reader is a single column of original post cards. The header contains Agora, Feed and Settings. Each post has its author, platform, original text, source link and one feedback icon. That icon opens a native dialog with the original post and a feedback field. Feedback is queued with an owned post reference, then updates Markdown configuration; the UI receives fixed status labels only. No slogans, generated replies or sample-content preview are shipped.
+The reader is a single column of original post cards. The header contains Agora, Feed and Settings. Each post has its author, platform, original text, source link and one feedback icon. That icon opens a side panel with a feedback field. Feedback is queued with an owned post reference, then updates Markdown configuration and reports its changes. No slogans, generated replies or sample-content preview are shipped.
 
 First sign-in opens setup: confirm the authenticated Bluesky source and optionally connect a Markdown folder. Both HTML and the digest API hide content until setup is complete. Candidate discovery uses the ingested public source pool; no sample posts are substituted.
 
@@ -58,4 +58,4 @@ Agora's candidate recall combines ingested posts from followed accounts, posts t
 
 ## Feedback and current notes
 
-Post-specific feedback stores the selected post and its bounded context at submission so a later job can process it even after source expiry. General requests apply to the feed as a whole. Both queue durable Gemma jobs and report progress in place. Note folders are scanned periodically, and changed files enqueue jobs; model-derived interests in revision history may persist after notes are edited or removed. Curated posts are matched to original note excerpts.
+Post-specific feedback stores the selected post and its bounded context at submission so a later job can process it even after source expiry. General feedback includes the visible feed as context. Tell your feed saves preferences without rebuilding the current selection. Show more uses a temporary request as the primary selection criterion and makes at most a small addition to the durable profile. Both queue Gemma jobs and report progress in place. A final Gemma selection can assemble the eligible candidates, and a deterministic cap enforces the daily limit. Successful one-time requests are logically removed after the new selection is saved. Note folders are scanned periodically, and changed files enqueue jobs; model-derived interests in revision history may persist after notes are edited or removed. Curated posts are matched to original note excerpts.

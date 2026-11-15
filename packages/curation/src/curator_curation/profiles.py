@@ -53,8 +53,41 @@ def markdown(conn, user_id: str, kind: str = "public") -> str:
     return body
 
 
+def changes(conn, user_id: str, revision_id: str) -> list[str]:
+    """Show a small, literal summary of what a revision added or removed."""
+    import difflib
+
+    row = conn.execute("SELECT * FROM profile_revisions WHERE user_id=? AND id=?", (user_id, revision_id)).fetchone()
+    if not row:
+        return []
+    try:
+        current = _path(user_id, row["kind"], row["id"]).read_text(encoding="utf-8").splitlines()
+        parent = (
+            _path(user_id, row["kind"], row["parent_id"]).read_text(encoding="utf-8").splitlines()
+            if row["parent_id"]
+            else []
+        )
+    except (OSError, ValueError):
+        return []
+    changes = []
+    for line in difflib.ndiff(parent, current):
+        text = line[2:].strip()
+        if line[:2] in ("+ ", "- ") and text and not text.startswith("#"):
+            changes.append(("Added: " if line.startswith("+") else "Removed: ") + text[:200])
+    return changes[:4]
+
+
 def save(
-    conn, user_id: str, kind: str, body: str, expected: str | None, *, terms=(), origin="manual", source_chunk_id=None
+    conn,
+    user_id: str,
+    kind: str,
+    body: str,
+    expected: str | None,
+    *,
+    terms=(),
+    origin="manual",
+    source_chunk_id=None,
+    refresh=True,
 ) -> str:
     if kind not in KINDS or not body.strip() or len(body) > 24000 or "\x00" in body:
         raise ValueError("invalid profile")
@@ -97,7 +130,10 @@ def save(
             if source_chunk_id and kind == "public":
                 db.kv_set(conn, "notes-in-feed-profile:" + user_id, "1")
             conn.execute("INSERT OR IGNORE INTO reader_settings(user_id) VALUES (?)", (user_id,))
-            conn.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (user_id,))
+            if refresh:
+                conn.execute(
+                    "UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (user_id,)
+                )
     except Exception:
         path.unlink(missing_ok=True)
         raise

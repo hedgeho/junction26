@@ -31,8 +31,7 @@ def day_key(config) -> str:
 
 
 def delivery_limit(config) -> int:
-    extra = config["requested_more_count"] if config["requested_more_day"] == day_key(config) else 0
-    return min(200, config["daily_limit"] + extra)
+    return config["daily_limit"]
 
 
 def config_for(conn, uid):
@@ -182,41 +181,64 @@ class Selection:
         return True
 
 
-def build(conn, uid, scorer_version: str) -> str | None:
+def build(conn, uid, scorer_version: str, selector=None, request=None) -> str | None:
     profile = profiles.head(conn, uid)
     config = config_for(conn, uid)
     if not config:
         return None
     rows, nearby = assessments(conn, uid, profile, scorer_version)
     skip = seen(conn, uid, config)
+    if request:
+        visible = json.loads(request["feed_context"])
+        skip |= {
+            item["post_key"] for item in visible if isinstance(item, dict) and isinstance(item.get("post_key"), str)
+        }
     followed = followed_keys(conn, uid)
     pool = ranked(conn, rows, config, skip, strict=False)
     limit = delivery_limit(config)
+    candidate_limit = min(100, max(limit, limit * 3)) if selector and hasattr(selector, "select_feed") else limit
     selection = Selection()
     selected, take = selection.posts, selection.take
     social = 0
     for _, post in pool:
-        if social >= min(settings().social_slots, limit):
+        if social >= min(settings().social_slots, candidate_limit):
             break
         if post.author_key in followed and take(post):
             social += 1
-    serendipity = ranked(conn, nearby, config, skip, strict=True)
-    reserved = min(len(serendipity), int(limit * settings().serendipity_share))
+    serendipity = [] if request else ranked(conn, nearby, config, skip, strict=True)
+    reserved = min(len(serendipity), int(candidate_limit * settings().serendipity_share))
     for _, post in pool:
-        if len(selected) >= limit - reserved:
+        if len(selected) >= candidate_limit - reserved:
             break
         take(post)
     for _, post in serendipity:
-        if len(selected) >= limit:
+        if len(selected) >= candidate_limit:
             break
         take(post)
     rank = {post.key: i for i, (_, post) in enumerate(pool)}
     selected.sort(key=lambda p: rank.get(p.key, len(rank)))
+    if selector and hasattr(selector, "select_feed") and selected:
+        candidates = [
+            {"post_key": p.key, "author": p.author_name, "text": p.text, "context": p.context} for p in selected
+        ]
+        instruction = (
+            {"instruction": request["instruction"], "visible_posts": request["feed_context"]} if request else None
+        )
+        keys = selector.select_feed(candidates, limit, profiles.markdown(conn, uid) if profile else "", instruction)
+        allowed = {p.key: p for p in selected}
+        if len(keys) != len(set(keys)) or not set(keys) <= set(allowed):
+            raise ValueError("invalid feed selection")
+        selected = [allowed[key] for key in keys[:limit]]
+    else:
+        selected = selected[:limit]
     run_id = uuid.uuid4().hex
     with db.tx(conn):
         current = profiles.head(conn, uid)
         current_config = config_for(conn, uid)
         if revision(current) != revision(profile) or current_config["version"] != config["version"]:
+            return None
+        active = conn.execute("SELECT job_id FROM feed_requests WHERE user_id=?", (uid,)).fetchone()
+        if (active["job_id"] if active else None) != (request["job_id"] if request else None):
             return None
         conn.execute(
             "INSERT INTO digest_runs VALUES (?,?,?,?,?,?)",
@@ -227,6 +249,12 @@ def build(conn, uid, scorer_version: str) -> str | None:
             [(run_id, i, p.key, p.content_hash) for i, p in enumerate(selected)],
         )
         conn.execute("UPDATE reader_settings SET refresh_requested=0 WHERE user_id=?", (uid,))
+        if request:
+            conn.execute("DELETE FROM feed_requests WHERE user_id=? AND job_id=?", (uid, request["job_id"]))
+            conn.execute(
+                "UPDATE feedback_jobs SET feedback='', feed_context=NULL WHERE user_id=? AND mode='more' AND state='applied'",
+                (uid,),
+            )
     return run_id
 
 

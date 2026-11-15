@@ -174,7 +174,7 @@ async def me(request: Request):
         uid = reader(request, c)
         user = c.execute("SELECT * FROM users WHERE did=?", (current_did(request),)).fetchone()
         pending = c.execute(
-            "SELECT id,state FROM feedback_jobs WHERE user_id=? AND source_chunk_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
+            "SELECT id,state,mode FROM feedback_jobs WHERE user_id=? AND source_chunk_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
             (uid,),
         ).fetchone()
         return page(
@@ -503,6 +503,17 @@ def funnel_api(request: Request):
         c.close()
 
 
+def feed_context(conn, uid, visible_keys=None):
+    # Only trust source content read by the server; reject a stale page snapshot.
+    posts = digests.read(conn, uid)
+    if visible_keys and (len(visible_keys) > 50 or set(visible_keys) != {p["key"] for p in posts}):
+        raise HTTPException(409, "The feed changed. Reload before sending feedback.")
+    return json.dumps(
+        [{"post_key": p["key"], "author": p["author"][:100], "text": p["text"][:500]} for p in posts],
+        ensure_ascii=False,
+    )
+
+
 @router.post("/me/feedback")
 def feedback(
     request: Request,
@@ -510,13 +521,22 @@ def feedback(
     key: str = Form(..., min_length=1, max_length=128),
     kind: str = Form("public"),
     post_key: str = Form("", max_length=1000),
+    visible_post_key: list[str] = Form(default=[]),  # noqa: B008 - FastAPI form declaration
 ):
     c = db.connect()
     try:
         uid = reader(request, c)
         if post_key and post_key not in {p["key"] for p in digests.read(c, uid)}:
             raise HTTPException(404)
-        job_id = jobs.enqueue(c, uid, kind, text, key, post_key or None)
+        job_id = jobs.enqueue(
+            c,
+            uid,
+            kind,
+            text,
+            key,
+            post_key or None,
+            feed_context=feed_context(c, uid, visible_post_key) if not post_key else "",
+        )
     except ValueError:
         raise HTTPException(400, "Invalid feedback") from None
     finally:
@@ -531,25 +551,24 @@ def request_more(
     request: Request,
     text: str = Form(..., min_length=1, max_length=8000),
     key: str = Form(..., min_length=1, max_length=128),
+    visible_post_key: list[str] = Form(default=[]),  # noqa: B008 - FastAPI form declaration
 ):
     c = db.connect()
     try:
         uid = reader(request, c)
+        context = feed_context(c, uid, visible_post_key)
         with db.tx(c):
             existing = c.execute(
                 "SELECT 1 FROM feedback_jobs WHERE user_id=? AND idempotency_key=?", (uid, key)
             ).fetchone()
-            job_id = jobs.enqueue(c, uid, "public", text, key)
+            job_id = jobs.enqueue(c, uid, "public", text, key, mode="more", feed_context=context)
             if not existing:
-                config = digests.config_for(c, uid)
-                day = digests.day_key(config)
-                extra = config["requested_more_count"] if config["requested_more_day"] == day else 0
-                extra = min(extra + 10, max(0, 200 - config["daily_limit"]))
                 c.execute(
-                    """UPDATE reader_settings SET requested_more_day=?, requested_more_count=?,
-                    refresh_requested=1, version=version+1 WHERE user_id=?""",
-                    (day, extra, uid),
+                    "INSERT OR REPLACE INTO feed_requests VALUES (?,?,?,?,?)",
+                    (uid, job_id, text, context, int(time.time())),
                 )
+                c.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (uid,))
+                db.kv_set(c, "curation-state:" + uid, "processing")
     except ValueError:
         raise HTTPException(400, "Invalid request") from None
     finally:
@@ -564,10 +583,26 @@ def job_status(request: Request, job_id: str):
     c = db.connect()
     try:
         uid = reader(request, c)
-        row = c.execute("SELECT state FROM feedback_jobs WHERE user_id=? AND id=?", (uid, job_id)).fetchone()
+        row = c.execute(
+            "SELECT state,applied_revision FROM feedback_jobs WHERE user_id=? AND id=?", (uid, job_id)
+        ).fetchone()
         if not row:
             raise HTTPException(404)
-        return {"state": row["state"]}
+        result = {"state": row["state"]}
+        if row["state"] == "applied":
+            revision = (
+                c.execute(
+                    "SELECT origin FROM profile_revisions WHERE user_id=? AND id=?", (uid, row["applied_revision"])
+                ).fetchone()
+                if row["applied_revision"]
+                else None
+            )
+            result["changes"] = (
+                profiles.changes(c, uid, row["applied_revision"])
+                if revision and revision["origin"] == "feedback:" + job_id
+                else []
+            )
+        return result
     finally:
         c.close()
 
@@ -658,7 +693,7 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
             "SELECT id,title FROM note_versions WHERE user_id=? ORDER BY created_at DESC", (uid,)
         ).fetchall()
         history = c.execute(
-            "SELECT id,kind,created_at FROM profile_revisions WHERE user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20",
+            "SELECT id,kind,created_at,parent_id FROM profile_revisions WHERE user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 20",
             (uid,),
         ).fetchall()
         return page(
@@ -672,7 +707,7 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
                 "drive_viewer": drive_notes.viewer_email(),
                 "notes_state": folder["state"] if folder else "",
                 "folder_error": folder_error,
-                "history": history,
+                "history": [dict(row) | {"changes": profiles.changes(c, uid, row["id"])} for row in history],
             },
         )
     finally:

@@ -53,3 +53,7 @@ class Matches(StrictModel):
 class SeedProfile(StrictModel):
     interests: list[str] = Field(max_length=8)
     search_terms: list[str] = Field(max_length=12)
+
+
+class FeedSelection(StrictModel):
+    post_keys: list[str] = Field(max_length=200)

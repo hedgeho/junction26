@@ -85,3 +85,11 @@ def test_legacy_search_term_lines_are_hidden_from_the_model_and_kept():
     assert "- [search_term] green bird" in markdown and "- [search_term] elections" not in markdown
     assert "- [topic] Much more: politics" in markdown and "- [topic] More: politics\n" not in markdown
     assert terms == ["politics", "elections"]
+
+
+def test_replaced_topics_are_retained_as_historical_context():
+    old = "# Feed\n\n- [topic] More: compiler research\n"
+    edits = ProfileEdits(remove=[0], add=[PreferenceLine(category="topic", text="Current: programming languages")])
+    markdown, _ = profile_edits.apply(old, [], edits)
+    assert "[history] Previously: More: compiler research" in markdown
+    assert "[topic] Current: programming languages" in markdown

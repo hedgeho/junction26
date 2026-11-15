@@ -445,9 +445,12 @@ def test_feed_daily_limit_dialog_and_update_preserve_other_settings(conn):
     assert conn.execute("SELECT version FROM reader_settings WHERE user_id=?", (uid,)).fetchone()[0] == after["version"]
 
 
-def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
+def test_more_request_is_intentional_idempotent_and_resets_daily(conn, monkeypatch):
+    from curator_core.config import clear_settings
     from curator_curation.llm.schemas import ProfileProposal
 
+    monkeypatch.setenv("SCORING_BACKEND", "gemma")
+    clear_settings()
     uid = seed(conn)
     for number in range(24):
         insert_post(conn, f"did:plc:author{number}", str(number), f"Original source post number {number}")
@@ -463,15 +466,19 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
 
     class Gemma:
         def update_profile(self, current, feedback, terms=()):
-            return ProfileProposal(markdown=current + "\n" + feedback, search_terms=[])
+            return ProfileProposal(markdown=current + "\n- [topic] Current: technical research\n", search_terms=[])
+
+        def select_feed(self, posts, limit, profile, request):
+            assert request and "More technical research" in request["instruction"]
+            return [post["post_key"] for post in posts][:limit]
 
     conn.execute("UPDATE reader_settings SET refresh_requested=1 WHERE user_id=?", (uid,))
     worker.run_cycle(conn, Scorer())
     assert len(digests.read(conn, uid)) == 10
     client = client_for()
     page = client.get("/me").text
-    assert "What would you like to see more of?" in page
-    assert "This guides your whole feed." in page
+    assert "Shape your feed" in page
+    assert "Remember this for later" in page
     for action in ("Comment", "Like", "Save"):
         assert f'aria-label="{action}"' in page
     assert 'aria-label="Repost options"' in page
@@ -483,18 +490,19 @@ def test_more_request_is_intentional_idempotent_and_resets_daily(conn):
     assert 'id="feedback-dialog"' not in page
     assert 'name="kind"' not in page
     assert "Tell your feed" in page
-    assert 'action="/me/more"' in page
+    assert 'formaction="/me/more"' in page
     assert client.post("/me/more", data={"key": "more-one", "text": "More technical research"}).status_code == 403
     data = {"csrf": "csrf-test", "key": "more-one", "text": "More technical research"}
     assert client.post("/me/more", data=data, follow_redirects=False).status_code == 303
     assert client.post("/me/more", data=data, follow_redirects=False).status_code == 303
     config = digests.config_for(conn, uid)
     assert config["daily_limit"] == 10
-    assert config["requested_more_count"] == 10
+    assert digests.delivery_limit(config) == 10
     assert conn.execute("SELECT count(*) FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()[0] == 1
     worker.run_cycle(conn, Scorer(), Gemma())
-    assert "More technical research" in profiles.markdown(conn, uid)
-    assert len(digests.read(conn, uid)) == 20
+    assert "technical research" in profiles.markdown(conn, uid)
+    assert len(digests.read(conn, uid)) <= 10
+    assert not conn.execute("SELECT 1 FROM feed_requests WHERE user_id=?", (uid,)).fetchone()
     assert "More technical research" not in client.get("/me").text
     conn.execute("UPDATE reader_settings SET requested_more_day='2000-01-01' WHERE user_id=?", (uid,))
     assert digests.delivery_limit(digests.config_for(conn, uid)) == 10
@@ -863,3 +871,144 @@ def test_funnel_api_returns_only_counts_for_the_signed_in_reader(conn):
         .status_code
         == 303
     )
+
+
+def test_feed_request_uses_visible_context_is_one_shot_and_respects_cap(conn, monkeypatch):
+    from curator_core.config import clear_settings
+    from curator_curation.llm.schemas import ProfileProposal
+
+    monkeypatch.setenv("SCORING_BACKEND", "gemma")
+    clear_settings()
+    uid = seed(conn)
+    conn.execute("UPDATE reader_settings SET daily_limit=2 WHERE user_id=?", (uid,))
+    old_keys = {post["key"] for post in digests.read(conn, uid)}
+    for index in range(6):
+        insert_post(conn, f"did:plc:fresh{index}", str(index), f"Fresh technical post {index}")
+
+    class Scorer:
+        def __init__(self):
+            self.prompts = []
+
+        def score(self, request):
+            self.prompts.append(request.explicit_profile)
+            return Assessments(
+                items=[
+                    Assessment(post_key=p.post_key, decision="include", relevance=0.9, substance=0.8, opportunity=0.7)
+                    for p in request.candidates
+                ]
+            )
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current + "\n- [topic] Tentative: technical posts\n", search_terms=[])
+
+        def select_feed(self, posts, limit, profile, request):
+            assert limit == 2
+            assert request["instruction"] == "more like this"
+            assert "Original human post about compilers" in request["visible_posts"]
+            return [post["post_key"] for post in posts]  # Deliberately exceed the limit.
+
+        def match(self, post, chunks, profile):
+            raise AssertionError("No notes in this test")
+
+    client = client_for()
+    response = client.post("/me/more", data={"csrf": "csrf-test", "key": "once", "text": "more like this"})
+    assert response.status_code == 200
+    scorer = Scorer()
+    worker.run_cycle(conn, scorer, Model())
+    assert any(
+        "more like this" in prompt and "Original human post about compilers" in prompt for prompt in scorer.prompts
+    )
+    posts = digests.read(conn, uid)
+    assert len(posts) == 2
+    assert not old_keys.intersection(post["key"] for post in posts)
+    assert not conn.execute("SELECT 1 FROM feed_requests WHERE user_id=?", (uid,)).fetchone()
+    job = conn.execute("SELECT feedback, feed_context FROM feedback_jobs WHERE idempotency_key='once'").fetchone()
+    assert tuple(job) == ("", None)
+
+
+def test_failed_final_selection_preserves_feed_and_request(conn, monkeypatch):
+    from curator_core.config import clear_settings
+    from curator_curation.llm.schemas import ProfileProposal
+
+    monkeypatch.setenv("SCORING_BACKEND", "gemma")
+    clear_settings()
+    uid = seed(conn)
+    before = digests.latest(conn, uid)["id"]
+    insert_post(conn, "did:plc:fresh", "fresh", "A fresh technical post")
+
+    class Scorer:
+        def score(self, request):
+            return Assessments(
+                items=[
+                    Assessment(post_key=p.post_key, decision="include", relevance=0.9, substance=0.8, opportunity=0.7)
+                    for p in request.candidates
+                ]
+            )
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current, search_terms=[])
+
+        def select_feed(self, posts, limit, profile, request):
+            return ["unknown-post"]
+
+    response = client_for().post("/me/more", data={"csrf": "csrf-test", "key": "retry", "text": "technical"})
+    assert response.status_code == 200
+    worker.run_cycle(conn, Scorer(), Model())
+    assert digests.latest(conn, uid)["id"] == before
+    assert conn.execute("SELECT 1 FROM feed_requests WHERE user_id=?", (uid,)).fetchone()
+    assert db.kv_get(conn, "curation-state:" + uid) == "failed"
+
+
+def test_preference_feedback_keeps_current_selection_and_reports_changes(conn):
+    from curator_curation import jobs
+    from curator_curation.llm.schemas import ProfileProposal
+
+    uid = seed(conn)
+    before = digests.latest(conn, uid)["id"]
+    conn.execute("UPDATE reader_settings SET refresh_requested=0 WHERE user_id=?", (uid,))
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current + "\n- [topic] More research\n", search_terms=[])
+
+    client = client_for()
+    result = client.post(
+        "/me/feedback",
+        data={"csrf": "csrf-test", "key": "remember", "text": "more research"},
+        headers={"Accept": "application/json"},
+    ).json()
+    assert jobs.process_one(conn, Model())
+    assert digests.config_for(conn, uid)["refresh_requested"] == 0
+    assert digests.latest(conn, uid)["id"] == before
+    assert any("More research" in item for item in client.get("/api/jobs/" + result["job_id"]).json()["changes"])
+
+
+def test_stale_visible_feed_cannot_be_used_as_context(conn):
+    uid = seed(conn)
+    client = client_for()
+    for endpoint in ("/me/feedback", "/me/more"):
+        response = client.post(
+            endpoint,
+            data={
+                "csrf": "csrf-test",
+                "key": endpoint,
+                "text": "more like this",
+                "visible_post_key": "bluesky:not-visible",
+            },
+        )
+        assert response.status_code == 409
+    assert not conn.execute("SELECT 1 FROM feedback_jobs WHERE user_id=?", (uid,)).fetchone()
+
+
+def test_version_history_explains_literal_changes(conn):
+    uid = seed(conn)
+    before = profiles.head(conn, uid)["id"]
+    revised = profiles.save(conn, uid, "public", "# Profile\n\n- [topic] More design research\n", before)
+    changes = profiles.changes(conn, uid, revised)
+    assert any("Added:" in change and "More design research" in change for change in changes)
+    page = client_for().get("/settings").text
+    assert "Previous versions" in page
+    assert "More design research" in page
+    assert "Restore this version" in page

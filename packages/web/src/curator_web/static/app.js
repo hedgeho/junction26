@@ -47,33 +47,48 @@ function pollStatus(url, node, isDone, render) {
 const feedbackDrafts = new Map();
 document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventListener('submit', async event => {
  event.preventDefault();
- const input = form.querySelector('textarea'), status = form.querySelector('.feedback-progress'), button = form.querySelector('[type="submit"]');
+ const input = form.querySelector('textarea'), status = form.querySelector('.feedback-progress');
+ const buttons = [...form.querySelectorAll('button[type="submit"]')], button = event.submitter || buttons[0];
+ const isMore = button?.getAttribute('formaction') === '/me/more';
  const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value;
- button.disabled = true; status.textContent = 'Saving your feedback?';
+ buttons.forEach(item => item.disabled = true); status.classList.add('is-working'); status.textContent = 'Listening to your feed?';
  try {
-  const response = await fetch(form.action, {method:'POST', body:new FormData(form), headers:{Accept:'application/json'}});
+  const response = await fetch(button?.hasAttribute('formaction') ? button.formAction : form.action, {method:'POST', body:new FormData(form), headers:{Accept:'application/json'}});
+  if (response.status === 409) throw new Error('Your feed changed. Reload it before sending this request.');
   if (!response.ok || response.redirected) throw new Error();
   const result = await response.json(); const keyField = form.querySelector('[name="key"]'); keyField.value = keyField.defaultValue = result.next_key;
   input.value = ''; if (postKey) feedbackDrafts.delete(postKey);
   document.dispatchEvent(new Event('feedback-draft-change'));
-  status.textContent = 'Saved ? updating your preferences?';
+  status.textContent = 'Finding the right place for this?';
   pollStatus('/api/jobs/' + result.job_id, status, result => ['applied','failed'].includes(result.state), result => {
-   if (result.state === 'queued') status.textContent = 'Saved ? waiting to update your preferences?';
-   else if (result.state === 'processing') status.textContent = 'Updating your preferences?';
+   if (result.state === 'queued') status.textContent = 'Your feed is listening?';
+   else if (result.state === 'processing') status.textContent = 'Connecting this with what your feed knows?';
    else if (result.state === 'failed') {
-    status.textContent = 'Could not update your preferences. Please try again.';
+    status.classList.remove('is-working'); status.textContent = 'Could not update your feed. Please try again.';
     if (!input.value.trim()) { input.value = text; if (postKey) feedbackDrafts.set(postKey, text); }
    } else if (result.state === 'applied') {
-    status.textContent = 'Preferences updated ? finding posts?';
-    pollStatus('/api/curation', status, state => state.state === 'ready', state => {
-     if (state.state === 'ready') { status.textContent = 'Feed updated'; refreshFeedWhenSafe(); }
-     else if (state.state === 'failed' || state.state === 'offline' || state.state === 'not_configured') status.textContent = 'Preferences updated ? ' + state.label;
+    const summary = result.changes?.length ? result.changes.join(' ? ') : 'Your existing preferences were kept.';
+    if (!isMore) { status.classList.remove('is-working'); status.textContent = summary; return; }
+    status.textContent = summary + ' Finding posts for this request?';
+    pollStatus('/api/curation', status, state => ['ready','failed','offline','not_configured'].includes(state.state), state => {
+     if (state.state === 'ready') { status.classList.remove('is-working'); status.textContent = 'Your new selection is ready.'; refreshFeedWhenSafe(); }
+     else if (['failed','offline','not_configured'].includes(state.state)) { status.classList.remove('is-working'); status.textContent = 'Your preferences are saved. ' + state.label; }
     });
    }
   });
- } catch (_) { status.textContent = 'Could not save your feedback. Please try again.'; }
- finally { button.disabled = false; }
+ } catch (error) { status.classList.remove('is-working'); status.textContent = error.message || 'Could not save your feedback. Please try again.'; }
+ finally { buttons.forEach(item => item.disabled = false); }
 }));
+document.addEventListener('keydown', event => {
+ if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing) return;
+ const form = event.target.closest?.('form'); if (!form) return;
+ const target = event.target instanceof HTMLButtonElement && event.target.type === 'submit' ? event.target : form.querySelector('button[type="submit"], button:not([type])');
+ if (target && !target.disabled) { event.preventDefault(); form.requestSubmit(target); }
+});
+document.querySelectorAll('time[data-epoch]').forEach(node => {
+ const date = new Date(Number(node.dataset.epoch) * 1000);
+ if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {dateStyle:'medium',timeStyle:'short'}).format(date);
+});
 function refreshFeedWhenSafe() {
  const dialog = document.querySelector('dialog[open]');
  const draft = document.getElementById('more-feedback');
@@ -105,14 +120,12 @@ if (pending) pollStatus('/api/curation', pending, result => result.state === 're
 });
 const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
- const labels = {queued:'Queued', processing:'Updating', applied:'Updated', failed:'Update failed. Please try again.'};
  pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {
-  job.textContent = labels[result.state] || 'Queued';
-  if (result.state === 'applied') {
-   job.textContent = 'Filtering posts...';
-   pollStatus('/api/curation', job, state => state.state === 'ready', state => {
-    if (state.state === 'ready') refreshFeedWhenSafe();
-    else job.textContent = state.label;
+  job.textContent = result.state === 'failed' ? 'Could not update your feed. Please try again.' : result.state === 'applied' ? (result.changes?.join(' ? ') || 'Your existing preferences were kept.') : 'Learning your preferences?';
+  if (result.state === 'applied' && job.dataset.mode === 'more') {
+   job.textContent += ' Finding posts for this request?';
+   pollStatus('/api/curation', job, state => ['ready','failed'].includes(state.state), state => {
+    if (state.state === 'ready') refreshFeedWhenSafe(); else job.textContent = state.label;
    });
   }
  });
@@ -373,6 +386,12 @@ document.querySelectorAll('.share-post').forEach(button => button.addEventListen
  } catch (_) { /* Sharing was cancelled or unavailable. */ }
 }));
 
+function setSocialContext(author, text, source) {
+ document.getElementById('social-context-author').textContent = author || '';
+ document.getElementById('social-context-text').textContent = text || '';
+ const media = document.getElementById('social-context-media');
+ media.replaceChildren(...[...(source?.querySelectorAll('.post-embeds img') || [])].slice(0,4).map(img => img.cloneNode()));
+}
 const socialDialog = document.getElementById('social-dialog');
 const socialForm = document.getElementById('social-form');
 let socialTarget = null;
@@ -461,6 +480,7 @@ blueskyCards.forEach(post => post.querySelectorAll('.social-interact').forEach(b
  menu.hidden = true; post.querySelector('.repost-menu-open').setAttribute('aria-expanded', 'false');
  if (action === 'comment' || action === 'quote') {
   socialTarget = {post, action};
+  setSocialContext(post.querySelector('.author')?.textContent, post.querySelector('.post-text')?.textContent, post);
   document.getElementById('social-title').textContent = action === 'comment' ? 'Comment' : 'Repost with comment';
   document.getElementById('social-text').value = '';
   socialForm.querySelector('.social-dialog-status').textContent = '';
@@ -599,6 +619,7 @@ function makeComment(post, item, parentUri) {
    message.textContent = ''; return result;
   }
   function compose(action) {
+   setSocialContext(item.author, item.text);
    socialTarget = {post, action, submit:async value => {
     const result = await interact(action, value);
     if (action === 'comment') {
