@@ -51,7 +51,7 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
  const buttons = [...form.querySelectorAll('button[type="submit"]')], button = event.submitter || buttons[0];
  const isMore = button?.getAttribute('formaction') === '/me/more';
  const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value;
- buttons.forEach(item => item.disabled = true); status.classList.add('is-working'); status.textContent = 'Listening to your feed?';
+ buttons.forEach(item => item.disabled = true); status.classList.add('is-working'); status.textContent = 'Listening to your feed...';
  try {
   const response = await fetch(button?.hasAttribute('formaction') ? button.formAction : form.action, {method:'POST', body:new FormData(form), headers:{Accept:'application/json'}});
   if (response.status === 409) throw new Error('Your feed changed. Reload it before sending this request.');
@@ -59,17 +59,17 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
   const result = await response.json(); const keyField = form.querySelector('[name="key"]'); keyField.value = keyField.defaultValue = result.next_key;
   input.value = ''; if (postKey) feedbackDrafts.delete(postKey);
   document.dispatchEvent(new Event('feedback-draft-change'));
-  status.textContent = 'Finding the right place for this?';
+  status.textContent = 'Finding the right place for this...';
   pollStatus('/api/jobs/' + result.job_id, status, result => ['applied','failed'].includes(result.state), result => {
-   if (result.state === 'queued') status.textContent = 'Your feed is listening?';
-   else if (result.state === 'processing') status.textContent = 'Connecting this with what your feed knows?';
+   if (result.state === 'queued') status.textContent = 'Your feed is listening...';
+   else if (result.state === 'processing') status.textContent = 'Connecting this with what your feed knows...';
    else if (result.state === 'failed') {
     status.classList.remove('is-working'); status.textContent = 'Could not update your feed. Please try again.';
     if (!input.value.trim()) { input.value = text; if (postKey) feedbackDrafts.set(postKey, text); }
    } else if (result.state === 'applied') {
-    const summary = result.changes?.length ? result.changes.join(' ? ') : 'Your existing preferences were kept.';
+    const summary = result.changes?.length ? result.changes.join('; ') : 'Your existing preferences were kept.';
     if (!isMore) { status.classList.remove('is-working'); status.textContent = summary; return; }
-    status.textContent = summary + ' Finding posts for this request?';
+    status.textContent = summary + ' Finding posts for this request...';
     pollStatus('/api/curation', status, state => ['ready','failed','offline','not_configured'].includes(state.state), state => {
      if (state.state === 'ready') { status.classList.remove('is-working'); status.textContent = 'Your new selection is ready.'; refreshFeedWhenSafe(); }
      else if (['failed','offline','not_configured'].includes(state.state)) { status.classList.remove('is-working'); status.textContent = 'Your preferences are saved. ' + state.label; }
@@ -121,9 +121,9 @@ if (pending) pollStatus('/api/curation', pending, result => result.state === 're
 const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
  pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {
-  job.textContent = result.state === 'failed' ? 'Could not update your feed. Please try again.' : result.state === 'applied' ? (result.changes?.join(' ? ') || 'Your existing preferences were kept.') : 'Learning your preferences?';
+  job.textContent = result.state === 'failed' ? 'Could not update your feed. Please try again.' : result.state === 'applied' ? (result.changes?.join('; ') || 'Your existing preferences were kept.') : 'Learning your preferences...';
   if (result.state === 'applied' && job.dataset.mode === 'more') {
-   job.textContent += ' Finding posts for this request?';
+   job.textContent += ' Finding posts for this request...';
    pollStatus('/api/curation', job, state => ['ready','failed'].includes(state.state), state => {
     if (state.state === 'ready') refreshFeedWhenSafe(); else job.textContent = state.label;
    });
