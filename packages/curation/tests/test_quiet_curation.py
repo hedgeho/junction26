@@ -617,3 +617,27 @@ def test_feedback_is_preserved_when_model_only_changes_search_terms(conn):
     assert "- [feedback] Less hype, but keep technical depth" in profiles.markdown(conn, uid)
     assert original.strip() in profiles.markdown(conn, uid)
     assert json.loads(profiles.head(conn, uid)["search_terms"]) == current_terms
+
+
+def test_decision_scorer_excludes_policy_blocked_posts_but_raises_other_errors():
+    class Blocked(Exception):
+        status_code = 400
+
+        def __init__(self, code):
+            self.body = {"error": {"code": code}}
+
+    def create(**kwargs):
+        text = kwargs["input"][0]["text"]
+        if "x:blocked" in text:
+            raise Blocked("prohibited_content")
+        if "x:broken" in text:
+            raise Blocked("invalid_argument")
+        return SimpleNamespace(answers=decision_answers())
+
+    def request(*keys):
+        return PublicScoringRequest("p", tuple(PublicCandidate(k, "x", "t", "", False, False) for k in keys))
+
+    result = decision_scorer(create).score(request("x:ok", "x:blocked"))
+    assert [(i.post_key, i.decision) for i in result.items] == [("x:ok", "include"), ("x:blocked", "exclude")]
+    with pytest.raises(Blocked):
+        decision_scorer(create).score(request("x:ok", "x:broken"))

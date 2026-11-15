@@ -164,6 +164,16 @@ DECISION_QUESTIONS = {
 }
 
 
+def _prohibited(exc: Exception) -> bool:
+    body = getattr(exc, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else None
+    return (
+        getattr(exc, "status_code", None) == 400
+        and isinstance(error, dict)
+        and error.get("code") == "prohibited_content"
+    )
+
+
 class GeminiDecisionScorer:
     """Use the Decisions API once per public post; a batch fans out concurrently."""
 
@@ -207,9 +217,15 @@ class GeminiDecisionScorer:
             )
         if self.limiter:
             self.limiter.acquire(ratelimit.estimate(blocks, DECISION_QUESTIONS))
-        response = self.client.decisions.create(
-            model=self.model, input=blocks, questions=DECISION_QUESTIONS, timeout=self.timeout_s
-        )
+        try:
+            response = self.client.decisions.create(
+                model=self.model, input=blocks, questions=DECISION_QUESTIONS, timeout=self.timeout_s
+            )
+        except Exception as exc:
+            if not _prohibited(exc):
+                raise
+            # Google refuses to read it; it cannot be curated, so exclude it instead of retrying forever.
+            return Assessment(post_key=post["post_key"], decision="exclude", relevance=0, substance=0, opportunity=0)
         answers = response.answers or {}
         if set(answers) != set(DECISION_QUESTIONS):
             raise ValueError("invalid assessment coverage")
