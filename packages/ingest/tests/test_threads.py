@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import sqlite3
@@ -205,3 +206,123 @@ def test_token_is_redacted_from_httpx_logs(caplog: pytest.LogCaptureFixture) -> 
     with caplog.at_level(logging.INFO, logger="httpx"):
         logging.getLogger("httpx").info("GET https://g/v1.0/x?q=a&access_token=%s HTTP/1.1 200", TOKEN)
     assert TOKEN not in caplog.text and "access_token=REDACTED" in caplog.text
+
+
+def test_normalize_tolerates_unexpected_shapes() -> None:
+    assert threads.normalize("not a post", 1) is None
+    assert threads.normalize(item(id=179001), 1) is None
+    assert threads.normalize(item(quoted_post={"id": "179000"}), 1)["quote_id"] == "179000"
+    assert threads.normalize(item(quoted_post={"x": 1}), 1)["quote_id"] is None
+    assert threads.normalize(item(text=None), 1)["text"] == ""
+    odd = item(media_type="CAROUSEL_ALBUM", children={"data": ["junk", {"media_type": "IMAGE", "media_url": CDN}]})
+    assert [m["type"] for m in threads.normalize(odd, 1)["media"]] == ["image"]
+    assert threads.normalize(item(children=["junk"]), 1)["media"] == []
+
+
+def test_one_invalid_record_does_not_drop_the_term(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(monkeypatch)
+    add_reader(conn, "did:plc:a", ["compilers"])
+    bad = item(id="2", permalink="https://evil.example/@alice/post/x")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [bad, item(), "junk"]})
+
+    assert threads.collect_once(conn, client(handler), TOKEN) == 1
+    assert get_post(conn, "threads:179001") is not None
+    assert get_post(conn, "threads:2") is None
+    assert threads.db.kv_get(conn, "threads:since:compilers") is not None
+
+
+def test_since_is_clamped_to_retention(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(monkeypatch, RETENTION_HOURS="48")
+    add_reader(conn, "did:plc:a", ["compilers"])
+    threads.db.kv_set(conn, "threads:since:compilers", "1000")
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(int(request.url.params["since"]))
+        return httpx.Response(200, json={"data": []})
+
+    threads.collect_once(conn, client(handler), TOKEN)
+    assert seen[0] >= time.time() - 48 * 3600 - 5
+
+
+@pytest.mark.parametrize("status,code", [(400, 4), (403, 17), (400, 613)])
+def test_graph_throttle_codes_stop_the_cycle_and_keep_the_term(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch, status: int, code: int
+) -> None:
+    configure(monkeypatch, THREADS_TERMS_PER_CYCLE="3")
+    add_reader(conn, "did:plc:a", ["a", "b", "c"])
+    queried: list[str] = []
+    limited = {"b"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = request.url.params["q"]
+        queried.append(q)
+        if q in limited:
+            return httpx.Response(status, json={"error": {"code": code}})
+        return httpx.Response(200, json={"data": []})
+
+    threads.collect_once(conn, client(handler), TOKEN)
+    assert queried == ["a", "b"]
+    limited.clear()
+    threads.collect_once(conn, client(handler), TOKEN)
+    assert queried[2:] == ["b", "c", "a"]
+
+
+def test_other_400s_are_skipped_not_treated_as_throttling(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configure(monkeypatch)
+    add_reader(conn, "did:plc:a", ["a", "b"])
+    queried: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        queried.append(request.url.params["q"])
+        return httpx.Response(400, json={"error": {"code": 100}})
+
+    threads.collect_once(conn, client(handler), TOKEN)
+    assert queried == ["a", "b"]
+
+
+def test_network_errors_advance_past_the_term(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(monkeypatch, THREADS_TERMS_PER_CYCLE="2")
+    add_reader(conn, "did:plc:a", ["a", "b", "c"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["q"] == "a":
+            raise httpx.ConnectError("down")
+        return httpx.Response(200, json={"data": []})
+
+    threads.collect_once(conn, client(handler), TOKEN)
+    assert threads.db.kv_get(conn, "threads:cursor") == "2"
+
+
+def test_restart_waits_for_the_remaining_interval(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(monkeypatch, THREADS_POLL_INTERVAL_S="1800")
+    now = int(time.time())
+    assert threads.seconds_until_due(conn, now) <= 0
+    threads.collect_once(conn, client(lambda r: httpx.Response(200, json={"data": []})), TOKEN)
+    assert 1790 <= threads.seconds_until_due(conn, now + 5) <= 1800
+
+
+def test_run_survives_a_failing_cycle(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    configure(monkeypatch, THREADS_ACCESS_TOKEN=TOKEN)
+    cycles: list[int] = []
+    sleeps: list[float] = []
+
+    def broken(*args: object) -> int:
+        cycles.append(1)
+        raise sqlite3.OperationalError("database is locked")
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 2:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(threads, "refresh_if_due", lambda *a: TOKEN)
+    monkeypatch.setattr(threads, "collect_once", broken)
+    monkeypatch.setattr(threads.asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(threads.run())
+    assert len(cycles) == 2 and sleeps == [1800, 1800]

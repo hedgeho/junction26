@@ -48,8 +48,10 @@ def _created_at(value: object) -> str | None:
 
 def _media_entries(item: dict) -> list[dict]:
     entries = []
-    parts = [item, *((item.get("children") or {}).get("data") or [])] if item.get("children") else [item]
-    for part in parts:
+    children = item.get("children")
+    data = children.get("data") if isinstance(children, dict) else None
+    parts = [item, *data] if isinstance(data, list) else [item]
+    for part in filter(lambda p: isinstance(p, dict), parts):
         kind = part.get("media_type")
         if kind == "IMAGE" and part.get("media_url"):
             entries.append(
@@ -77,10 +79,14 @@ def normalize(item: dict, observed_at: int) -> dict | None:
     Returns:
         dict | None: The import record, or None for replies, reposts and posts missing identity fields.
     """
-    if item.get("is_reply") or item.get("media_type") == "REPOST_FACADE":
+    if not isinstance(item, dict) or item.get("is_reply") or item.get("media_type") == "REPOST_FACADE":
         return None
-    if not (item.get("id") and item.get("username") and item.get("permalink")):
+    if not all(isinstance(item.get(k), str) and item[k] for k in ("id", "username", "permalink")):
         return None
+    quoted = item.get("quoted_post")
+    if isinstance(quoted, dict):
+        quoted = quoted.get("id")
+    text = item.get("text")
     return {
         "platform": "threads",
         "native_id": item["id"],
@@ -88,11 +94,11 @@ def normalize(item: dict, observed_at: int) -> dict | None:
         "author_name": item["username"],
         "author_handle": item["username"],
         "author_avatar": item.get("profile_picture_url"),
-        "text": item.get("text") or "",
+        "text": text if isinstance(text, str) else "",
         "canonical_url": item["permalink"],
         "created_at": _created_at(item.get("timestamp")),
         "observed_at": observed_at,
-        "quote_id": item.get("quoted_post"),
+        "quote_id": quoted if isinstance(quoted, str) and quoted else None,
         "media": _media_entries(item),
     }
 
@@ -130,16 +136,17 @@ def collect_once(conn: sqlite3.Connection, client: httpx.Client, token: str) -> 
         int: Number of posts imported.
     """
     cfg = settings()
+    db.kv_set(conn, "threads:last_cycle", str(int(time.time())))
     terms = search_terms(conn)
     if not terms:
         return 0
     start = int(db.kv_get(conn, "threads:cursor") or 0) % len(terms)
     batch = [terms[(start + i) % len(terms)] for i in range(min(cfg.threads_terms_per_cycle, len(terms)))]
-    db.kv_set(conn, "threads:cursor", str((start + len(batch)) % len(terms)))
-    total = 0
-    for term in batch:
+    total = skipped = done = 0
+    for i, term in enumerate(batch):
         now = int(time.time())
-        since = int(db.kv_get(conn, f"threads:since:{term}") or now - cfg.retention_hours * 3600)
+        # Clamp so a term that returns after a long absence does not import posts older than retention.
+        since = max(int(db.kv_get(conn, f"threads:since:{term}") or 0), now - cfg.retention_hours * 3600)
         params = {
             "q": term,
             "search_type": "RECENT",
@@ -150,21 +157,51 @@ def collect_once(conn: sqlite3.Connection, client: httpx.Client, token: str) -> 
         }
         try:
             response = client.get("/v1.0/keyword_search", params=params)
-            if response.status_code == 429:
-                log.warning("threads search rate limited; ending cycle")
-                break
+        except httpx.HTTPError as e:
+            done = i + 1
+            log.warning("threads search failed: %s", type(e).__name__)
+            continue
+        if _rate_limited(response):
+            log.warning("threads search rate limited; ending cycle")
+            break
+        done = i + 1
+        try:
             response.raise_for_status()
-            records = [r for i in response.json()["data"] if (r := normalize(i, now))]
-            total += import_posts(conn, records)
+            data = response.json()["data"]
+            if not isinstance(data, list):
+                raise TypeError("search data is not a list")
         except httpx.HTTPStatusError as e:
             log.warning("threads search failed: HTTP %d", e.response.status_code)
             continue
-        except (httpx.HTTPError, ValueError, KeyError) as e:
+        except (ValueError, KeyError, TypeError) as e:
             log.warning("threads search failed: %s", type(e).__name__)
             continue
+        for record in filter(None, (normalize(i, now) for i in data)):
+            try:
+                total += import_posts(conn, [record])
+            except ValueError:
+                skipped += 1
         db.kv_set(conn, f"threads:since:{term}", str(now))
-    log.info("threads collected %d posts for %d terms", total, len(batch))
+    # Terms cut off by a rate limit stay at the front of the next cycle.
+    db.kv_set(conn, "threads:cursor", str((start + done) % len(terms)))
+    log.info("threads collected %d posts (%d invalid skipped) for %d terms", total, skipped, done)
     return total
+
+
+# Graph API throttling codes, which Meta may return as 400/403 instead of 429.
+_RATE_LIMIT_CODES = {4, 17, 32, 613}
+
+
+def _rate_limited(response: httpx.Response) -> bool:
+    if response.status_code == 429:
+        return True
+    if response.status_code not in (400, 403):
+        return False
+    try:
+        error = response.json().get("error")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(error, dict) and error.get("code") in _RATE_LIMIT_CODES
 
 
 def configured_token() -> str | None:
@@ -254,6 +291,29 @@ async def run() -> None:
     path = cfg.data_dir / "threads_token.json"
     with httpx.Client(base_url=cfg.threads_api, timeout=20) as client:
         while True:
-            token = await asyncio.to_thread(refresh_if_due, client, path, configured, int(time.time()))
-            await asyncio.to_thread(collect_once, conn, client, token)
-            await asyncio.sleep(cfg.threads_poll_interval_s)
+            wait = cfg.threads_poll_interval_s
+            # A failed cycle must not stop Jetstream and follow sync, which share this process.
+            try:
+                due_in = await asyncio.to_thread(seconds_until_due, conn, int(time.time()))
+                if due_in > 0:
+                    wait = due_in
+                else:
+                    token = await asyncio.to_thread(refresh_if_due, client, path, configured, int(time.time()))
+                    await asyncio.to_thread(collect_once, conn, client, token)
+            except Exception as e:  # noqa: BLE001
+                log.warning("threads cycle failed: %s", type(e).__name__)
+            await asyncio.sleep(wait)
+
+
+def seconds_until_due(conn: sqlite3.Connection, now: int) -> int:
+    """Seconds until the next cycle, so restarts do not spend extra search quota.
+
+    Args:
+        conn (sqlite3.Connection): The application database.
+        now (int): Current Unix time.
+
+    Returns:
+        int: Zero or less when a cycle is due.
+    """
+    last = int(db.kv_get(conn, "threads:last_cycle") or 0)
+    return last + settings().threads_poll_interval_s - now
