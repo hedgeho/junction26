@@ -75,6 +75,18 @@ def test_reader_exposes_only_sources_not_generated_configuration(conn):
     assert "GENERATED_CONFIG_SENTINEL" in client.get("/settings/profile/public").text
 
 
+def test_processing_notice_is_hidden_when_feed_has_posts(conn, monkeypatch):
+    from curator_curation import health
+
+    seed(conn)
+    monkeypatch.setattr(
+        health, "filtering_status", lambda conn, uid: {"state": "processing", "label": "Filtering posts..."}
+    )
+    response = client_for().get("/me")
+    assert '<div class="notice" role="status" hidden><span id="curation-pending">' in response.text
+    assert "Original human post" in response.text
+
+
 def test_feedback_is_queued_without_calling_models_and_csrf_is_required(conn):
     seed(conn)
     client = client_for()

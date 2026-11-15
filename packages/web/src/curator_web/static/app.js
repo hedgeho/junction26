@@ -205,8 +205,16 @@ document.addEventListener('close', tryRefreshFeed, true);
 const pending = document.getElementById('curation-pending');
 if (pending) pollStatus('/api/curation', pending, result => result.state === 'ready', result => {
  if (result.state === 'ready') refreshFeedWhenSafe();
- else pending.textContent = result.label;
-}, {delay:result => result.state === 'processing' ? 1500 : 15000});
+ else {
+  pending.textContent = result.label;
+  const notice = pending.closest('.notice');
+  if (notice) notice.hidden = result.state === 'processing';
+ }
+}, {delay:result => result.state === 'processing' ? 1500 : 15000, unavailable:message => {
+ pending.textContent = message;
+ const notice = pending.closest('.notice');
+ if (notice) notice.hidden = false;
+}});
 const job = document.getElementById('job-status');
 if (job && ['queued','processing'].includes(job.dataset.state)) {
  pollStatus('/api/jobs/' + job.dataset.job, job, result => ['applied','failed'].includes(result.state), result => {
