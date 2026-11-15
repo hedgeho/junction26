@@ -121,7 +121,8 @@ def test_collect_sends_documented_query_and_imports(conn: sqlite3.Connection, mo
         TOKEN,
     )
     assert int(params["since"]) < time.time()
-    assert "id" in params["fields"] and "owner" not in params["fields"]
+    assert "id" in params["fields"].split(",") and "is_reply" in params["fields"].split(",")
+    assert "owner" not in params["fields"]
     assert get_post(conn, "threads:179001").author_key == "threads:alice"
     # The next cycle resumes from the last run rather than the full retention window.
     threads.collect_once(conn, client(handler), TOKEN)

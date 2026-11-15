@@ -18,6 +18,7 @@ from .imports import import_posts
 
 log = logging.getLogger(__name__)
 
+# is_reply needs threads_read_replies; without it Meta fails the whole request with error 10.
 SEARCH_FIELDS = (
     "id,text,media_type,media_url,thumbnail_url,permalink,timestamp,username,is_reply,is_quote_post,"
     "quoted_post,alt_text,link_attachment_url,profile_picture_url,"
