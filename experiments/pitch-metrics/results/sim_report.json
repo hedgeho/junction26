@@ -1,0 +1,169 @@
+{
+ "rows": {
+  "random": {
+   "n": 320,
+   "relevant": 0.00625,
+   "highlight": 0.0,
+   "unrelated": 0.9375,
+   "worst_reader": 0.0,
+   "bad": 0.15,
+   "low_effort": 0.290625,
+   "per_reader": {
+    "ml_researcher": 0.0,
+    "us_politics_policy": 0.03,
+    "climate_energy": 0.0,
+    "indie_gamedev": 0.0,
+    "books_literature": 0.0,
+    "biology_medicine": 0.03,
+    "urbanism_transit": 0.0,
+    "software_engineering": 0.0
+   }
+  },
+  "agora@10": {
+   "n": 75,
+   "relevant": 0.92,
+   "highlight": 0.28,
+   "unrelated": 0.013333333333333334,
+   "worst_reader": 0.8,
+   "bad": 0.0,
+   "low_effort": 0.0,
+   "per_reader": {
+    "ml_researcher": 0.8,
+    "us_politics_policy": 1.0,
+    "climate_energy": 0.9,
+    "indie_gamedev": 0.8,
+    "books_literature": 0.9,
+    "biology_medicine": 1.0,
+    "urbanism_transit": 0.9,
+    "software_engineering": 1.0
+   }
+  },
+  "agora_no_flags@10": {
+   "n": 75,
+   "relevant": 0.9466666666666667,
+   "highlight": 0.28,
+   "unrelated": 0.0,
+   "worst_reader": 0.8,
+   "bad": 0.04,
+   "low_effort": 0.0,
+   "per_reader": {
+    "ml_researcher": 0.8,
+    "us_politics_policy": 1.0,
+    "climate_energy": 0.9,
+    "indie_gamedev": 1.0,
+    "books_literature": 0.9,
+    "biology_medicine": 1.0,
+    "urbanism_transit": 0.9,
+    "software_engineering": 1.0
+   }
+  },
+  "agora@20": {
+   "n": 130,
+   "relevant": 0.8538461538461538,
+   "highlight": 0.16923076923076924,
+   "unrelated": 0.015384615384615385,
+   "worst_reader": 0.7,
+   "bad": 0.038461538461538464,
+   "low_effort": 0.007692307692307693,
+   "per_reader": {
+    "ml_researcher": 0.8,
+    "us_politics_policy": 0.95,
+    "climate_energy": 0.9,
+    "indie_gamedev": 0.7,
+    "books_literature": 0.9,
+    "biology_medicine": 0.8,
+    "urbanism_transit": 0.9,
+    "software_engineering": 0.85
+   }
+  },
+  "agora_no_flags@20": {
+   "n": 132,
+   "relevant": 0.8787878787878788,
+   "highlight": 0.18181818181818182,
+   "unrelated": 0.015151515151515152,
+   "worst_reader": 0.8,
+   "bad": 0.06060606060606061,
+   "low_effort": 0.015151515151515152,
+   "per_reader": {
+    "ml_researcher": 0.8,
+    "us_politics_policy": 0.95,
+    "climate_energy": 0.9,
+    "indie_gamedev": 0.85,
+    "books_literature": 0.9,
+    "biology_medicine": 0.82,
+    "urbanism_transit": 0.9,
+    "software_engineering": 0.85
+   }
+  },
+  "decision_grade_only@10": {
+   "n": 80,
+   "relevant": 0.9,
+   "highlight": 0.2625,
+   "unrelated": 0.0125,
+   "worst_reader": 0.7,
+   "bad": 0.05,
+   "low_effort": 0.025,
+   "per_reader": {
+    "ml_researcher": 0.7,
+    "us_politics_policy": 1.0,
+    "climate_energy": 0.9,
+    "indie_gamedev": 1.0,
+    "books_literature": 0.9,
+    "biology_medicine": 0.9,
+    "urbanism_transit": 0.8,
+    "software_engineering": 1.0
+   }
+  },
+  "haiku_per_reader@10": {
+   "n": 80,
+   "relevant": 0.7125,
+   "highlight": 0.15,
+   "unrelated": 0.125,
+   "worst_reader": 0.5,
+   "bad": 0.025,
+   "low_effort": 0.0,
+   "per_reader": {
+    "ml_researcher": 0.5,
+    "us_politics_policy": 0.6,
+    "climate_energy": 1.0,
+    "indie_gamedev": 0.9,
+    "books_literature": 0.5,
+    "biology_medicine": 0.7,
+    "urbanism_transit": 0.6,
+    "software_engineering": 0.9
+   }
+  },
+  "embeddings@10": {
+   "n": 80,
+   "relevant": 0.25,
+   "highlight": 0.0125,
+   "unrelated": 0.25,
+   "worst_reader": 0.1,
+   "bad": 0.1,
+   "low_effort": 0.075,
+   "per_reader": {
+    "ml_researcher": 0.1,
+    "us_politics_policy": 0.1,
+    "climate_energy": 0.2,
+    "indie_gamedev": 0.6,
+    "books_literature": 0.2,
+    "biology_medicine": 0.2,
+    "urbanism_transit": 0.4,
+    "software_engineering": 0.2
+   }
+  }
+ },
+ "gate_pass": {
+  "ml_researcher": 5,
+  "us_politics_policy": 60,
+  "climate_energy": 11,
+  "indie_gamedev": 25,
+  "books_literature": 41,
+  "biology_medicine": 19,
+  "urbanism_transit": 25,
+  "software_engineering": 40
+ },
+ "gate_recall": 0.612565445026178,
+ "hidden": 1095,
+ "downranked": 643
+}

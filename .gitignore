@@ -14,3 +14,8 @@ notes/
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Experiment caches, collected posts and labels
+experiments/*/data/
+experiments/*/logs/
+experiments/.env

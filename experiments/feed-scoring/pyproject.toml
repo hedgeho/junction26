@@ -1,0 +1,12 @@
+[project]
+name = "feed-scoring"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=2.8.0",
+    "fastembed>=0.9.1",
+    "numpy>=2.5.4",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+    "websockets>=17.4",
+]
