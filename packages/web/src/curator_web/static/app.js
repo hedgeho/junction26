@@ -43,7 +43,7 @@ async function readJSON(url, options = {}) {
  return result;
 }
 function pollStatus(url, node, isDone, render, options = {}) {
- let delay = 1500, stopped = false;
+ let delay = options.initialDelay ?? 1500, stopped = false;
  async function poll() {
   if (stopped) return;
   if (document.hidden) { setTimeout(poll, 3000); return; }
@@ -59,7 +59,7 @@ function pollStatus(url, node, isDone, render, options = {}) {
    }
    if (!response.ok || response.redirected) throw new Error('status unavailable');
    const result = await response.json();
-   delay = options.delay ? options.delay(result) : 1500;
+   delay = options.delay ? options.delay(result) : (options.initialDelay ?? 1500);
    render(result);
    if (isDone(result)) return;
   } catch (_) { delay = Math.min(delay * 2, 30000); options.retrying?.(); }
@@ -81,37 +81,15 @@ function feedbackState(form) {
  const key = form.querySelector('[name="post_key"]')?.value || 'feed';
  return feedbackStateForScope(key);
 }
-function renderConfigurationDiff(diff) {
- const box = el('div', 'configuration-diff'), heading = el('div', 'diff-heading');
- heading.append(el('code', '', diff.filename));
- if (diff.changed) {
-  const count = el('span', 'diff-count');
-  count.append(el('span', 'diff-added', '+' + diff.added), el('span', 'diff-removed', '\u2212' + diff.removed)); heading.append(count);
- }
- box.append(heading);
- if (diff.unavailable) box.append(el('p', 'diff-note', 'This diff is unavailable. The original revision could not be read.'));
- else if (!diff.changed) box.append(el('p', 'diff-note', 'No configuration changes.'));
- else {
-  if (diff.lines.length) {
-   const pre = el('pre', 'diff-code'), code = el('code'); pre.tabIndex = 0; pre.setAttribute('aria-label', diff.title + ' changes');
-   for (const line of diff.lines) {
-    const type = ['file','hunk','add','remove','context'].includes(line.type) ? line.type : 'context';
-    code.append(el('span', 'diff-line diff-' + type, line.text));
-   }
-   pre.append(code); box.append(pre);
-  }
-  for (const change of diff.format_changes) box.append(el('p', 'diff-note', change));
- }
- return box;
-}
 function renderFeedbackReceipt(form, receipt) {
  const previous = form.querySelector('.feedback-receipt');
- if (!receipt?.diff) { previous?.remove(); return; }
+ if (!receipt) { previous?.remove(); return; }
  if (previous?.dataset.job === receipt.job_id) return;
  const box = el('section', 'feedback-receipt'); box.dataset.job = receipt.job_id; box.setAttribute('aria-label', 'Configuration changes from your feedback');
- box.append(el('p', 'help', 'Your feedback'), el('blockquote', 'feedback-request', receipt.feedback));
- box.append(renderConfigurationDiff(receipt.diff));
- const history = el('a', 'text-link', 'All revisions \u2192'); history.href = '/settings/history/' + receipt.diff.filename.replace(/\.md$/, ''); box.append(history);
+ box.append(el('p', 'feedback-summary', receipt.changes?.length ? receipt.changes.join('; ') : 'Your existing preferences were kept.'));
+ if (receipt.diff?.filename) {
+  const history = el('a', 'text-link', 'View history \u2192'); history.href = '/settings/history/' + receipt.diff.filename.replace(/\.md$/, ''); box.append(history);
+ }
  if (previous) previous.replaceWith(box); else (form.querySelector('.feedback-submit') || form.querySelector('.feedback-progress')).insertAdjacentElement('afterend', box);
 }
 function renderFeedbackState(form, state = feedbackState(form)) {
@@ -160,15 +138,14 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
     failed('Could not update your feed. Your feedback is here to try again.');
    } else if (result.state === 'applied') {
     state.receipt = result;
-    const summary = result.changes?.length ? result.changes.join('; ') : 'Your existing preferences were kept.';
-    if (!isMore) { finish(summary); return; }
-    update(summary + ' Selecting posts for this request...');
+    if (!isMore) { finish(''); return; }
+    update('Selecting posts for this request...');
     pollStatus('/api/curation', null, result => ['ready','failed','offline','not_configured'].includes(result.state), result => {
      if (result.state === 'ready') { finish('Your new selection is ready.'); refreshFeedWhenSafe(); }
      else if (['failed','offline','not_configured'].includes(result.state)) finish('Your preferences are saved. ' + result.label);
-    }, {unavailable:finish});
+ }, {initialDelay:500, unavailable:finish});
    }
-  }, {unavailable:finish});
+  }, {initialDelay:500, unavailable:finish});
  } catch (error) { finish(error.message || 'Could not save your feedback. Please try again.'); }
 }));
 document.querySelectorAll('.feed-feedback-form textarea').forEach(input => input.addEventListener('input', () => {
@@ -184,10 +161,10 @@ document.querySelectorAll('time[data-epoch]').forEach(node => {
  const date = new Date(Number(node.dataset.epoch) * 1000);
  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {dateStyle:'medium',timeStyle:'short'}).format(date);
 });
-let feedRefreshPending = false;
+let feedRefreshPending = false, feedRefreshing = false;
 function refreshFeedWhenSafe() { feedRefreshPending = true; tryRefreshFeed(); }
-function tryRefreshFeed() {
- if (!feedRefreshPending) return;
+async function tryRefreshFeed() {
+ if (!feedRefreshPending || feedRefreshing) return;
  const hasDraft = document.getElementById('more-feedback')?.value.trim() || [...feedbackDrafts.values(), ...socialDrafts.values()].some(value => value.trim());
  const editing = document.querySelector('dialog[open]') || (feedbackPanel && !feedbackPanel.hidden);
  const busy = [...feedbackStates.values()].some(state => state.busy);
@@ -196,8 +173,30 @@ function tryRefreshFeed() {
   if (message) { message.hidden = false; message.textContent = hasDraft ? 'Your new selection is ready. Finish or clear your draft to view it.' : 'Your new selection is ready. Close the open panel to view it.'; }
   return;
  }
- feedRefreshPending = false;
- location.reload();
+ feedRefreshing = true;
+ try {
+  const response = await fetch('/me', {cache:'no-store', headers:{Accept:'text/html'}});
+  if (!response.ok || response.redirected) throw new Error('Could not refresh your feed. Please reload to try again.');
+  const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+  const incoming = page.getElementById('feed-posts'), current = document.getElementById('feed-posts');
+  if (!incoming || !current) throw new Error('Could not refresh your feed. Please reload to try again.');
+  if (document.querySelector('dialog[open]') || (feedbackPanel && !feedbackPanel.hidden) || [...feedbackDrafts.values(), ...socialDrafts.values()].some(value => value.trim()) || document.getElementById('more-feedback')?.value.trim()) return;
+  current.replaceChildren(...incoming.children);
+  const form = document.querySelector('#more .feed-feedback-form');
+  form.querySelectorAll('[name="visible_post_key"]').forEach(input => input.remove());
+  page.querySelectorAll('#more [name="visible_post_key"]').forEach(input => form.append(input));
+  const count = page.querySelector('#daily-limit-open span');
+  if (count) document.querySelector('#daily-limit-open span').textContent = count.textContent;
+  postCards = [...current.querySelectorAll('.post[data-post-key]')];
+  initializePostCards(page);
+  feedRefreshPending = false;
+  const message = document.getElementById('feed-ready-message');
+  if (message) { message.hidden = false; message.textContent = 'Your new selection is ready.'; }
+ } catch (error) {
+  feedRefreshPending = false;
+  const message = document.getElementById('feed-ready-message');
+  if (message) { message.hidden = false; message.textContent = error.message || 'Could not refresh your feed. Please reload to try again.'; }
+ } finally { feedRefreshing = false; }
 }
 document.addEventListener('feedback-draft-change', tryRefreshFeed);
 document.addEventListener('input', tryRefreshFeed);
@@ -259,7 +258,9 @@ if (feedbackPanel) {
   trigger?.focus();
   feedbackPanel.dispatchEvent(new Event('feedback-close'));
  };
- document.querySelectorAll('.feedback-open').forEach(button => button.addEventListener('click', () => {
+ document.addEventListener('click', event => {
+  const button = event.target.closest('.feedback-open');
+  if (!button) return;
   if (trigger) trigger.setAttribute('aria-expanded', 'false');
   trigger = button;
   const post = button.closest('.post');
@@ -277,7 +278,7 @@ if (feedbackPanel) {
   feedbackPanel.hidden = false;
   button.setAttribute('aria-expanded', 'true');
   document.getElementById('feedback').focus();
- }));
+ });
  document.getElementById('feedback-close').addEventListener('click', closeFeedback);
  document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !feedbackPanel.hidden && !document.querySelector('dialog[open]')) closeFeedback();
@@ -494,12 +495,7 @@ function renderEmbeds(container, details) {
   card.append(body); container.append(card);
  }
 }
-const postCards = [...document.querySelectorAll('.post[data-post-key]')];
-postCards.forEach(post => renderPostText(post.querySelector('.post-text')));
-try {
- const metadata = JSON.parse(document.getElementById('post-metadata')?.textContent || '{}');
- postCards.forEach(post => { if (metadata[post.dataset.postKey]) renderPostDetails(post, metadata[post.dataset.postKey]); });
-} catch (_) { /* The original source text is still readable if metadata is unavailable. */ }
+let postCards = [...document.querySelectorAll('.post[data-post-key]')];
 function noteMatchingStatus(result) {
  const node = document.getElementById('note-matching-status');
  if (!node) return;
@@ -548,10 +544,17 @@ if (document.querySelector('[data-live-notes]')) {
   retrying:() => noteMatchingStatus({state:'offline'}),
  });
 }
-if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
+function hydratePostCards(page = document) {
+ postCards.forEach(post => renderPostText(post.querySelector('.post-text')));
+ try {
+  const metadata = JSON.parse(page.getElementById('post-metadata')?.textContent || '{}');
+  postCards.forEach(post => { if (metadata[post.dataset.postKey]) renderPostDetails(post, metadata[post.dataset.postKey]); });
+ } catch (_) { /* The original source text remains readable. */ }
+ if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
  .then(response => response.ok && !response.redirected ? response.json() : null)
  .then(data => { if (data?.items) postCards.forEach(post => {const details = data.items[post.dataset.postKey]; if (details) renderPostDetails(post, details);}); })
  .catch(() => {});
+}
 
 const imageDialog = document.getElementById('image-dialog');
 if (imageDialog) {
@@ -559,7 +562,7 @@ if (imageDialog) {
  imageDialog.addEventListener('click', event => { if (event.target === imageDialog) imageDialog.close(); });
  imageDialog.addEventListener('close', () => { document.getElementById('image-full').removeAttribute('src'); });
 }
-document.querySelectorAll('.share-post').forEach(button => button.addEventListener('click', async () => {
+function bindShareButtons() { document.querySelectorAll('.share-post').forEach(button => button.addEventListener('click', async () => {
  const url = safeHttps(button.dataset.url);
  if (!url) return;
  try {
@@ -567,7 +570,7 @@ document.querySelectorAll('.share-post').forEach(button => button.addEventListen
   else if (navigator.clipboard) { await navigator.clipboard.writeText(url); button.title = 'Link copied'; button.setAttribute('aria-label', 'Link copied'); setTimeout(() => { button.title = 'Share post'; button.setAttribute('aria-label', 'Share post'); }, 2500); }
   else button.closest('.post').querySelector('.social-status').textContent = 'Sharing is unavailable in this browser.';
  } catch (_) { /* Sharing was cancelled or unavailable. */ }
-}));
+})); }
 
 function setSocialContext(author, text, source) {
  document.getElementById('social-context-author').textContent = author || '';
@@ -601,7 +604,7 @@ function openComposer(target, author, text, source, note = null) {
  updateComposerLength();
  socialDialog.showModal(); input.focus();
 }
-postCards.forEach(post => post.addEventListener('click', event => {
+function bindNoteButtons() { postCards.forEach(post => post.addEventListener('click', event => {
  const button = event.target.closest('.use-note');
  if (!button || button.disabled || !post.contains(button)) return;
  const comment = post.querySelector('.social-interact[data-action="comment"]');
@@ -611,7 +614,7 @@ postCards.forEach(post => post.addEventListener('click', event => {
   title:note.querySelector('.meta').textContent.replace(/^From your notes [\u00b7] /, ''),
   text:note.querySelector('blockquote').textContent,
  });
-}));
+})); }
 const ownComments = new Map();
 const deletedComments = new Set();
 const deletedQuotes = new Set();
@@ -671,6 +674,7 @@ async function sendSocial(post, action, text = '') {
  if (action === 'comment') { post.dataset.replyCount = String((Number(post.dataset.replyCount) || 0) + 1); showComments(post); }
  status.textContent = action === 'comment' ? 'Comment posted' : action === 'quote' ? 'Repost with comment posted' : '';
 }
+function bindSocialButtons() {
 const blueskyCards = postCards.filter(post => post.querySelector('.post-actions')?.dataset.platform === 'bluesky');
 postCards.filter(post => !blueskyCards.includes(post)).forEach(post => { post.querySelector('.social-status').textContent = 'X interactions are not connected yet.'; });
 if (blueskyCards.length) fetch('/api/social-state', {cache:'no-store', headers:{Accept:'application/json'}})
@@ -708,8 +712,13 @@ document.querySelectorAll('.repost-control').forEach(control => {
   menu.hidden = !open; opener.setAttribute('aria-expanded', String(open));
   if (open) menu.querySelector('button').focus();
  });
- document.addEventListener('click', event => { if (!control.contains(event.target)) { menu.hidden = true; opener.setAttribute('aria-expanded', 'false'); } });
  control.addEventListener('keydown', event => { if (event.key === 'Escape' && !menu.hidden) { menu.hidden = true; opener.setAttribute('aria-expanded', 'false'); opener.focus(); event.stopPropagation(); } });
+});
+}
+document.addEventListener('click', event => {
+ document.querySelectorAll('.repost-control').forEach(control => {
+  if (!control.contains(event.target)) { control.querySelector('.repost-menu').hidden = true; control.querySelector('.repost-menu-open').setAttribute('aria-expanded', 'false'); }
+ });
 });
 if (socialDialog) {
  document.getElementById('social-close').addEventListener('click', () => socialDialog.close());
@@ -906,8 +915,16 @@ async function showComments(post) {
   else section.textContent = 'Could not load comments. Close and open to try again.';
  }
 }
-document.querySelectorAll('.comments-toggle').forEach(button => button.addEventListener('click', () => {
+function bindCommentButtons() { document.querySelectorAll('.comments-toggle').forEach(button => button.addEventListener('click', () => {
  const post = button.closest('.post'), section = post.querySelector('.comments-list');
  if (section.hidden) showComments(post);
  else { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; }
-}));
+})); }
+function initializePostCards(page = document) {
+ hydratePostCards(page); bindShareButtons(); bindNoteButtons(); bindSocialButtons(); bindCommentButtons();
+ postCards.forEach(post => post.querySelectorAll('time[datetime]').forEach(node => {
+  const date = new Date(node.dateTime);
+  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric'}).format(date);
+ }));
+}
+initializePostCards();

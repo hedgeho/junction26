@@ -119,13 +119,8 @@ async def main():
         await expect(page.locator("#feedback-panel .feedback-receipt")).to_have_count(0)
         await page.locator("#feedback-close").click()
         await posts.first.locator(".feedback-open").click()
-        await expect(page.locator("#feedback-panel .feedback-progress")).to_have_text("Saved preference A")
+        await expect(page.locator("#feedback-panel .feedback-summary")).to_have_text("Saved preference A")
         await expect(page.locator("#feedback")).to_have_value("")
-        await expect(page.locator("#feedback-panel .feedback-request")).to_have_text("Draft A")
-        await expect(page.locator("#feedback-panel .diff-remove")).to_have_text("-Old preference")
-        await expect(page.locator("#feedback-panel .diff-add")).to_have_text(
-            "+New preference <script>window.diffExecuted=1</script>"
-        )
         assert not await page.evaluate("window.diffExecuted || false")
         await expect(page.locator("#feedback-panel .feedback-receipt a")).to_have_attribute(
             "href", "/settings/history/feed-curation"
@@ -137,7 +132,7 @@ async def main():
         await page.set_viewport_size({"width": 1440, "height": 1000})
         assert keys[0] in submissions[0]["body"]
         checks.append("feedback races, correct source context, duplicate protection and scoped completion")
-        checks.append("exact inline feedback diff, source association, safe literal rendering and narrow layout")
+        checks.append("concise feedback summary, source association and narrow layout")
 
         await page.locator("#feedback").fill("Try this again")
         await page.locator("#feedback").press("Control+Enter")
@@ -178,14 +173,10 @@ async def main():
                 "unavailable": False,
             },
         }
-        await expect(page.locator(".more-section .feedback-progress")).to_have_text(
+        await expect(page.locator(".more-section .feedback-summary")).to_have_text(
             "Saved a lasting preference", timeout=5000
         )
         assert submissions[2]["url"].endswith("/me/feedback") and keys[0] in submissions[2]["body"]
-        await expect(page.locator(".more-section .feedback-receipt .diff-note")).to_have_text(
-            "No configuration changes."
-        )
-        await expect(page.locator(".more-section .feedback-request")).to_have_text("More like these")
         await posts.first.locator(".social-interact[data-action=comment]").click()
         await page.locator("#social-text").fill("Unsent comment draft")
         await page.locator("#social-close").click()
@@ -200,13 +191,20 @@ async def main():
         await posts.first.locator(".social-interact[data-action=comment]").click()
         await expect(page.locator("#social-text")).to_have_value("Unsent comment draft")
         await page.locator("#social-text").fill("")
-        async with page.expect_navigation(wait_until="domcontentloaded"):
-            await page.locator("#social-close").click()
-        await page.unroute("**/api/curation")
-        await expect(page.locator("#feed-ready-message")).to_be_hidden()
-        checks.append(
-            "both intentional feed actions, keyboard choice, full-feed context and reload protection for social drafts"
+        await page.evaluate("document.querySelector('.post').dataset.beforeRefresh = 'yes'")
+        await page.locator("#social-close").click()
+        await expect(page.locator("#feed-ready-message")).to_have_text("Your new selection is ready.")
+        assert await posts.first.get_attribute("data-before-refresh") is None
+        visible_keys = await page.locator('#more [name="visible_post_key"]').evaluate_all(
+            "nodes => nodes.map(node => node.value)"
         )
+        assert visible_keys == await posts.evaluate_all("nodes => nodes.map(node => node.dataset.postKey)")
+        await posts.first.locator(".feedback-open").click()
+        await expect(page.locator("#feedback-panel")).to_be_visible()
+        await page.locator("#feedback-close").click()
+        await expect(posts.first.locator(".social-interact[data-action=comment]")).to_be_enabled()
+        await page.unroute("**/api/curation")
+        checks.append("both feed actions, draft protection, in-place refresh and reinitialized post controls")
         print("Feedback and keyboard checks passed", flush=True)
 
         # Responses below are isolated UI simulations; no social API writes reach Bluesky.

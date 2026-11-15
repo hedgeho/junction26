@@ -3,7 +3,8 @@
 <div class="toolbar"><h1>Today</h1><div class="toolbar-meta"><button type="button" class="count-edit" id="daily-limit-open" aria-label="Change posts per day" aria-haspopup="dialog" aria-controls="daily-limit-dialog"><span>{{ posts|length }} {{ 'post' if posts|length == 1 else 'posts' }}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg></button><button type="button" class="funnel-open" aria-haspopup="dialog" aria-controls="algorithm-info-dialog">How these were picked</button></div></div>
 {% if posts and curation_status.state != 'ready' %}<div class="notice" role="status"{% if curation_status.state == 'processing' %} hidden{% endif %}><span id="curation-pending">{{ curation_status.label }}</span></div>{% endif %}
 <p id="feed-ready-message" class="status" role="status" hidden></p>
-{% for post in posts %}
+ <div id="feed-posts">
+ {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}" data-source-url="{{ post.url }}">
   <div class="quote-contributions" aria-label="Your quote posts"></div>
   <div class="post-original"><div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ platform_names[post.platform] }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
@@ -34,6 +35,7 @@
   {% else %}<h2>No posts yet.</h2>{% endif %}
 </section>
 {% endfor %}
+</div>
 {% if notes_connected and posts %}<p class="note-matching-status help" role="status" aria-live="polite"><span id="note-matching-status">Looking for passages from your notes...</span> <a href="/settings" id="note-matching-settings" hidden>Check notes connection</a></p>{% endif %}
 <section class="more-section" id="more">
   <form method="post" action="/me/feedback" class="feed-feedback-form" data-feedback-scope="feed">
