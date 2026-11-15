@@ -321,6 +321,11 @@ main.landing { width: 100%; padding: 0; }
 body:has(.landing) .site-header { height: 75px; border-bottom: 0; }
 .landing-header-cta, .landing .story-link { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; font-weight: 400; letter-spacing: .13em; text-transform: uppercase; }
 .landing-hero { position: relative; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 56px 56px; }
+.olive-vine { position: absolute; width: clamp(110px, 15vw, 200px); color: var(--primary); opacity: .43; pointer-events: none; }
+.hero-vine { top: 0; right: 0; }
+.landing-hero .hero-copy, .join-grid { position: relative; }
+.landing-join { position: relative; overflow: hidden; }
+.join-vine { bottom: -120px; left: -45px; transform: rotate(180deg); opacity: .24; }
 .landing-hero .hero-copy { min-height: 600px; padding-top: 105px; padding-bottom: 100px; }
 .hero-wordmark { display: flex; align-items: center; gap: clamp(24px, 4vw, 52px); color: var(--ink); }
 .hero-wordmark svg { width: clamp(80px, 10vw, 150px); flex: 0 0 auto; }
@@ -350,4 +355,6 @@ body:has(.landing) .site-header { height: 75px; border-bottom: 0; }
  .landing-section { padding: 72px 0; }
  .story-grid { grid-template-columns: 1fr; }
  .statue-art { max-width: 340px; }
+ .hero-vine { width: 90px; right: -22px; opacity: .2; }
+ .join-vine { width: 100px; left: -40px; }
 }
