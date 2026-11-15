@@ -286,12 +286,13 @@ main.landing { width: 100%; padding: 0; }
 .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; margin-top: 28px; }
 .landing-button { min-height: 52px; padding: 13px 20px; border-radius: 4px; font-size: 13px; }
 .landing-button span { margin-left: 12px; }
-.network-cta .network-label { position: relative; display: inline-grid; min-width: 91px; margin-left: 0; text-align: left; }
+.network-cta { gap: 4px; }
+.network-cta .network-label { position: relative; display: inline-grid; min-width: 91px; margin-left: 0; text-align: left; overflow: hidden; }
 .network-cta .network-label > span { grid-area: 1 / 1; margin: 0; white-space: nowrap; }
 .network-threads { opacity: 0; animation: network-threads 8s infinite; }
 .network-bluesky { animation: network-bluesky 8s infinite; }
-@keyframes network-bluesky { 0%, 43%, 100% { opacity: 1; } 50%, 93% { opacity: 0; } }
-@keyframes network-threads { 0%, 43%, 100% { opacity: 0; } 50%, 93% { opacity: 1; } }
+@keyframes network-bluesky { 0%, 40% { opacity: 1; transform: translateY(0); } 48%, 92% { opacity: 0; transform: translateY(-8px); } 93% { opacity: 0; transform: translateY(8px); } 100% { opacity: 1; transform: translateY(0); } }
+@keyframes network-threads { 0%, 40% { opacity: 0; transform: translateY(8px); } 48%, 90% { opacity: 1; transform: translateY(0); } 98%, 100% { opacity: 0; transform: translateY(-8px); } }
 @media (prefers-reduced-motion: reduce) {
  .network-cta .network-label { display: inline; min-width: 0; }
  .network-cta .network-label > span { display: inline; opacity: 1; }
