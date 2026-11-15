@@ -169,11 +169,17 @@ if (feedbackPanel) {
  });
 }
 const algorithmDialog = document.getElementById('algorithm-info-dialog');
-const algorithmOpen = document.getElementById('algorithm-info-open');
-if (algorithmDialog && algorithmOpen) {
- algorithmOpen.addEventListener('click', () => { algorithmDialog.showModal(); loadFunnel(algorithmDialog.querySelector('.funnel')); });
+let algorithmOpener = null;
+if (algorithmDialog) {
+ document.querySelectorAll('#algorithm-info-open, .funnel-open').forEach(button => button.addEventListener('click', () => {
+  algorithmOpener = button;
+  algorithmDialog.showModal();
+  algorithmDialog.scrollTop = 0;
+  loadFunnel(algorithmDialog.querySelector('.funnel'));
+ }));
+
  document.getElementById('algorithm-info-close').addEventListener('click', () => algorithmDialog.close());
- algorithmDialog.addEventListener('close', () => algorithmOpen.focus());
+ algorithmDialog.addEventListener('close', () => algorithmOpener?.focus());
  algorithmDialog.addEventListener('click', event => {
   if (event.target !== algorithmDialog) return;
   const rect = algorithmDialog.getBoundingClientRect();

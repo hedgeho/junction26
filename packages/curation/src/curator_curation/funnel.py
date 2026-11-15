@@ -13,7 +13,7 @@ LABELS = {
     "firehose": "Bluesky firehose",
     "language": "Other languages",
     "window": "Stored from the last 24 hours",
-    "not_recalled": "Not among your candidates",
+    "not_recalled": "Not from your follows, their likes, For You, your topics or trends",
     "blocked": "Authors you blocked",
     "candidates": "Your candidates",
     "campaign": "Copy-paste campaigns",
