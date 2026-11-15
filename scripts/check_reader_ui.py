@@ -203,8 +203,49 @@ async def main():
         await expect(page.locator("#feedback-panel")).to_be_visible()
         await page.locator("#feedback-close").click()
         await expect(posts.first.locator(".social-interact[data-action=comment]")).to_be_enabled()
+        refresh_attempts = []
+
+        async def fail_first_refresh(route):
+            refresh_attempts.append(route.request.url)
+            if len(refresh_attempts) == 1:
+                await route.fulfill(status=503, body="unavailable")
+            else:
+                await route.continue_()
+
+        await page.route("**/me", fail_first_refresh)
+        await page.locator("#more-feedback").fill("Another selection")
+        await page.locator(".more-action-primary").click()
+        await asyncio.sleep(0.25)
+        jobs["job4"] = {"state": "applied", "changes": ["Added an interest"]}
+        await expect(page.locator("#feed-ready-message")).to_contain_text("Could not refresh your feed", timeout=6500)
+        await page.locator("#feed-ready-message button").click()
+        await expect(page.locator("#feed-ready-message")).to_have_text("Your new selection is ready.")
+        assert len(refresh_attempts) == 2
+        await page.unroute("**/me")
+        refresh_started, release_refresh = asyncio.Event(), asyncio.Event()
+
+        async def hold_refresh(route):
+            refresh_started.set()
+            await release_refresh.wait()
+            await route.continue_()
+
+        await page.route("**/me", hold_refresh)
+        await page.locator("#more-feedback").fill("One more selection")
+        await page.locator(".more-action-primary").click()
+        await asyncio.sleep(0.25)
+        jobs["job5"] = {"state": "applied", "changes": ["Added another interest"]}
+        await asyncio.wait_for(refresh_started.wait(), timeout=7)
+        await page.locator("#more-feedback").fill("Draft started while refreshing")
+        release_refresh.set()
+        await expect(page.locator("#feed-ready-message")).to_contain_text("Finish or clear your draft")
+        await expect(page.locator("#more-feedback")).to_have_value("Draft started while refreshing")
+        await page.locator("#more-feedback").fill("")
+        await expect(page.locator("#feed-ready-message")).to_have_text("Your new selection is ready.")
+        await page.unroute("**/me")
         await page.unroute("**/api/curation")
         checks.append("both feed actions, draft protection, in-place refresh and reinitialized post controls")
+        checks.append("failed in-place refresh can be retried without losing the page")
+        checks.append("a draft started during refresh is preserved until cleared")
         print("Feedback and keyboard checks passed", flush=True)
 
         # Responses below are isolated UI simulations; no social API writes reach Bluesky.
@@ -431,6 +472,13 @@ async def main():
         await page.locator("#social-text").fill("")
         await page.locator("#social-close").click()
         checks.append("long note excerpts are never truncated, cannot post over limit and remain editable")
+
+        await page.evaluate("refreshFeedWhenSafe()")
+        await expect(page.locator("#feed-ready-message")).to_have_text("Your new selection is ready.")
+        await page.clock.fast_forward(1600)
+        await expect(posts.first.locator(".note-match blockquote")).to_have_text(long_excerpt)
+        await expect(posts.first.locator(".use-note")).to_be_enabled()
+        checks.append("note matching restarts promptly after an in-place feed refresh")
 
         for state_name, message in [
             ("ready", "No passages from your notes match this selection."),

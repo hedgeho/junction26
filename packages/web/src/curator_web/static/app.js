@@ -59,6 +59,7 @@ function pollStatus(url, node, isDone, render, options = {}) {
    }
    if (!response.ok || response.redirected) throw new Error('status unavailable');
    const result = await response.json();
+   if (stopped) return;
    delay = options.delay ? options.delay(result) : (options.initialDelay ?? 1500);
    render(result);
    if (isDone(result)) return;
@@ -161,26 +162,30 @@ document.querySelectorAll('time[data-epoch]').forEach(node => {
  const date = new Date(Number(node.dataset.epoch) * 1000);
  if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {dateStyle:'medium',timeStyle:'short'}).format(date);
 });
-let feedRefreshPending = false, feedRefreshing = false;
-function refreshFeedWhenSafe() { feedRefreshPending = true; tryRefreshFeed(); }
-async function tryRefreshFeed() {
- if (!feedRefreshPending || feedRefreshing) return;
+let feedRefreshPending = false, feedRefreshing = false, feedRefreshVersion = 0;
+function refreshFeedWhenSafe() { feedRefreshPending = true; feedRefreshVersion++; tryRefreshFeed(); }
+function refreshBlocked() {
  const hasDraft = document.getElementById('more-feedback')?.value.trim() || [...feedbackDrafts.values(), ...socialDrafts.values()].some(value => value.trim());
  const editing = document.querySelector('dialog[open]') || (feedbackPanel && !feedbackPanel.hidden);
  const busy = [...feedbackStates.values()].some(state => state.busy);
- if (hasDraft || editing || busy) {
-  const message = document.getElementById('feed-ready-message');
-  if (message) { message.hidden = false; message.textContent = hasDraft ? 'Your new selection is ready. Finish or clear your draft to view it.' : 'Your new selection is ready. Close the open panel to view it.'; }
-  return;
- }
+ if (!hasDraft && !editing && !busy) return false;
+ const message = document.getElementById('feed-ready-message');
+ if (message) { message.hidden = false; message.textContent = hasDraft ? 'Your new selection is ready. Finish or clear your draft to view it.' : 'Your new selection is ready. Close the open panel to view it.'; }
+ return true;
+}
+async function tryRefreshFeed() {
+ if (!feedRefreshPending || feedRefreshing) return;
+ if (refreshBlocked()) return;
  feedRefreshing = true;
+ const version = feedRefreshVersion;
  try {
   const response = await fetch('/me', {cache:'no-store', headers:{Accept:'text/html'}});
-  if (!response.ok || response.redirected) throw new Error('Could not refresh your feed. Please reload to try again.');
+  if (response.redirected || response.status === 401) throw new Error('Your session expired. Reload the page to reconnect.');
+  if (!response.ok) throw new Error('Could not refresh your feed.');
   const page = new DOMParser().parseFromString(await response.text(), 'text/html');
   const incoming = page.getElementById('feed-posts'), current = document.getElementById('feed-posts');
-  if (!incoming || !current) throw new Error('Could not refresh your feed. Please reload to try again.');
-  if (document.querySelector('dialog[open]') || (feedbackPanel && !feedbackPanel.hidden) || [...feedbackDrafts.values(), ...socialDrafts.values()].some(value => value.trim()) || document.getElementById('more-feedback')?.value.trim()) return;
+  if (!incoming || !current) throw new Error('Could not refresh your feed.');
+  if (refreshBlocked() || version !== feedRefreshVersion) return;
   current.replaceChildren(...incoming.children);
   const form = document.querySelector('#more .feed-feedback-form');
   form.querySelectorAll('[name="visible_post_key"]').forEach(input => input.remove());
@@ -193,10 +198,18 @@ async function tryRefreshFeed() {
   const message = document.getElementById('feed-ready-message');
   if (message) { message.hidden = false; message.textContent = 'Your new selection is ready.'; }
  } catch (error) {
+  if (version !== feedRefreshVersion) return;
   feedRefreshPending = false;
   const message = document.getElementById('feed-ready-message');
-  if (message) { message.hidden = false; message.textContent = error.message || 'Could not refresh your feed. Please reload to try again.'; }
- } finally { feedRefreshing = false; }
+  if (message) {
+   message.hidden = false; message.textContent = (error.message || 'Could not refresh your feed.') + ' ';
+   const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'text-link'; retry.textContent = 'Try again';
+   retry.addEventListener('click', refreshFeedWhenSafe); message.append(retry);
+  }
+ } finally {
+  feedRefreshing = false;
+  if (feedRefreshPending && version !== feedRefreshVersion) tryRefreshFeed();
+ }
 }
 document.addEventListener('feedback-draft-change', tryRefreshFeed);
 document.addEventListener('input', tryRefreshFeed);
@@ -513,9 +526,15 @@ function noteMatchingStatus(result) {
  node.textContent = messages[result.state] || (count ? `${found} Checking the remaining notes...` : 'Looking for passages from your notes...');
  document.getElementById('note-matching-settings').hidden = !['no_notes','unavailable'].includes(result.state);
 }
-if (document.querySelector('[data-live-notes]')) {
- const noteTarget = document.querySelector('[data-live-notes]');
- pollStatus('/api/note-matches', noteTarget, () => false, result => {
+let stopNoteMatching;
+function startNoteMatching() {
+ stopNoteMatching?.();
+ const noteTarget = document.getElementById('note-matching-status');
+ if (!noteTarget) return;
+ noteTarget.parentElement.hidden = !postCards.length;
+ if (!postCards.length) return;
+ noteTarget.textContent = 'Looking for passages from your notes...';
+ stopNoteMatching = pollStatus('/api/note-matches', noteTarget, () => false, result => {
   if (!result.items) return;
   postCards.forEach(post => {
    const container = post.querySelector('.note-matches');
@@ -921,7 +940,7 @@ function bindCommentButtons() { document.querySelectorAll('.comments-toggle').fo
  else { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; }
 })); }
 function initializePostCards(page = document) {
- hydratePostCards(page); bindShareButtons(); bindNoteButtons(); bindSocialButtons(); bindCommentButtons();
+ hydratePostCards(page); bindShareButtons(); bindNoteButtons(); bindSocialButtons(); bindCommentButtons(); startNoteMatching();
  postCards.forEach(post => post.querySelectorAll('time[datetime]').forEach(node => {
   const date = new Date(node.dateTime);
   if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric'}).format(date);

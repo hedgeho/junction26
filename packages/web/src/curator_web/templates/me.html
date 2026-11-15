@@ -36,7 +36,7 @@
 </section>
 {% endfor %}
 </div>
-{% if notes_connected and posts %}<p class="note-matching-status help" role="status" aria-live="polite"><span id="note-matching-status">Looking for passages from your notes...</span> <a href="/settings" id="note-matching-settings" hidden>Check notes connection</a></p>{% endif %}
+{% if notes_connected %}<p class="note-matching-status help" role="status" aria-live="polite"{% if not posts %} hidden{% endif %}><span id="note-matching-status">Looking for passages from your notes...</span> <a href="/settings" id="note-matching-settings" hidden>Check notes connection</a></p>{% endif %}
 <section class="more-section" id="more">
   <form method="post" action="/me/feedback" class="feed-feedback-form" data-feedback-scope="feed">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ more_submission_key }}">{% for post in posts %}<input type="hidden" name="visible_post_key" value="{{ post.key }}">{% endfor %}
