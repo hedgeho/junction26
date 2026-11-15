@@ -220,7 +220,7 @@ if (pending) pollStatus('/api/curation', pending, result => result.state === 're
  else {
   pending.textContent = result.label;
   const notice = pending.closest('.notice');
-  if (notice) notice.hidden = result.state === 'processing';
+  if (notice) notice.hidden = ['processing','failed'].includes(result.state);
  }
 }, {delay:result => result.state === 'processing' ? 1500 : 15000, unavailable:message => {
  pending.textContent = message;

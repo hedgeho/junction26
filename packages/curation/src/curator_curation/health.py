@@ -10,7 +10,7 @@ from .config import settings
 LABELS = {
     "not_configured": "Filtering is not configured.",
     "offline": "Filtering is offline.",
-    "failed": "Filtering temporarily unavailable. Retrying.",
+    "failed": "Your selection is temporarily unavailable.",
     "processing": "Filtering posts...",
     "ready": "Ready",
 }
