@@ -1,9 +1,11 @@
 """Cheap recall: which posts are worth spending an LLM call on for this reader."""
 
+import json
 import logging
 import math
 import time
 
+from curator_core import db
 from curator_core.rows import Post
 
 from .readers import prefs_of
@@ -75,6 +77,34 @@ def candidates(conn, did: str, limit: int) -> list[Post]:
     return list(seen.values())
 
 
+RISING_KEY = "rising-posts"
+RISING_TTL_S = 300
+RISING_MIN_ENGAGEMENT = 5
+RISING_KEEP = 5000
+
+
+def rising(conn, limit: int) -> list[str]:
+    """Top-level posts gaining engagement fastest: (likes + 2·reposts + replies) / (age_h + 2)^1.5.
+
+    Shared by all readers and recomputed at most every few minutes.
+    """
+    now = int(time.time())
+    cached = db.kv_get(conn, RISING_KEY)
+    if cached:
+        entry = json.loads(cached)
+        if now - entry["at"] < RISING_TTL_S:
+            return entry["keys"][:limit]
+    rows = conn.execute(
+        """SELECT uri, likes + 2 * reposts + replies, indexed_at FROM posts
+        WHERE indexed_at>? AND reply_parent IS NULL AND likes + 2 * reposts + replies >= ?""",
+        (now - CANDIDATE_WINDOW_H * 3600, RISING_MIN_ENGAGEMENT),
+    ).fetchall()
+    ranked = sorted(rows, key=lambda r: r[1] / ((now - r[2]) / 3600 + 2) ** 1.5, reverse=True)
+    keys = ["bluesky:" + r[0] for r in ranked[:RISING_KEEP]]
+    db.kv_set(conn, RISING_KEY, json.dumps({"at": now, "keys": keys}))
+    return keys[:limit]
+
+
 def public_candidates(conn, did: str, terms: list[str], limit: int):
     """Recall follows and explicit topics across the full source window, plus discovery.
 
@@ -107,7 +137,8 @@ def public_candidates(conn, did: str, terms: list[str], limit: int):
             (query, since, share),
         )
         pools.append([f"{r[0]}:{r[1]}" for r in normalized])
-    # Discovery backfills unused quota, while deterministic dedup preserves source identity.
+    pools.append(rising(conn, share))
+    # Recent posts backfill unused quota, while deterministic dedup preserves source identity.
     pools.append([p.key for p in recent_posts(conn, since, limit)])
     seen = {}
     for pool in pools:

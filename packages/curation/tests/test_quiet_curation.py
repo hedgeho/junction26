@@ -512,3 +512,16 @@ def test_failed_batches_return_their_scoring_budget(conn):
 
     worker.run_cycle(conn, Down())
     assert int(conn.execute("SELECT value FROM kv WHERE key=?", (worker.budget_key(uid),)).fetchone()[0]) == 0
+
+
+def test_discovery_prefers_posts_gaining_engagement_fastest(conn):
+    from curator_curation.candidates import public_candidates
+
+    setup(conn)
+    for i in range(10):
+        insert_post(conn, "did:plc:noise", str(i), "Unrelated latest firehose message")
+    fast = insert_post(conn, "did:plc:a", "fast", "Fresh post taking off", age_s=1800, likes=40)
+    slow = insert_post(conn, "did:plc:b", "slow", "Old post that drifted up", age_s=20 * 3600, likes=60)
+    insert_post(conn, "did:plc:c", "reply", "Busy reply", age_s=600, likes=90, reply_parent="at://x/y/z")
+    keys = [p.key for p in public_candidates(conn, DID, [], 6)]
+    assert keys[:2] == ["bluesky:" + fast, "bluesky:" + slow]
