@@ -316,7 +316,7 @@ function renderRanking(box, ranking) {
  formula.push(' ', term('\u00d7 \u00bd', el('sup', '', `age \u00f7 ${ranking.half_life_h} h`)));
  formula.push(' ', term(`\u00d7 ${ranking.flag_factor === 0.5 ? '\u00bd' : ranking.flag_factor} per content flag`));
  box.querySelector('.funnel-formula').replaceChildren(...formula);
- box.querySelector('.funnel-rule').textContent = `A post competes once the model includes it with relevance \u2265 ${ranking.min_relevance.toFixed(2)}. The ${ranking.daily_limit} highest values fill your feed, at most ${ranking.max_per_author} per author and one per conversation or linked story.`;
+ box.querySelector('.funnel-rule').textContent = `To compete, a post needs a relevance of at least ${ranking.min_relevance.toFixed(2)}. The ${ranking.daily_limit} posts with the highest value make your feed, with at most ${ranking.max_per_author} per author and one per conversation or linked story.`;
  box.hidden = false;
 }
 function renderBenchmark(box, check) {
@@ -330,7 +330,7 @@ function renderBenchmark(box, check) {
   item.append(bar, el('span', 'funnel-drop-count', row.ndcg.toFixed(2)), el('span', 'funnel-drop-label', row.label));
   return item;
  }));
- box.querySelector('.funnel-benchmark-note').textContent = `Ranking quality is NDCG@10, where 1.00 means the same top 10 as ${check.reference}. ${check.ranking_note}`;
+ box.querySelector('.funnel-benchmark-note').textContent = `Scores are NDCG@10: 1.00 means the same top 10, in the same order, as ${check.reference}. ${check.ranking_note}`;
  box.hidden = false;
 }
 async function loadFunnel(section) {
@@ -365,7 +365,7 @@ async function loadFunnel(section) {
      const label = el('span', 'funnel-drop-label', drop.label);
      const precision = funnel.check?.drops[drop.key];
      if (precision) {
-      const agreed = el('span', 'funnel-agree', ` \u00b7 ${funnel.check.reference_short} agreed on ${Math.round(precision * 100)}%`);
+      const agreed = el('span', 'funnel-agree', ` \u00b7 ${funnel.check.reference_short} agreed ${Math.round(precision * 100)}%`);
       agreed.title = `Of the real posts hidden for this flag, ${Math.round(precision * 100)}% were also flagged by ${funnel.check.reference}.`;
       label.append(agreed);
      }

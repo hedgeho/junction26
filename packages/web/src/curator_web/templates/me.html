@@ -63,10 +63,11 @@
   <div class="dialog-head"><div><span class="algorithm-eyebrow">UNDER THE HOOD</span><h2 id="algorithm-info-title">How your feed works</h2></div><button type="button" class="icon" id="algorithm-info-close" aria-label="Close explanation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div>
   <section class="funnel" aria-labelledby="funnel-title">
     <h3 id="funnel-title">Your feed today</h3>
-    <p class="funnel-intro">Each post is counted once, at the step that removed it.</p>
+    <p class="funnel-intro">How a day of Bluesky posts narrows down to your feed. Each post is counted once, at the step that filtered it out.</p>
+    <p class="funnel-nb"><strong>NB:</strong> This demo runs on our own API tokens, so some steps are rate-limited and may be slow or incomplete.</p>
     <p class="funnel-status" role="status">Counting posts&hellip;</p>
     <ol class="funnel-stages" hidden></ol>
-    <div class="funnel-ranking" hidden><h4>How the picks are ranked</h4><p class="funnel-formula"></p><p class="funnel-rule"></p><div class="funnel-benchmark" hidden><h4>How well the model ranks, against Opus</h4><ul class="funnel-benchmark-rows"></ul><p class="funnel-benchmark-note"></p></div></div>
+    <div class="funnel-ranking" hidden><h4>How the picks are ranked</h4><p class="funnel-formula"></p><p class="funnel-rule"></p><div class="funnel-benchmark" hidden><h4>How our ranking compares with Opus</h4><ul class="funnel-benchmark-rows"></ul><p class="funnel-benchmark-note"></p></div></div>
     <p class="funnel-notes" hidden></p>
     <p class="funnel-method" hidden></p>
   </section>
