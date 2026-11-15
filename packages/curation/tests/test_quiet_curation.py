@@ -771,7 +771,119 @@ def test_feedback_preserves_post_context_after_source_disappears(conn):
     assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
 
 
-def test_feedback_is_preserved_when_model_only_changes_search_terms(conn):
+def test_feedback_snapshots_quoted_and_parent_context_before_sources_disappear(conn):
+    uid, _ = setup(conn)
+    quoted = insert_post(conn, "did:plc:researcher", "quoted", "A reproducible optimization benchmark")
+    parent = insert_post(conn, "did:plc:researcher", "parent", "Comparison of compiler tradeoffs")
+    reply = insert_post(
+        conn,
+        "did:plc:author",
+        "reply",
+        "This is the sort of evidence we need",
+        embed_kind="record",
+        embed_ref=quoted,
+        reply_parent=parent,
+    )
+    job = jobs.enqueue(conn, uid, "public", "I want more of this", "related-snapshot", "bluesky:" + reply)
+    conn.execute("DELETE FROM posts")
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            assert "A reproducible optimization benchmark" in feedback
+            assert "Comparison of compiler tradeoffs" in feedback
+            assert "Quoted post by" in feedback and "Reply parent by" in feedback
+            return ProfileProposal(markdown=current + "\n- [topic] Prefer evidence-backed compiler comparisons\n")
+
+    assert jobs.process_one(conn, Model())
+    assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
+
+
+def test_feed_snapshot_is_retained_when_sources_change(conn):
+    uid, _ = setup(conn)
+    context = json.dumps([{"post_key": "bluesky:original", "text": "A reproducible compiler evaluation"}])
+    job = jobs.enqueue(conn, uid, "public", "I want more of this", "feed-snapshot", feed_context=context)
+    conn.execute("DELETE FROM posts")
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            assert "A reproducible compiler evaluation" in feedback
+            return ProfileProposal(markdown=current + "\n- [topic] Prefer reproducible compiler evaluations\n")
+
+    assert jobs.process_one(conn, Model())
+    assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
+
+
+def test_image_descriptions_and_link_previews_ground_post_feedback(conn):
+    uid, key = setup(conn)
+    media = [
+        {"type": "image", "alt": "A compiler performance comparison chart"},
+        {
+            "type": "link",
+            "title": "Reproducible compiler research",
+            "description": "Benchmark methodology and source code",
+        },
+    ]
+    conn.execute("UPDATE posts SET text='',media=?", (json.dumps(media),))
+    job = jobs.enqueue(conn, uid, "public", "I want more of this", "media-context", key)
+    conn.execute("DELETE FROM posts")
+
+    class Model:
+        def update_profile(self, current, feedback, terms=()):
+            assert "Image description: A compiler performance comparison chart" in feedback
+            assert (
+                "Linked page preview: Reproducible compiler research Benchmark methodology and source code" in feedback
+            )
+            return ProfileProposal(markdown=current + "\n- [topic] Prefer evidence-backed compiler benchmarks\n")
+
+    assert jobs.process_one(conn, Model())
+    assert conn.execute("SELECT state FROM feedback_jobs WHERE id=?", (job,)).fetchone()[0] == "applied"
+
+
+def test_empty_post_without_descriptive_context_does_not_invent_an_interest(conn):
+    uid, key = setup(conn)
+    conn.execute("UPDATE posts SET text=''")
+    parent = profiles.head(conn, uid)["id"]
+
+    class UnexpectedModel:
+        def update_profile(self, *args):
+            pytest.fail("An author identity alone is not sufficient source context")
+
+    job = jobs.enqueue(conn, uid, "public", "I want more of this", "empty-post", key)
+    assert jobs.process_one(conn, UnexpectedModel())
+    result = conn.execute("SELECT state,applied_revision FROM feedback_jobs WHERE id=?", (job,)).fetchone()
+    assert result["state"] == "applied" and result["applied_revision"] == parent
+
+
+@pytest.mark.parametrize("limit", [0, 5, 20, 100])
+def test_context_excerpts_are_bounded_and_keep_the_ending(limit):
+    text = "Opening context " + "x" * 200 + " final conclusion"
+    result = jobs.excerpt(text, limit)
+    assert len(result) <= limit
+    if limit >= 100:
+        assert result.startswith("Opening context") and result.endswith("final conclusion")
+        assert "[truncated]" in result
+
+
+@pytest.mark.parametrize("mode", ["preference", "more"])
+@pytest.mark.parametrize("feed_context", ["", "[]", '[{"post_key":"bluesky:empty","text":"","context":""}]'])
+def test_unresolved_feedback_without_sources_is_an_exact_noop(conn, mode, feed_context):
+    uid, _ = setup(conn)
+    parent = profiles.head(conn, uid)["id"]
+    original = profiles.markdown(conn, uid)
+
+    class UnexpectedModel:
+        def update_profile(self, *args):
+            pytest.fail("Vague feedback without sources must not invent a preference")
+
+    job = jobs.enqueue(conn, uid, "public", "I want more of this", "unresolved", mode=mode, feed_context=feed_context)
+    assert jobs.process_one(conn, UnexpectedModel())
+    result = conn.execute("SELECT state,applied_revision FROM feedback_jobs WHERE id=?", (job,)).fetchone()
+    assert result["state"] == "applied" and result["applied_revision"] == parent
+    assert profiles.markdown(conn, uid) == original
+
+
+@pytest.mark.parametrize("feedback", ["Less hype, but keep technical depth", "I want more of this"])
+def test_uninterpreted_feedback_is_not_copied_when_model_only_changes_search_terms(conn, feedback):
     uid, key = setup(conn)
     original = profiles.markdown(conn, uid)
     current_terms = json.loads(profiles.head(conn, uid)["search_terms"])
@@ -780,11 +892,27 @@ def test_feedback_is_preserved_when_model_only_changes_search_terms(conn):
         def update_profile(self, current, feedback, terms=()):
             return ProfileProposal(markdown=current, search_terms=["unrelated"])
 
-    jobs.enqueue(conn, uid, "public", "Less hype, but keep technical depth", "missed-edit", key)
+    jobs.enqueue(conn, uid, "public", feedback, "missed-edit", key)
     assert jobs.process_one(conn, MissedEdit())
-    assert "- [feedback] Less hype, but keep technical depth" in profiles.markdown(conn, uid)
-    assert original.strip() in profiles.markdown(conn, uid)
+    assert profiles.markdown(conn, uid) == original
     assert json.loads(profiles.head(conn, uid)["search_terms"]) == current_terms
+
+
+@pytest.mark.parametrize("mode", ["preference", "more"])
+@pytest.mark.parametrize("category", ["topic", "feedback"])
+def test_verbatim_feedback_proposals_are_retried_without_changing_profile(conn, mode, category):
+    uid, key = setup(conn)
+    original = profiles.markdown(conn, uid)
+
+    class VerbatimModel:
+        def update_profile(self, current, feedback, terms=()):
+            return ProfileProposal(markdown=current + f"\n- [{category}] I want more of this\n", search_terms=[])
+
+    job = jobs.enqueue(conn, uid, "public", "I want more of this", "verbatim", key, mode=mode)
+    assert jobs.process_one(conn, VerbatimModel())
+    assert profiles.markdown(conn, uid) == original
+    result = conn.execute("SELECT state,error_code FROM feedback_jobs WHERE id=?", (job,)).fetchone()
+    assert result["state"] == "queued" and result["error_code"] == "update_failed"
 
 
 def test_decision_scorer_excludes_policy_blocked_posts_but_raises_other_errors():

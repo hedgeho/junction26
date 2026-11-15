@@ -1,6 +1,19 @@
 from curator_curation import profiles
 
 
+def test_diff_only_shows_changed_lines_with_separate_hunks(conn):
+    uid = profiles.reader_id(conn, "did:plc:diffs")
+    old = "# Preferences\n\n- [topic] Compilers\n- [rule] No hype\n- [topic] Birds\n"
+    new = old.replace("Compilers", "Compiler benchmarks").replace("Birds", "Bird photography")
+    first = profiles.save(conn, uid, "public", old, None)
+    second = profiles.save(conn, uid, "public", new, first)
+    diff = profiles.revision_diff(conn, uid, second)
+    assert diff["added"] == diff["removed"] == 2
+    assert not any(line["type"] == "context" for line in diff["lines"])
+    assert sum(line["type"] == "hunk" for line in diff["lines"]) == 2
+    assert all("No hype" not in line["text"] and "# Preferences" not in line["text"] for line in diff["lines"])
+
+
 def test_full_diff_includes_headings_all_changes_and_ambiguous_prefixes(conn):
     uid = profiles.reader_id(conn, "did:plc:diffs")
     old = "# Old heading\n-- removed text\n" + "".join(f"- old {i}\n" for i in range(9))

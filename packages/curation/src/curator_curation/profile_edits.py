@@ -7,6 +7,75 @@ SECTION = re.compile(r"\s+(?=#{1,6} )")
 MAX_TERMS = 30
 
 
+def unresolved_reference(text: str) -> bool:
+    words = set(re.findall(r"[^\W_]+", text.casefold()))
+    references = {"this", "that", "these", "those", "it", "more", "less", "fewer", "similar"}
+    generic = {
+        "i",
+        "d",
+        "m",
+        "would",
+        "want",
+        "like",
+        "liked",
+        "love",
+        "loved",
+        "prefer",
+        "please",
+        "show",
+        "me",
+        "see",
+        "seeing",
+        "give",
+        "recommend",
+        "recommendations",
+        "more",
+        "less",
+        "fewer",
+        "much",
+        "some",
+        "of",
+        "on",
+        "a",
+        "an",
+        "lot",
+        "similar",
+        "to",
+        "than",
+        "as",
+        "these",
+        "those",
+        "this",
+        "that",
+        "it",
+        "posts",
+        "post",
+        "content",
+        "stuff",
+        "thing",
+        "things",
+        "kind",
+        "type",
+        "such",
+        "not",
+        "no",
+        "do",
+        "don",
+        "t",
+        "avoid",
+        "exclude",
+        "never",
+        "again",
+        "interesting",
+        "good",
+        "great",
+        "really",
+        "especially",
+        "the",
+    }
+    return bool(words & references) and words <= generic
+
+
 def parse(markdown: str) -> tuple[str, list[tuple[str, str]], str]:
     """Leading text, `- [category] text` preference lines, and any section after the last line."""
     starts = list(ITEM.finditer(markdown))
@@ -22,6 +91,55 @@ def parse(markdown: str) -> tuple[str, list[tuple[str, str]], str]:
     if len(last) == 2:
         items[-1][1], tail = last
     return head, [(c, " ".join(t.split())) for c, t in items], tail.strip()
+
+
+def grounded_removals(markdown: str, edits) -> list[int]:
+    _, items, _ = parse(markdown)
+    ignored = {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "of",
+        "in",
+        "on",
+        "to",
+        "for",
+        "from",
+        "with",
+        "without",
+        "about",
+        "but",
+        "more",
+        "less",
+        "much",
+        "fewer",
+        "prefer",
+        "avoid",
+        "exclude",
+        "include",
+        "no",
+        "not",
+        "posts",
+        "post",
+        "content",
+        "current",
+        "enduring",
+        "historical",
+        "previously",
+        "only",
+        "all",
+        "any",
+    }
+
+    def subjects(text):
+        return set(re.findall(r"[^\W_]+", text.casefold())) - ignored
+
+    replacements = set().union(*(subjects(line.text) for line in edits.add if line.category != TERM))
+    if any(not 0 <= index < len(items) for index in edits.remove):
+        raise ValueError("unknown preference id")
+    return [index for index in edits.remove if subjects(items[index][1]) & replacements]
 
 
 def render(head: str, items: list[tuple[str, str]], tail: str) -> str:
