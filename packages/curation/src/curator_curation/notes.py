@@ -15,6 +15,19 @@ from . import jobs, profiles
 from .config import settings
 
 log = logging.getLogger(__name__)
+MATCH_VERSION = "direct-relevance-v3"
+MIN_MATCH_RELEVANCE = 0.8
+
+
+def prepare_matches(conn, user_id: str) -> None:
+    key = "note-match-version:" + user_id
+    if db.kv_get(conn, key) == MATCH_VERSION:
+        return
+    with nullcontext() if conn.in_transaction else db.tx(conn):
+        if db.kv_get(conn, key) == MATCH_VERSION:
+            return
+        conn.execute("DELETE FROM note_matches WHERE user_id=?", (user_id,))
+        db.kv_set(conn, key, MATCH_VERSION)
 
 
 def import_note(conn, user_id: str, title: str, text: str) -> str:
@@ -80,6 +93,7 @@ def source_chunks(conn, user_id: str) -> list[dict]:
 
 
 def match_post(conn, user_id: str, post, gemma) -> None:
+    prepare_matches(conn, user_id)
     chunks = source_chunks(conn, user_id)
     if not chunks:
         return
@@ -96,9 +110,10 @@ def match_post(conn, user_id: str, post, gemma) -> None:
     if len(ids) != len(set(ids)) or not set(ids) <= allowed:
         raise ValueError("invalid match")
     with db.tx(conn):
+        conn.execute("DELETE FROM note_matches WHERE user_id=? AND post_key=?", (user_id, post.key))
         for match in result.items:
             if (
-                match.relevance >= 0.7
+                match.relevance >= MIN_MATCH_RELEVANCE
                 and conn.execute("SELECT 1 FROM note_chunks WHERE id=?", (match.chunk_id,)).fetchone()
             ):
                 conn.execute(
@@ -108,6 +123,8 @@ def match_post(conn, user_id: str, post, gemma) -> None:
 
 
 def matches_for(conn, user_id: str, post) -> list[dict]:
+    if db.kv_get(conn, "note-match-version:" + user_id) != MATCH_VERSION:
+        return []
     current = profiles.head(conn, user_id, "private")
     revision = current["id"] if current else ""
     return [
@@ -121,8 +138,9 @@ def matches_for(conn, user_id: str, post) -> list[dict]:
             """SELECT c.*,n.title,n.text,n.content_hash FROM note_matches m
             JOIN note_chunks c ON c.id=m.chunk_id JOIN note_versions n ON n.id=c.note_id
             WHERE m.user_id=? AND n.user_id=? AND m.post_key=? AND m.content_hash=? AND m.private_revision=?
-            ORDER BY m.relevance DESC,c.id LIMIT 3""",
-            (user_id, user_id, post.key, post.content_hash, revision),
+            AND m.relevance>=?
+            ORDER BY m.relevance DESC,c.id LIMIT 1""",
+            (user_id, user_id, post.key, post.content_hash, revision, MIN_MATCH_RELEVANCE),
         )
         if hashlib.sha256(row["text"].encode()).hexdigest() == row["content_hash"]
     ]
@@ -130,17 +148,41 @@ def matches_for(conn, user_id: str, post) -> list[dict]:
 
 def match_feed(conn, user_id, run_id, posts, gemma):
     cfg = settings()
+    prepare_matches(conn, user_id)
     chunks = source_chunks(conn, user_id)
     head = profiles.head(conn, user_id, "private")
     revision = head["id"] if head else ""
     profile = profiles.markdown(conn, user_id, "private")
     words = [set(re.findall(r"\w{4,}", post.text.lower())) for post in posts]
-    grouped = {}
+    grouped, chunk_tokens = {}, {}
     for chunk in chunks:
         tokens = set(re.findall(r"\w{4,}", (chunk["title"] + " " + chunk["text"]).lower()))
+        chunk_tokens[chunk["chunk_id"]] = tokens
         score = max((len(tokens & post_words) for post_words in words), default=0)
         grouped.setdefault(chunk["note_id"], []).append((score, chunk))
-    ranked_notes = sorted(grouped.values(), key=lambda items: -max(score for score, _ in items))
+    rankings = []
+    for post_words in words:
+        rankings.append(
+            sorted(
+                grouped,
+                key=lambda note_id: (
+                    -max(len(post_words & chunk_tokens[chunk["chunk_id"]]) for _, chunk in grouped[note_id]),
+                    note_id,
+                ),
+            )
+        )
+    ranked_notes, selected_notes = [], set()
+    note_limit = max(1, min(50, cfg.note_match_top_notes))
+    for position in range(len(grouped)):
+        for ranking in rankings:
+            note_id = ranking[position]
+            if note_id not in selected_notes:
+                selected_notes.add(note_id)
+                ranked_notes.append(grouped[note_id])
+            if len(ranked_notes) >= note_limit:
+                break
+        if len(ranked_notes) >= note_limit:
+            break
     text_limit = min(4000, 18000 // max(1, len(posts)))
     public_posts = [
         {"post_key": post.key, "text": post.text[:text_limit], "context": post.context[: text_limit // 4]}
@@ -151,13 +193,26 @@ def match_feed(conn, user_id, run_id, posts, gemma):
     conn.execute(
         "DELETE FROM note_match_batches WHERE user_id=? AND updated_at<?", (user_id, int(time.time()) - 7 * 86400)
     )
-    for items in ranked_notes[: max(1, min(50, cfg.note_match_top_notes))]:
-        short = [
-            chunk
-            for _, chunk in sorted(items, key=lambda item: (-item[0], item[1]["chunk_id"]))[
-                : max(1, min(12, cfg.note_match_chunks_per_note))
-            ]
+    for items in ranked_notes:
+        chunk_rankings = [
+            sorted(
+                (chunk for _, chunk in items),
+                key=lambda chunk: (-len(post_words & chunk_tokens[chunk["chunk_id"]]), chunk["chunk_id"]),
+            )
+            for post_words in words
         ]
+        short, selected_chunks = [], set()
+        chunk_limit = max(1, min(12, cfg.note_match_chunks_per_note))
+        for position in range(len(items)):
+            for ranking in chunk_rankings:
+                chunk = ranking[position]
+                if chunk["chunk_id"] not in selected_chunks:
+                    selected_chunks.add(chunk["chunk_id"])
+                    short.append(chunk)
+                if len(short) >= chunk_limit:
+                    break
+            if len(short) >= chunk_limit:
+                break
         short.sort(key=lambda chunk: chunk["chunk_id"])
         pending = []
         for post, public_post in zip(posts, public_posts, strict=True):
@@ -165,7 +220,7 @@ def match_feed(conn, user_id, run_id, posts, gemma):
             # does not send the unchanged selection through inference again.
             cache_key = hashlib.sha256(
                 json.dumps(
-                    ["note-pair-v2", revision, post.key, post.content_hash, short, getattr(gemma, "model", "")],
+                    [MATCH_VERSION, revision, post.key, post.content_hash, short, getattr(gemma, "model", "")],
                     sort_keys=True,
                 ).encode()
             ).hexdigest()
@@ -204,6 +259,11 @@ def match_feed(conn, user_id, run_id, posts, gemma):
                     allowed = {chunk["chunk_id"] for chunk in short}
                     requested = {post["post_key"] for _, post in pending}
                     by_post = {post.key: post for post in posts if post.key in requested}
+                    conn.executemany(
+                        """DELETE FROM note_matches WHERE user_id=? AND post_key=? AND private_revision=?
+                        AND chunk_id IN (SELECT id FROM note_chunks WHERE note_id=?)""",
+                        [(user_id, post_key, revision, short[0]["note_id"]) for post_key in requested],
+                    )
                     seen = set()
                     for item in result.items:
                         if item.post_key not in by_post or item.chunk_id not in allowed or item.post_key in seen:
@@ -217,7 +277,7 @@ def match_feed(conn, user_id, run_id, posts, gemma):
                             "SELECT 1 FROM digest_items WHERE run_id=? AND post_key=? AND content_hash=?",
                             (run_id, item.post_key, by_post[item.post_key].content_hash),
                         ).fetchone()
-                        if owned and current_post and item.relevance >= 0.7:
+                        if owned and current_post and item.relevance >= MIN_MATCH_RELEVANCE:
                             conn.execute(
                                 "INSERT OR REPLACE INTO note_matches VALUES (?,?,?,?,?,?)",
                                 (

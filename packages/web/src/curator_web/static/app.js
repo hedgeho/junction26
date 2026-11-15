@@ -33,7 +33,7 @@ async function readJSON(url, options = {}) {
  let response;
  try { response = await fetch(url, {cache:'no-store', ...options, headers:{Accept:'application/json', ...options.headers}}); }
  catch (_) { throw new Error('Connection lost. Check the result before trying again.'); }
- if (response.redirected || response.status === 401) throw new Error('Your session expired. Reload the page to reconnect.');
+ if (response.redirected || response.status === 401) throw Object.assign(new Error('Your session expired. Reload the page to reconnect.'), {status:401});
  let result;
  try { result = await response.json(); } catch (_) { throw new Error('Could not complete this request. Please try again.'); }
  if (!response.ok) {
@@ -51,19 +51,37 @@ function pollStatus(url, node, isDone, render, options = {}) {
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
    const response = await fetch(url, {cache:'no-store', headers:{Accept:'application/json'}, signal:controller.signal});
-   if (response.redirected || [401,403,404].includes(response.status)) {
-    const message = response.status === 404 ? 'This request is no longer available.' : 'Your session expired. Reload the page to reconnect.';
-    if (options.unavailable) options.unavailable(message);
-    else if (node) { node.classList.remove('is-working'); node.textContent = message; }
-    return;
+   let result;
+   if (response.status === 404 && options.recover) {
+    try { result = await options.recover(controller.signal); }
+    catch (error) {
+     if (error.status !== 404) throw error;
+     if ((options.missingAttempts = (options.missingAttempts || 0) + 1) < 4) throw error;
+     options.unavailable?.('Your feedback could not be confirmed. Your text is saved so you can try again.');
+     return;
+    }
+   } else {
+    if (response.redirected || [401,403,404].includes(response.status)) {
+     const message = response.status === 404 ? 'This request is no longer available.' : 'Your session expired. Reload the page to reconnect.';
+     if (options.unavailable) options.unavailable(message);
+     else if (node) { node.classList.remove('is-working'); node.textContent = message; }
+     return;
+    }
+    if (!response.ok) throw new Error('status unavailable');
+    result = await response.json();
    }
-   if (!response.ok || response.redirected) throw new Error('status unavailable');
-   const result = await response.json();
    if (stopped) return;
    delay = options.delay ? options.delay(result) : (options.initialDelay ?? 1500);
    render(result);
    if (isDone(result)) return;
-  } catch (_) { delay = Math.min(delay * 2, 30000); options.retrying?.(); }
+  } catch (error) {
+   if ([401,403].includes(error.status)) {
+    if (options.unavailable) options.unavailable(error.message);
+    else if (node) { node.classList.remove('is-working'); node.textContent = error.message; }
+    return;
+   }
+   delay = Math.min(delay * 2, 30000); options.retrying?.();
+  }
   finally { clearTimeout(timeout); }
   setTimeout(poll, delay);
  }
@@ -88,6 +106,13 @@ function renderFeedbackReceipt(form, receipt) {
  if (previous?.dataset.job === receipt.job_id) return;
  const box = el('section', 'feedback-receipt'); box.dataset.job = receipt.job_id; box.setAttribute('aria-label', 'Configuration changes from your feedback');
  box.append(el('p', 'feedback-summary', receipt.changes?.length ? receipt.changes.join('; ') : 'Your existing preferences were kept.'));
+ if (receipt.diff?.lines?.length) {
+  const details = el('details', 'revision-history');
+  details.append(el('summary', '', 'See exact changes'));
+  const diff = el('pre', 'diff-code'), code = el('code');
+  receipt.diff.lines.forEach(line => code.append(el('span', 'diff-line diff-' + line.type, line.text)));
+  diff.append(code); details.append(diff); box.append(details);
+ }
  if (receipt.diff?.filename) {
   const history = el('a', 'text-link', 'View history \u2192'); history.href = '/settings/history/' + receipt.diff.filename.replace(/\.md$/, ''); box.append(history);
  }
@@ -111,7 +136,7 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
  if (!input.value.trim()) { input.setCustomValidity('Tell your feed what you would like to change.'); input.reportValidity(); return; }
  const buttons = [...form.querySelectorAll('button[type="submit"]')], button = event.submitter || buttons[0];
  const isMore = button?.getAttribute('formaction') === '/me/more';
- const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value;
+ const text = input.value, postKey = form.querySelector('[name="post_key"]')?.value, submissionKey = state.key;
  state.receipt = null;
  state.busy = state.working = true;
  const update = message => { state.message = message; renderFeedbackState(form, state); };
@@ -146,8 +171,14 @@ document.querySelectorAll('.feed-feedback-form').forEach(form => form.addEventLi
      else if (['failed','offline','not_configured'].includes(result.state)) finish('Your preferences are saved. ' + result.label);
  }, {initialDelay:500, unavailable:finish});
    }
-  }, {initialDelay:500, unavailable:finish});
- } catch (error) { finish(error.message || 'Could not save your feedback. Please try again.'); }
+  }, {initialDelay:500, recover:signal => readJSON('/api/feedback-status?key=' + encodeURIComponent(submissionKey), {signal}), unavailable:message => {
+   state.key = submissionKey;
+   failed(message);
+  }});
+ } catch (error) {
+  state.key = submissionKey;
+  failed(error.message || 'Could not save your feedback. Please try again.');
+ }
 }));
 document.querySelectorAll('.feed-feedback-form textarea').forEach(input => input.addEventListener('input', () => {
  input.setCustomValidity(''); document.dispatchEvent(new Event('feedback-draft-change'));
@@ -180,7 +211,7 @@ async function tryRefreshFeed() {
  const version = feedRefreshVersion;
  try {
   const response = await fetch('/me', {cache:'no-store', headers:{Accept:'text/html'}});
-  if (response.redirected || response.status === 401) throw new Error('Your session expired. Reload the page to reconnect.');
+  if (response.redirected || response.status === 401) throw Object.assign(new Error('Your session expired. Reload the page to reconnect.'), {status:401});
   if (!response.ok) throw new Error('Could not refresh your feed.');
   const page = new DOMParser().parseFromString(await response.text(), 'text/html');
   const incoming = page.getElementById('feed-posts'), current = document.getElementById('feed-posts');
@@ -241,7 +272,7 @@ if (job && ['queued','processing'].includes(job.dataset.state)) {
     if (state.state === 'ready') refreshFeedWhenSafe(); else job.textContent = state.label;
    });
   }
- });
+ }, {recover:job.dataset.submissionKey ? signal => readJSON('/api/feedback-status?key=' + encodeURIComponent(job.dataset.submissionKey), {signal}) : undefined, unavailable:message => { job.textContent = message; }});
 }
 const limitDialog = document.getElementById('daily-limit-dialog');
 const limitOpen = document.getElementById('daily-limit-open');
@@ -354,7 +385,7 @@ async function loadFunnel(section) {
  const notes = section.querySelector('.funnel-notes');
  const number = new Intl.NumberFormat();
  try {
-  const response = await fetch('/api/funnel', {cache:'no-store', headers:{Accept:'application/json'}});
+  const response = await fetch(section.dataset.funnelUrl || '/api/funnel', {cache:'no-store', headers:{Accept:'application/json'}});
   if (!response.ok) throw new Error('funnel');
   const funnel = await response.json();
   if (!funnel.stages.length) { status.textContent = 'No posts counted yet.'; return; }
@@ -602,7 +633,7 @@ function hydratePostCards(page = document) {
   const metadata = JSON.parse(page.getElementById('post-metadata')?.textContent || '{}');
   postCards.forEach(post => { if (metadata[post.dataset.postKey]) renderPostDetails(post, metadata[post.dataset.postKey]); });
  } catch (_) { /* The original source text remains readable. */ }
- if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
+ if (postCards.length) fetch(document.getElementById('feed-posts')?.dataset.detailsUrl || '/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
  .then(response => response.ok && !response.redirected ? response.json() : null)
  .then(data => { if (data?.items) postCards.forEach(post => {const details = data.items[post.dataset.postKey]; if (details) renderPostDetails(post, details);}); })
  .catch(() => {});
@@ -973,7 +1004,8 @@ function bindCommentButtons() { document.querySelectorAll('.comments-toggle').fo
  else { section.hidden = true; button.setAttribute('aria-expanded', 'false'); button.textContent = 'Show comments'; }
 })); }
 function initializePostCards(page = document) {
- hydratePostCards(page); bindShareButtons(); bindNoteButtons(); bindSocialButtons(); bindCommentButtons(); startNoteMatching();
+ hydratePostCards(page); bindShareButtons();
+ if (!document.getElementById('feed-posts')?.hasAttribute('data-read-only')) { bindNoteButtons(); bindSocialButtons(); bindCommentButtons(); startNoteMatching(); }
  postCards.forEach(post => post.querySelectorAll('time[datetime]').forEach(node => {
   const date = new Date(node.dateTime);
   if (!Number.isNaN(date.valueOf())) node.textContent = new Intl.DateTimeFormat(undefined, {month:'short',day:'numeric'}).format(date);

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Demo feed &middot; Agora{% endblock %}
+{% block header_extra %}{% if not request.session.get('did') %}<nav aria-label="Navigation"><a href="/demo" aria-current="page">Demo</a><a href="/#join">Sign in</a></nav>{% endif %}{% endblock %}
+{% block body %}
+<div class="toolbar"><h1>Demo feed</h1><div class="toolbar-meta"><span>{{ posts|length }} {{ 'post' if posts|length == 1 else 'posts' }}</span><button type="button" class="funnel-open" aria-haspopup="dialog" aria-controls="algorithm-info-dialog">How these were picked</button></div></div>
+<div class="notice" role="note"><span>Today's picks for a sample reader, read-only. Sign in to get a feed shaped by your own interests, feedback and notes.</span><a href="/#join">Sign in with Bluesky</a></div>
+<div id="feed-posts" data-read-only data-details-url="/api/demo/post-details">
+{% for post in posts %}
+<article class="post" data-post-key="{{ post.key }}" data-source-url="{{ post.url }}">
+  <div class="post-original"><div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ platform_names[post.platform] }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
+  <div class="source-text post-text">{{ post.text }}</div>
+  <div class="post-embeds"></div>
+  </div>
+  <div class="post-actions" data-platform="{{ post.platform }}">
+    <div class="social-actions" aria-label="Post links">
+      {% if post.url %}<a class="action-platform" href="{{ post.url }}" target="_blank" rel="noopener noreferrer">View on {{ platform_names[post.platform] }}</a>
+      <button type="button" class="social-action share-post" data-url="{{ post.url }}" aria-label="Share post" title="Share post"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 13v7h14v-7"/></svg></button>{% endif %}
+    </div>
+  </div><p class="social-status" role="status" aria-live="polite"></p>
+</article>
+{% else %}
+<section class="empty" aria-label="Feed status">
+  <svg class="empty-icon" viewBox="0 0 28 28" aria-hidden="true"><rect x="5" y="4" width="18" height="20" rx="4"/><path d="M10 10h8M10 14h8M10 18h4"/></svg>
+  <h2>No demo posts yet.</h2><p>Check back soon, or sign in to build your own feed.</p>
+</section>
+{% endfor %}
+</div>
+<dialog id="image-dialog" class="image-dialog" aria-label="Image viewer"><button type="button" class="image-close" id="image-close" aria-label="Close image"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button><img id="image-full" alt=""></dialog>
+{% set funnel_url = "/api/demo/funnel" %}{% include "_algorithm_dialog.html" %}
+<script id="post-metadata" type="application/json">{{ post_metadata|default({})|tojson }}</script>
+{% endblock %}

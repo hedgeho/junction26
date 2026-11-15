@@ -153,6 +153,8 @@ async def main():
         await page.locator("#feedback-close").click()
         checks.append("failed feedback restored to its own post without overwriting another draft")
 
+        await expect(page.locator(".more-actions button")).to_have_count(1)
+        await expect(page.locator(".more-actions button")).to_contain_text("Tell your feed")
         await page.locator("#more-feedback").fill("More like these")
         await page.locator("#more-feedback").press("Control+Enter")
         await asyncio.sleep(0.25)
@@ -177,6 +179,14 @@ async def main():
             "Saved a lasting preference", timeout=5000
         )
         assert submissions[2]["url"].endswith("/me/feedback") and keys[0] in submissions[2]["body"]
+        await page.evaluate("""() => {
+            const button = document.createElement('button');
+            button.type = 'submit';
+            button.className = 'more-action-primary';
+            button.setAttribute('formaction', '/me/more');
+            button.textContent = 'Legacy refresh test';
+            document.querySelector('.more-actions').append(button);
+        }""")
         await posts.first.locator(".social-interact[data-action=comment]").click()
         await page.locator("#social-text").fill("Unsent comment draft")
         await page.locator("#social-close").click()
@@ -243,7 +253,7 @@ async def main():
         await expect(page.locator("#feed-ready-message")).to_have_text("Your new selection is ready.")
         await page.unroute("**/me")
         await page.unroute("**/api/curation")
-        checks.append("both feed actions, draft protection, in-place refresh and reinitialized post controls")
+        checks.append("single feed action and legacy refresh draft protection and post controls")
         checks.append("failed in-place refresh can be retried without losing the page")
         checks.append("a draft started during refresh is preserved until cleared")
         print("Feedback and keyboard checks passed", flush=True)

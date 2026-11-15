@@ -25,6 +25,9 @@ services:
   web:
     <<: *curator
     command: ["curator-web"]
+    environment:
+      HOSTNAME: feed.ilia.fi
+      DEMO_DID: did:plc:mavrwfry6xk527brfgpj2qsf
     labels:
       - traefik.enable=true
       - traefik.http.middlewares.junction26-limit.buffering.maxRequestBodyBytes=524288

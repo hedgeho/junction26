@@ -39,6 +39,7 @@
       <p class="define"><b>agora</b> (ἀγορά): the ancient Greek gathering place for intellectual, civic and commercial life.</p>
     <div class="hero-actions">
         <a class="cta network-cta" href="#join" aria-label="Try Agora with Bluesky and Threads; sign in with Bluesky"><i></i><span>Try Agora with</span><span class="network-label" aria-hidden="true"><span class="network-bluesky">Bluesky</span><span class="network-threads">Threads</span></span></a>
+      {% if demo_available %}<a class="cta cta-secondary" href="/demo"><i></i>See a demo feed</a>{% endif %}
       <a class="cue" href="#square"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg>Read the story</a>
     </div>
     </div>
@@ -118,7 +119,7 @@
           {% if error %}<p class="join-error" role="alert" id="login-error">{{ error }}</p>{% endif %}
           <button class="cta" type="submit"><i></i>Continue</button>
         </form>
-        <div class="join-footer"><span>Bluesky OAuth</span><a href="/privacy">Privacy</a></div>
+        <div class="join-footer"><span>Bluesky OAuth</span>{% if demo_available %}<a href="/demo">Demo feed</a>{% endif %}<a href="/privacy">Privacy</a></div>
       </div>
     </div>
   </section>
