@@ -195,7 +195,16 @@ class GeminiDecisionScorer:
             raise ValueError("too many candidates for a decision batch")
         data = json.loads(request.payload())
         with ThreadPoolExecutor(max_workers=max(1, min(self.concurrency, len(data["posts"])))) as pool:
-            items = list(pool.map(lambda i: self._one(request, data, i), range(len(data["posts"]))))
+            futures = [pool.submit(self._one, request, data, i) for i in range(len(data["posts"]))]
+        # One malformed answer must not sink the batch; posts left out stay unscored and are retried later.
+        items, errors = [], []
+        for future in futures:
+            try:
+                items.append(future.result())
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+        if errors and not items:
+            raise errors[0]
         return Assessments(items=items)
 
     def _one(self, request: PublicScoringRequest, data: dict, index: int) -> Assessment:
