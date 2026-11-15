@@ -542,3 +542,15 @@ def test_recall_includes_posts_liked_by_followed_accounts(conn):
     keys = [p.key for p in public_candidates(conn, DID, [], 3)]
     assert keys[0] == "bluesky:" + liked
     assert "bluesky:" + once not in keys
+
+
+def test_pending_rebuild_keeps_the_last_selection_instead_of_raw_candidates(conn):
+    uid, key = setup(conn)
+    worker.run_cycle(conn, FakeScorer())
+    assert [p["key"] for p in digests.read(conn, uid)] == [key]
+    for i in range(5):
+        insert_post(conn, f"did:plc:raw{i}", str(i), f"Unscored keyword match {i}")
+    conn.execute("UPDATE reader_settings SET refresh_requested=1,version=version+1 WHERE user_id=?", (uid,))
+    body = profiles.markdown(conn, uid) + "\n- More: something new"
+    profiles.save(conn, uid, "public", body, profiles.head(conn, uid)["id"])
+    assert [p["key"] for p in digests.read(conn, uid)] == [key]
