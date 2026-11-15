@@ -289,6 +289,15 @@ dialog::backdrop { background: #18251d42; backdrop-filter: blur(3px); }
 .funnel-formula sup { font-size: 9.5px; }
 .funnel-term { white-space: nowrap; }
 .funnel-rule { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.funnel-check { margin: 4px 0 0; padding: 7px 10px; border-left: 2px solid var(--primary); border-radius: 0 6px 6px 0; background: var(--surface); color: var(--ink); font-size: 11.5px; line-height: 1.5; }
+.funnel-agree { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.funnel-benchmark { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.funnel-benchmark-rows { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.funnel-benchmark-rows .funnel-bar span { opacity: .35; }
+.funnel-benchmark-rows .funnel-ours { color: var(--ink); font-weight: 650; }
+.funnel-benchmark-rows .funnel-ours .funnel-bar span { opacity: .9; }
+.funnel-benchmark-note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.funnel-method { margin: 12px 0 0; padding: 9px 11px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
 .funnel-open { min-height: 34px; padding: 6px 13px; gap: 7px; border-radius: 999px; font-size: 12.5px; }
 .funnel-open svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
 .algorithm-footnote { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }

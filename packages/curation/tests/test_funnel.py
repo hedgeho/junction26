@@ -121,3 +121,13 @@ def test_funnel_explains_the_ranking_it_applies(conn):
     ranking = funnel.compute(conn, uid, DID)["ranking"]
     assert ranking["weights"] == digests.WEIGHTS and sum(ranking["weights"].values()) == 1
     assert ranking["half_life_h"] == 48 and ranking["flag_factor"] == 0.5 and ranking["max_per_author"] == 2
+
+
+def test_funnel_shows_the_opus_check_only_for_the_scorer_it_measured(conn, monkeypatch):
+    uid, _ = seed(conn)
+    monkeypatch.setattr(worker, "scorer_version", lambda: funnel.CHECKED_SCORER)
+    check = funnel.compute(conn, uid, DID)["check"]
+    assert set(check["stages"]) <= set(funnel.LABELS) and set(check["drops"]) <= set(triage.HIDE_AT)
+    assert "hackathon" in check["method"]
+    monkeypatch.setattr(worker, "scorer_version", lambda: "decision-v3:other")
+    assert funnel.compute(conn, uid, DID)["check"] is None

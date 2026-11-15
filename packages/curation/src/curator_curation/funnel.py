@@ -46,6 +46,33 @@ LABELS = {
 ALWAYS = frozenset(triage.HIDE_AT)
 CONTENT = frozenset({"labels", *triage.HIDE_AT, "unchecked", "downranked"})
 
+# Offline check of the scorer against Claude Opus 5.5 grades, measured 2026-11-15; valid only for CHECKED_SCORER.
+CHECKED_SCORER = "decision-v2:gemini-decision-1"
+CHECK = {
+    "reference": "Claude Opus 5.5",
+    "reference_short": "Opus",
+    "stages": {
+        "scored": "Checked against Claude Opus 5.5 reading the same posts: Opus also calls 90% of the posts this "
+        "model passes relevant. It errs toward leaving posts out, passing 66% of the posts Opus calls relevant.",
+        "delivered": "In our test feeds, Opus graded 92% of the picks relevant, against 0.6% of the raw firehose, "
+        "and found no clickbait, ragebait, misinformation or spam, against 15% of the firehose.",
+    },
+    # Share of posts hidden for each flag that Opus also gave that flag, on 350 real Bluesky posts.
+    "drops": {"clickbait": 0.88, "ragebait": 0.87, "spam_promo": 0.96},
+    # NDCG@10 against Opus's grades: 1 means Opus's own order of each reader's top 10.
+    "ranking": [
+        {"label": "Claude Sonnet 5.5 reading every post", "ndcg": 0.94},
+        {"label": "Agora's model", "ndcg": 0.92, "ours": True},
+        {"label": "Claude Haiku 5.5 reading every post", "ndcg": 0.82},
+        {"label": "Embedding similarity", "ndcg": 0.43},
+    ],
+    "ranking_note": "Agora's model costs $0.00006 per post, about a tenth of Sonnet. Two top models judging "
+    "the same posts agree with each other at about Sonnet's level, so the gap is close to measurement noise.",
+    "method": "How we measured: 8 reader profiles we wrote, 11,500 real Bluesky posts, and every grade from Claude "
+    "Opus 5.5 reading blind. We built this at a hackathon and didn't have time to collect real reader data, "
+    "so these numbers come from a model's judgement, not from real readers' clicks or ratings.",
+}
+
 
 def _firehose(conn, since: int) -> tuple[int, int, int] | None:
     """Daily posts and language drops, scaled from the complete hours counted in the window.
@@ -85,7 +112,7 @@ def compute(conn, uid: str, did: str) -> dict:
     cfg = settings()
     config = digests.config_for(conn, uid)
     if not config:
-        return {"stages": [], "notes": {}}
+        return {"stages": [], "check": None, "notes": {}}
     since = int(time.time()) - CANDIDATE_WINDOW_H * 3600
     profile = profiles.head(conn, uid)
     terms = json.loads(profile["search_terms"]) if profile else []
@@ -175,6 +202,7 @@ def compute(conn, uid: str, did: str) -> dict:
             "max_per_author": digests.MAX_PER_AUTHOR,
             "daily_limit": digests.delivery_limit(config),
         },
+        "check": CHECK if version == CHECKED_SCORER else None,
         "notes": {
             "downranked": [{"key": k, "label": LABELS[k], "count": n} for k, n in downranked.items() if n],
             "flags_pending": sum(f is None for f in flags),

@@ -319,6 +319,20 @@ function renderRanking(box, ranking) {
  box.querySelector('.funnel-rule').textContent = `A post competes once the model includes it with relevance \u2265 ${ranking.min_relevance.toFixed(2)}. The ${ranking.daily_limit} highest values fill your feed, at most ${ranking.max_per_author} per author and one per conversation or linked story.`;
  box.hidden = false;
 }
+function renderBenchmark(box, check) {
+ if (!box || !check) return;
+ box.querySelector('.funnel-benchmark-rows').replaceChildren(...check.ranking.map(row => {
+  const item = el('li', 'funnel-drop' + (row.ours ? ' funnel-ours' : ''));
+  const bar = el('span', 'funnel-bar');
+  const fill = el('span');
+  fill.style.width = `${row.ndcg * 100}%`;
+  bar.append(fill);
+  item.append(bar, el('span', 'funnel-drop-count', row.ndcg.toFixed(2)), el('span', 'funnel-drop-label', row.label));
+  return item;
+ }));
+ box.querySelector('.funnel-benchmark-note').textContent = `Ranking quality is NDCG@10, where 1.00 means the same top 10 as ${check.reference}. ${check.ranking_note}`;
+ box.hidden = false;
+}
 async function loadFunnel(section) {
  if (!section) return;
  const status = section.querySelector('.funnel-status');
@@ -335,6 +349,8 @@ async function loadFunnel(section) {
    const head = el('div', 'funnel-head');
    head.append(el('span', 'funnel-count', number.format(stage.count)), el('span', 'funnel-label', stage.label));
    item.append(head);
+   const checked = funnel.check?.stages[stage.key];
+   if (checked) item.append(el('p', 'funnel-check', checked));
    if (stage.drops.length) {
     const drops = el('ul', 'funnel-drops');
     for (const drop of stage.drops) {
@@ -346,7 +362,14 @@ async function loadFunnel(section) {
      const fill = el('span');
      fill.style.width = drop.count ? `max(2px, ${share * 100}%)` : '0';
      bar.append(fill);
-     row.append(bar, el('span', 'funnel-drop-count', '\u2212' + number.format(drop.count)), el('span', 'funnel-drop-label', drop.label));
+     const label = el('span', 'funnel-drop-label', drop.label);
+     const precision = funnel.check?.drops[drop.key];
+     if (precision) {
+      const agreed = el('span', 'funnel-agree', ` \u00b7 ${funnel.check.reference_short} agreed on ${Math.round(precision * 100)}%`);
+      agreed.title = `Of the real posts hidden for this flag, ${Math.round(precision * 100)}% were also flagged by ${funnel.check.reference}.`;
+      label.append(agreed);
+     }
+     row.append(bar, el('span', 'funnel-drop-count', '\u2212' + number.format(drop.count)), label);
      drops.append(row);
     }
     item.append(drops);
@@ -354,6 +377,9 @@ async function loadFunnel(section) {
    return item;
   }));
   renderRanking(section.querySelector('.funnel-ranking'), funnel.ranking);
+  renderBenchmark(section.querySelector('.funnel-benchmark'), funnel.check);
+  const method = section.querySelector('.funnel-method');
+  if (funnel.check) { method.textContent = funnel.check.method; method.hidden = false; }
   const extra = [];
   if (funnel.notes.downranked?.length) extra.push('Ranked lower but still eligible: ' + funnel.notes.downranked.map(d => `${d.label.toLowerCase()} ${number.format(d.count)}`).join(', ') + '.');
   if (funnel.notes.flags_pending) extra.push(`${number.format(funnel.notes.flags_pending)} relevant posts are still waiting for content checks.`);
