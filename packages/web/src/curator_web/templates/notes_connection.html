@@ -1,0 +1,4 @@
+<label for="folder">Google Drive folder links</label>
+<textarea id="folder" name="folder" rows="3" maxlength="20000" spellcheck="false" placeholder="https://drive.google.com/drive/folders/..." aria-describedby="notes-help">{{ folder or '' }}</textarea>
+<p class="help" id="notes-help">One link per line. Agora reads Markdown files without changing them.</p>
+{% if drive_viewer %}<p class="help">Share each folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">Share each folder as &ldquo;Anyone with the link&rdquo;, with Viewer access. We use Context.dev to access your shared folder contents and Gemma on Modal to understand your notes. <a href="https://context.dev/privacy" target="_blank" rel="noopener noreferrer">Context.dev privacy policy &#8599;</a></p>{% endif %}

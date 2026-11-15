@@ -25,6 +25,8 @@ from .llm.gemini import (
 from .llm.gemma import GemmaClient
 
 log = logging.getLogger(__name__)
+_notes_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-worker")
+_notes_future = None
 
 
 def scorer_version() -> str:
@@ -267,7 +269,7 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
         if last and last["day"] == digests.day_key(config) and not config["refresh_requested"]:
             score_ahead(conn, scorer, did, uid, triager)
             if stale_empty_digest(conn, uid, last):
-                digests.build(conn, uid, scorer_version())
+                digests.build(conn, uid, scorer_version(), selector=gemma)
             return
         db.kv_set(conn, "curation-state:" + uid, "processing")
         current = profiles.head(conn, uid)
@@ -288,10 +290,6 @@ def curate_reader(conn, scorer, gemma, did: str, triager=None, seeder=None) -> N
             return
         db.kv_set(conn, "curation-state:" + uid, "ready")
         timing["time_to_ready_s"] = round(time.monotonic() - started, 3)
-        if run_id and gemma:
-            t = time.monotonic()
-            timing["notes_matched"] = digests.match_notes(conn, uid, run_id, gemma)
-            timing["notes_s"] = round(time.monotonic() - t, 3)
         timing["total_s"] = round(time.monotonic() - started, 3)
         db.kv_set(conn, "curation-timing:" + uid, json.dumps(timing))
         log.info("curation timing %s", json.dumps(timing))
@@ -343,26 +341,21 @@ def _curate_in_own_connection(scorer, gemma, did: str, triager, seeder) -> None:
         conn.close()
 
 
-def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None, seeder=None) -> None:
+def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None, seeder=None, *, defer_notes=False) -> None:
     cfg = settings()
     db.kv_set(conn, "curation-heartbeat", str(int(time.time())))
-    for row in conn.execute("SELECT user_id FROM notes_folders").fetchall():
-        if only_did:
-            account = conn.execute("SELECT id FROM reader_accounts WHERE bluesky_did=?", (only_did,)).fetchone()
-            if not account or account["id"] != row["user_id"]:
-                continue
-        note_folders.sync(conn, row["user_id"])
     if gemma is None and cfg.gemma_url and cfg.gemma_token:
         gemma = GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s)
     if gemma:
         for _ in range(10):
-            if not jobs.process_one(conn, gemma):
+            if not jobs.process_one(conn, gemma, include_notes=False):
                 break
     if cfg.scoring_backend == "gemma":
         conn.execute(
             "UPDATE feedback_jobs SET state='queued',attempts=0,error_code=NULL WHERE error_code='private_scoring_required'"
         )
-        for row in conn.execute("SELECT c.id,n.user_id FROM note_chunks c JOIN note_versions n ON n.id=c.note_id"):
+        for row in conn.execute("""SELECT c.id,n.user_id FROM note_chunks c JOIN note_versions n ON n.id=c.note_id
+            WHERE NOT EXISTS (SELECT 1 FROM feedback_jobs j WHERE j.user_id=n.user_id AND j.idempotency_key='note-feed:'||c.id)"""):
             jobs.enqueue_note_feed_chunk(conn, row["user_id"], row["id"])
     if scorer is None and (
         (cfg.scoring_backend == "gemma" and cfg.gemma_url and cfg.gemma_token)
@@ -382,10 +375,55 @@ def run_cycle(conn, scorer=None, gemma=None, only_did=None, triager=None, seeder
     if cfg.reader_concurrency <= 1 or len(dids) <= 1:
         for did in dids:
             curate_reader(conn, scorer, gemma, did, triager, seeder)
-        return
-    with ThreadPoolExecutor(max_workers=cfg.reader_concurrency) as executor:
-        for future in [executor.submit(_curate_in_own_connection, scorer, gemma, did, triager, seeder) for did in dids]:
-            future.result()
+    else:
+        with ThreadPoolExecutor(max_workers=cfg.reader_concurrency) as executor:
+            for future in [
+                executor.submit(_curate_in_own_connection, scorer, gemma, did, triager, seeder) for did in dids
+            ]:
+                future.result()
+    if defer_notes:
+        schedule_notes(gemma, dids)
+    else:
+        process_notes(conn, gemma, dids)
+
+
+def process_notes(conn, gemma, dids):
+    for did in dids:
+        user_id = profiles.bootstrap(conn, did)
+        note_folders.sync(conn, user_id)
+    if gemma:
+        for _ in range(10):
+            if not jobs.process_one(conn, gemma, notes_only=True):
+                break
+        for did in dids:
+            user_id = profiles.bootstrap(conn, did)
+            run = digests.latest(conn, user_id)
+            if run:
+                started = time.monotonic()
+                matched = digests.match_notes(conn, user_id, run["id"], gemma)
+                timing = json.loads(db.kv_get(conn, "curation-timing:" + user_id) or "{}")
+                timing.update(notes_matched=matched, notes_s=round(time.monotonic() - started, 3))
+                db.kv_set(conn, "curation-timing:" + user_id, json.dumps(timing))
+
+
+def _process_notes_in_connection(gemma, dids):
+    connection = db.connect()
+    try:
+        process_notes(connection, gemma, dids)
+    finally:
+        connection.close()
+
+
+def schedule_notes(gemma, dids):
+    global _notes_future
+    if _notes_future is not None:
+        if not _notes_future.done():
+            return
+        try:
+            _notes_future.result()
+        except Exception:  # noqa: BLE001
+            log.warning("Background notes cycle failed; retrying")
+    _notes_future = _notes_executor.submit(_process_notes_in_connection, gemma, dids)
 
 
 def pending_work(conn) -> set[tuple]:
@@ -406,5 +444,5 @@ def run_forever() -> None:
     conn = db.connect()
     while True:
         seen = pending_work(conn)
-        run_cycle(conn)
+        run_cycle(conn, defer_notes=True)
         wait_for_work(conn, seen, settings().curate_interval_s)

@@ -259,20 +259,13 @@ def build(conn, uid, scorer_version: str, selector=None, request=None) -> str | 
 
 
 def match_notes(conn, uid, run_id, gemma) -> int:
-    """Runs after the digest is published; matches appear on the next read."""
-    matched = 0
-    for item in conn.execute(
-        "SELECT post_key FROM digest_items WHERE run_id=? ORDER BY position", (run_id,)
-    ).fetchall():
-        post = get_post(conn, item["post_key"])
-        if not post:
-            continue
-        try:
-            notes.match_post(conn, uid, post, gemma)
-            matched += 1
-        except Exception:  # noqa: BLE001 - isolate provider failure without leaking its private payload
-            log.warning("Private matching failed; source selection remains available")
-    return matched
+    posts = [
+        get_post(conn, item["post_key"])
+        for item in conn.execute(
+            "SELECT post_key FROM digest_items WHERE run_id=? ORDER BY position", (run_id,)
+        ).fetchall()
+    ]
+    return notes.match_feed(conn, uid, run_id, [post for post in posts if post], gemma)
 
 
 def read(conn, uid) -> list[dict]:

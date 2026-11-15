@@ -50,6 +50,14 @@ class Matches(StrictModel):
     items: list[ChunkMatch] = Field(max_length=3)
 
 
+class NotePostMatch(ChunkMatch):
+    post_key: str
+
+
+class NoteMatches(StrictModel):
+    items: list[NotePostMatch] = Field(max_length=50)
+
+
 class SeedProfile(StrictModel):
     interests: list[str] = Field(max_length=8)
     search_terms: list[str] = Field(max_length=12)

@@ -22,7 +22,7 @@ Set provider credentials/model IDs using `deploy/.env.example`. Modal setup is i
 
 Daily digest dates use each reader's timezone. Refresh explicitly creates a new edition; ordinary cycles retain the daily snapshot. Public profile changes invalidate the visible old edition until reclassification. Private note matching is best-effort and never substitutes generated text.
 
-Notes start as pasted Markdown/plain text snapshots in settings and queue private-only interest updates by source chunk; there is no external connector. The current private shortlist ranks up to 12 chunks using lexical overlap before Gemma; improve this with a private embedding index if retrieval evaluation warrants it. Notes do not drive external retrieval or the Gemini candidate filter.
+Notes are read-only snapshots from connected Drive folders (up to ten links), with host-local imports retained for operators. The production background worker syncs folders and processes note-profile jobs after feed publication. Matching ranks the top 12 notes by lexical overlap, selects up to six chunks each and evaluates notes against the feed using bounded parallel calls. Successful and empty results are cached; failed batches have at most three attempts. The page polls owned source excerpts and adds them as each batch completes. Notes never go to Gemini. Note-derived feed interests require Gemma scoring.
 
 ## Evaluation
 

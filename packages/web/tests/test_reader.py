@@ -252,9 +252,70 @@ def test_failed_folder_connection_preserves_user_input(conn):
     for path in ("/setup", "/settings/notes/folder"):
         response = client.post(path, data={"csrf": "csrf-test", "enabled": "yes", "folder": value})
         assert response.status_code == 400
-        assert f'value="{value}"' in response.text
+        assert f">{value}</textarea>" in response.text
         assert 'role="alert"' in response.text
         assert 'name="enabled" value="yes" data-toggle="notes-fields" checked' in response.text
+
+
+def test_notes_connection_is_minimal_and_accepts_multiple_links(conn, monkeypatch):
+    import hashlib
+
+    from curator_curation import drive_notes, note_folders
+
+    seed(conn)
+    monkeypatch.setattr(
+        drive_notes,
+        "scan",
+        lambda connection, user, root: ({"entry.md": (root, hashlib.sha256(root.encode()).hexdigest())}, {root}),
+    )
+    client = client_for()
+    links = (
+        "https://drive.google.com/drive/folders/firstfolder123\nhttps://drive.google.com/drive/folders/secondfolder123"
+    )
+    response = client.post("/settings/notes/folder", data={"csrf": "csrf-test", "enabled": "yes", "folder": links})
+    assert response.status_code == 200
+    assert links in response.text
+    assert "https://context.dev/privacy" in response.text
+    assert "Folder names are sent" not in response.text and "Local folders" not in response.text
+    assert "Threads</h2>" in response.text and "Coming soon" in response.text
+
+    def blocked_sync(*args):
+        raise AssertionError("Page requests must not fetch notes")
+
+    monkeypatch.setattr(note_folders, "sync", blocked_sync)
+    assert client.get("/me").status_code == 200
+    assert client.get("/settings").status_code == 200
+
+
+def test_note_matches_api_is_owned_incremental_and_source_only(conn, monkeypatch):
+    from curator_core.config import clear_settings
+    from curator_curation import notes
+    from curator_curation.llm.schemas import NoteMatches, NotePostMatch
+
+    uid = seed(conn)
+    notes.import_note(conn, uid, "Original title", "Exact original note text")
+    run = digests.latest(conn, uid)
+    monkeypatch.setenv("GEMMA_URL", "https://gemma.example/v1")
+    monkeypatch.setenv("GEMMA_TOKEN", "test")
+    clear_settings()
+
+    class Model:
+        def match_note(self, posts, chunks, profile):
+            return NoteMatches(
+                items=[NotePostMatch(post_key=posts[0]["post_key"], chunk_id=chunks[0]["chunk_id"], relevance=0.9)]
+            )
+
+    client = client_for()
+    before = client.get("/api/note-matches")
+    assert before.json()["state"] == "waiting"
+    assert before.headers["cache-control"] == "no-store"
+    digests.match_notes(conn, uid, run["id"], Model())
+    after = client.get("/api/note-matches").json()
+    assert after["state"] == "ready" and after["run_id"] == run["id"]
+    assert next(iter(after["items"].values()))[0]["text"] == "Exact original note text"
+    other = "did:plc:other-reader"
+    add_user(conn, other)
+    assert all(not matches for matches in client_for(other).get("/api/note-matches").json()["items"].values())
 
 
 def test_browser_errors_are_readable_and_api_errors_stay_json(conn):

@@ -40,6 +40,12 @@ Private matching shortlists up to 12 original chunks by lexical overlap, then Ge
 
 Tests cover source-only responses, public allowlists, idempotent feedback, revision races, stale inference, note deletion during processing, both platforms, tombstones, CSRF and ownership. CI isolates package dependencies. Run synthetic provider checks and a labeled relevance evaluation before a public demo.
 
+### Notes performance and delivery
+
+The production coordinator publishes feeds before note work and schedules folder sync, note profile jobs and matching on a separate background worker. Page requests never scan external note sources. Matching shortlists up to `NOTE_MATCH_TOP_NOTES` notes (default 12) using lexical overlap, selects up to six original chunks per note, and evaluates each note against the selected feed in parallel. Post text and profile context are bounded. Per-note futures publish successful results immediately; `/api/note-matches` delivers owned original excerpts to the open page without reloading it.
+
+`NOTE_MATCH_CONCURRENCY` bounds matching tasks; a process-wide `GEMMA_CONCURRENCY` gate also bounds all Gemma calls to the endpoint (default two, matching the warm Modal service). HTTP connections are reused. Successful results, including empty matches, are cached by source chunks, post content, model and private profile revision. Failures are isolated and attempted at most three times per cache key. Cache records expire after seven days. Folder connections support up to ten links, retain independent file ownership and snapshots, and preserve unavailable sources while syncing healthy ones.
+
 ## Reader interface
 
 The product name in the UI is Agora. The visual language uses the brand's chalk, ink and olive palette, a meander mark and a restrained sun accent. Light and dark themes follow the system preference initially and allow a locally saved override. Shared local CSS/JavaScript provide responsive layouts, accessible dialogs, form loading states and conditional fields. The landing page loads its reference typefaces from Google Fonts, with local fallbacks; there are no browser-side model calls.

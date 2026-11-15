@@ -6,12 +6,29 @@ import pytest
 from curator_core.testing import add_user, insert_post
 from curator_curation import digests, jobs, notes, profiles, worker
 from curator_curation.llm.gemini import GeminiScorer, PublicCandidate, PublicScoringRequest
-from curator_curation.llm.schemas import Assessment, Assessments, ChunkMatch, Matches, ProfileProposal
+from curator_curation.llm.schemas import (
+    Assessment,
+    Assessments,
+    ChunkMatch,
+    Matches,
+    NoteMatches,
+    NotePostMatch,
+    ProfileProposal,
+)
 
 DID = "did:plc:reader"
 
 
 class FakeGemma:
+    def match_note(self, posts, chunks, private_profile):
+        return NoteMatches(
+            items=[
+                NotePostMatch(post_key=post["post_key"], chunk_id=match.chunk_id, relevance=match.relevance)
+                for post in posts
+                for match in self.match(post, chunks, private_profile).items
+            ]
+        )
+
     def update_profile(self, current, feedback, terms=()):
         return ProfileProposal(markdown=current + "\n" + feedback, search_terms=["compilers"])
 
@@ -301,6 +318,140 @@ def test_digest_is_ready_before_private_matching_runs(conn):
     timing = json.loads(conn.execute("SELECT value FROM kv WHERE key=?", ("curation-timing:" + uid,)).fetchone()[0])
     assert timing["scored"] == 1 and timing["notes_matched"] == 1
     assert {"candidates_s", "scoring_s", "digest_s", "time_to_ready_s", "notes_s", "total_s"} <= set(timing)
+
+
+def test_note_matching_is_parallel_incremental_and_cached(conn, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from curator_core import db
+
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Fast", "compiler evaluation")
+    notes.import_note(conn, uid, "Slow", "compiler details")
+    worker.score_user(conn, FakeScorer(), DID)
+    run_id = digests.build(conn, uid, worker.scorer_version())
+    first_saved, slow_started, release_slow = Event(), Event(), Event()
+    original_set = db.kv_set
+
+    def observe(connection, key, value):
+        original_set(connection, key, value)
+        if key == "note-matching:" + uid and json.loads(value)["completed"] == 1:
+            first_saved.set()
+
+    monkeypatch.setattr(db, "kv_set", observe)
+
+    class Model:
+        calls = 0
+
+        def match_note(self, posts, chunks, profile):
+            self.calls += 1
+            if chunks[0]["title"] == "Slow":
+                slow_started.set()
+                assert release_slow.wait(5)
+            return NoteMatches(
+                items=[NotePostMatch(post_key=posts[0]["post_key"], chunk_id=chunks[0]["chunk_id"], relevance=0.9)]
+            )
+
+    model = Model()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(digests.match_notes, conn, uid, run_id, model)
+        try:
+            assert slow_started.wait(5)
+            assert first_saved.wait(5)
+            assert [note["title"] for note in digests.read(conn, uid)[0]["notes"]] == ["Fast"]
+            assert json.loads(db.kv_get(conn, "note-matching:" + uid))["state"] == "processing"
+        finally:
+            release_slow.set()
+        assert future.result(timeout=5) == 2
+    assert digests.match_notes(conn, uid, run_id, model) == 0
+    assert model.calls == 2
+    assert {note["title"] for note in digests.read(conn, uid)[0]["notes"]} == {"Fast", "Slow"}
+
+
+def test_note_matching_failures_are_isolated_and_retries_bounded(conn):
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Works", "compiler evaluation")
+    notes.import_note(conn, uid, "Fails", "compiler details")
+    worker.score_user(conn, FakeScorer(), DID)
+    run_id = digests.build(conn, uid, worker.scorer_version())
+
+    class Model:
+        calls = 0
+
+        def match_note(self, posts, chunks, profile):
+            self.calls += 1
+            if chunks[0]["title"] == "Fails":
+                raise ValueError("provider failed")
+            return NoteMatches(
+                items=[NotePostMatch(post_key=posts[0]["post_key"], chunk_id=chunks[0]["chunk_id"], relevance=0.9)]
+            )
+
+    model = Model()
+    for _ in range(4):
+        digests.match_notes(conn, uid, run_id, model)
+    assert model.calls == 4
+    assert [note["title"] for note in digests.read(conn, uid)[0]["notes"]] == ["Works"]
+
+
+def test_deleted_note_cannot_return_from_inflight_matching(conn):
+    uid, _ = setup(conn)
+    note_id = notes.import_note(conn, uid, "Delete", "compiler evaluation")
+    worker.score_user(conn, FakeScorer(), DID)
+    run_id = digests.build(conn, uid, worker.scorer_version())
+
+    class Model:
+        def match_note(self, posts, chunks, profile):
+            notes.delete_note(conn, uid, note_id)
+            return NoteMatches(
+                items=[NotePostMatch(post_key=posts[0]["post_key"], chunk_id=chunks[0]["chunk_id"], relevance=0.9)]
+            )
+
+    digests.match_notes(conn, uid, run_id, Model())
+    assert not digests.read(conn, uid)[0]["notes"]
+
+
+def test_note_profile_jobs_run_after_feed_publication(conn):
+    from curator_core import db
+
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Notes", "compiler evaluation")
+    observed = []
+
+    class Model(FakeGemma):
+        def update_profile(self, current, feedback, terms=()):
+            observed.append(db.kv_get(conn, "curation-state:" + uid))
+            return super().update_profile(current, feedback, terms)
+
+    worker.run_cycle(conn, FakeScorer(), Model())
+    assert observed and set(observed) == {"ready"}
+
+
+def test_background_note_work_does_not_hold_curation_cycle(conn):
+    from threading import Event
+
+    from curator_core import db
+
+    uid, _ = setup(conn)
+    notes.import_note(conn, uid, "Notes", "compiler evaluation")
+    entered, release = Event(), Event()
+
+    class Model(FakeGemma):
+        def match_note(self, posts, chunks, profile):
+            entered.set()
+            assert release.wait(5)
+            return super().match_note(posts, chunks, profile)
+
+    try:
+        worker.run_cycle(conn, FakeScorer(), Model(), defer_notes=True)
+        assert entered.wait(5)
+        assert db.kv_get(conn, "curation-state:" + uid) == "ready"
+        assert not worker._notes_future.done()
+        assert digests.read(conn, uid)
+    finally:
+        release.set()
+        if worker._notes_future:
+            worker._notes_future.result(timeout=5)
 
 
 def test_readers_are_curated_in_parallel_connections(conn):

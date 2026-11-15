@@ -83,3 +83,19 @@ def test_platform_check_still_rejects_unknown_platforms(tmp_path: Path) -> None:
     conn = db.connect(tmp_path / "x.db")
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(_INSERT, _post("mastodon", "1", "text"))
+
+
+def test_multiple_note_sources_migration_preserves_existing_snapshots(tmp_path):
+    connection = _migrate_before(tmp_path / "notes.db", "0019")
+    connection.execute("INSERT INTO notes_folders VALUES ('reader','drive:rootfolder123','ready')")
+    connection.execute("INSERT INTO notes_files VALUES ('reader','entry.md','original-note-id')")
+    connection.execute("INSERT INTO notes_drive_folders VALUES ('rootfolder123','reader')")
+    db.migrate(connection)
+    row = connection.execute("SELECT * FROM notes_files").fetchone()
+    assert row["note_id"] == "original-note-id" and row["source_path"] == "drive:rootfolder123"
+    assert (
+        connection.execute("SELECT source_path FROM notes_source_drive_folders").fetchone()[0] == "drive:rootfolder123"
+    )
+    connection.execute("INSERT INTO notes_folders VALUES ('reader','drive:secondfolder123','ready')")
+    connection.execute("INSERT INTO notes_files VALUES ('reader','entry.md','second-note-id','drive:secondfolder123')")
+    assert connection.execute("SELECT count(*) FROM notes_files").fetchone()[0] == 2

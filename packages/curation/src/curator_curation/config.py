@@ -13,6 +13,10 @@ class CurationSettings(CoreSettings):
     gemma_token: str = ""
     gemma_model: str = "google/gemma-3-12b-it"
     inference_timeout_s: float = 120
+    note_match_concurrency: int = 4
+    gemma_concurrency: int = 2
+    note_match_top_notes: int = 12
+    note_match_chunks_per_note: int = 6
     score_batch_size: int = 20
     score_concurrency: int = 3
     reader_concurrency: int = 4

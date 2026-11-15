@@ -7,9 +7,12 @@
   <p class="help">Reconnect to grant permissions for in-app interactions, including deleting your own Bluesky posts.</p>
   <div class="row"><form method="post" action="/settings/bluesky/connect"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Reconnect</button></form></div>
 </section>
+<section class="settings-section">
+  <div class="connection-top"><h2>Threads</h2><span class="badge">Coming soon</span></div>
+</section>
 <section class="settings-section" id="notes"><h2>Notes</h2>
   <form method="post" action="/settings/notes/folder"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="checkbox"><input type="checkbox" name="enabled" value="yes" data-toggle="notes-fields" {% if notes_enabled %}checked{% endif %}>Connect notes</label>
-    <fieldset id="notes-fields" {% if not notes_enabled %}hidden disabled{% endif %}><label for="folder">Markdown folder or Google Drive folder link</label><input id="folder" name="folder" value="{{ folder or 'notes' }}" maxlength="2000" aria-describedby="notes-help{% if folder_error %} folder-error{% endif %}" {% if folder_error %}aria-invalid="true"{% endif %}><p class="help" id="notes-help">Read-only .md files. Local folders must be on the app host.</p>{% if drive_viewer %}<p class="help">Share the Drive folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">For Drive, choose ?Anyone with the link? as Viewer. Folder names are sent to Context.dev.</p>{% endif %}</fieldset>
+    <fieldset id="notes-fields" {% if not notes_enabled %}hidden disabled{% endif %}>{% include "notes_connection.html" %}</fieldset>
     {% if folder_error %}<p class="error" role="alert" id="folder-error">{{ folder_error }}</p>{% endif %}<button>Save connection</button>
   </form>{% if folder %}<p class="status">{{ notes|length }} files{% if notes_state == 'unavailable' %} &middot; Folder unavailable{% endif %}</p>{% endif %}
 </section>

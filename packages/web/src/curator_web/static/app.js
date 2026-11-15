@@ -364,6 +364,26 @@ function renderPostDetails(post, details) {
  }
 }
 const postCards = [...document.querySelectorAll('.post[data-post-key]')];
+if (document.querySelector('[data-live-notes]')) {
+ const noteTarget = document.querySelector('[data-live-notes]');
+ pollStatus('/api/note-matches', noteTarget, result => ['ready', 'partial'].includes(result.state), result => {
+  if (!result.items) return;
+  postCards.forEach(post => {
+   const container = post.querySelector('.note-matches');
+   if (!container || !Array.isArray(result.items[post.dataset.postKey])) return;
+   const matches = result.items[post.dataset.postKey];
+   const signature = JSON.stringify(matches.map(note => note.chunk_id));
+   if (container.dataset.signature === signature) return;
+   container.dataset.signature = signature;
+   container.replaceChildren(...matches.map(note => {
+    const aside = document.createElement('aside'); aside.className = 'note-match'; aside.dataset.chunkId = note.chunk_id;
+    const title = document.createElement('span'); title.className = 'meta'; title.textContent = note.title;
+    const excerpt = document.createElement('blockquote'); excerpt.className = 'source-text'; excerpt.textContent = note.text;
+    aside.append(title, excerpt); return aside;
+   }));
+  });
+ });
+}
 postCards.forEach(post => renderPostText(post.querySelector('.post-text')));
 if (postCards.length) fetch('/api/post-details', {cache:'no-store', headers:{Accept:'application/json'}})
  .then(response => response.ok && !response.redirected ? response.json() : null)

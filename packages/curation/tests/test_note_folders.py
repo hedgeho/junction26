@@ -1,3 +1,5 @@
+import hashlib
+
 import httpx
 import pytest
 from curator_core.config import clear_settings
@@ -8,6 +10,44 @@ from curator_curation import drive_notes, note_folders, profiles
 def reader(conn, did="did:plc:notes-reader"):
     add_user(conn, did)
     return profiles.bootstrap(conn, did)
+
+
+def test_multiple_links_keep_identical_filenames_independent(conn, monkeypatch):
+    uid = reader(conn)
+    roots = ["firstfolder123", "secondfolder123"]
+    monkeypatch.setattr(
+        drive_notes,
+        "scan",
+        lambda connection, user, root: ({"entry.md": (root, hashlib.sha256(root.encode()).hexdigest())}, {root}),
+    )
+    note_folders.configure_many(conn, uid, ["drive:" + root for root in roots])
+    assert len(note_folders.folders_for(conn, uid)) == 2
+    assert {row[0] for row in conn.execute("SELECT text FROM note_versions")} == set(roots)
+    retained_id = conn.execute("SELECT id FROM note_versions WHERE text=?", (roots[1],)).fetchone()[0]
+    note_folders.configure_many(conn, uid, ["drive:" + roots[1]])
+    assert conn.execute("SELECT id FROM note_versions").fetchone()[0] == retained_id
+    assert {row[0] for row in conn.execute("SELECT folder_id FROM notes_drive_folders")} == {roots[1]}
+
+
+def test_failed_link_does_not_stop_other_sources_syncing(conn, monkeypatch):
+    from curator_core import db
+
+    uid = reader(conn)
+    roots = ["firstfolder123", "secondfolder123"]
+    monkeypatch.setattr(drive_notes, "scan", lambda connection, user, root: ({"entry.md": (root, root)}, {root}))
+    note_folders.configure_many(conn, uid, ["drive:" + root for root in roots])
+
+    def scan(connection, user, root):
+        if root == roots[0]:
+            raise ValueError("unavailable")
+        return {"entry.md": ("changed", "changed")}, {root}
+
+    monkeypatch.setattr(drive_notes, "scan", scan)
+    conn.execute("DELETE FROM kv WHERE key=?", ("notes-sync:" + uid,))
+    note_folders.sync(conn, uid)
+    assert {row[0] for row in conn.execute("SELECT text FROM note_versions")} == {roots[0], "changed"}
+    assert {row["state"] for row in note_folders.folders_for(conn, uid)} == {"ready", "unavailable"}
+    assert db.kv_get(conn, "notes-sync:" + uid)
 
 
 def test_sync_updates_and_removes_snapshots_without_writing_sources(conn, tmp_path, monkeypatch):

@@ -10,10 +10,7 @@
   <section class="settings-section">
     <label class="checkbox"><input type="checkbox" name="enabled" value="yes" data-toggle="notes-fields" {% if notes_enabled %}checked{% endif %}>Connect notes <span class="muted">Optional</span></label>
     <fieldset id="notes-fields" {% if not notes_enabled %}hidden disabled{% endif %}>
-      <label for="folder">Markdown folder or Google Drive folder link</label>
-      <input id="folder" name="folder" value="{{ folder or 'notes' }}" maxlength="2000" aria-describedby="notes-help{% if error %} setup-error{% endif %}">
-      <p class="help" id="notes-help">Read-only .md files. Local folders must be on the app host.</p>
-      {% if drive_viewer %}<p class="help">For Drive, share the folder with <strong>{{ drive_viewer }}</strong> as a Viewer.</p>{% else %}<p class="help">For Drive, choose ?Anyone with the link? as Viewer. Folder names are sent to Context.dev.</p>{% endif %}
+      {% include "notes_connection.html" %}
     </fieldset>
   </section>
   {% if error %}<p class="error" role="alert" id="setup-error">{{ error }}</p>{% endif %}

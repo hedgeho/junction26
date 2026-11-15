@@ -61,7 +61,7 @@ def enqueue_note_feed_chunk(conn, user_id: str, chunk_id: str) -> None:
     )
 
 
-def process_one(conn, gemma) -> bool:
+def process_one(conn, gemma, *, include_notes=True, notes_only=False) -> bool:
     now = int(time.time())
     with db.tx(conn):
         conn.execute(
@@ -76,10 +76,12 @@ def process_one(conn, gemma) -> bool:
         )
         job = conn.execute(
             """SELECT j.* FROM feedback_jobs j WHERE j.state='queued'
+            AND (? OR j.source_chunk_id IS NULL)
+            AND (NOT ? OR j.source_chunk_id IS NOT NULL)
             AND NOT EXISTS (SELECT 1 FROM feedback_jobs p WHERE p.user_id=j.user_id AND p.kind=j.kind
                 AND p.state='processing' AND p.lease_until>=?)
             ORDER BY (j.source_chunk_id IS NOT NULL),j.created_at,j.rowid LIMIT 1""",
-            (now,),
+            (include_notes, notes_only, now),
         ).fetchone()
         if not job:
             return False

@@ -160,13 +160,12 @@ def data_deletion(request: Request):
 
 
 @router.get("/me", response_class=HTMLResponse)
-async def me(request: Request):
+def me(request: Request):
     c = db.connect()
     try:
         uid = reader(request, c)
         if not note_folders.setup_done(c, uid):
             return redirect("/setup")
-        await asyncio.to_thread(note_folders.sync, c, uid)
     finally:
         c.close()
     c = db.connect()
@@ -190,6 +189,7 @@ async def me(request: Request):
                 "more_submission_key": uuid.uuid4().hex,
                 "feedback_available": bool(curation_settings().gemma_url and curation_settings().gemma_token),
                 "gemma_scoring": curation_settings().scoring_backend == "gemma",
+                "notes_connected": bool(note_folders.folder_for(c, uid)),
             },
         )
     finally:
@@ -203,6 +203,30 @@ def digest_api(request: Request):
         return {"items": reader_posts(c, reader(request, c), current_did(request))}
     finally:
         c.close()
+
+
+@router.get("/api/note-matches")
+def note_matches_api(request: Request):
+    connection = db.connect()
+    try:
+        user_id = reader(request, connection)
+        run = digests.latest(connection, user_id)
+        progress = json.loads(db.kv_get(connection, "note-matching:" + user_id) or "{}")
+        configured = bool(curation_settings().gemma_url and curation_settings().gemma_token)
+        has_notes = connection.execute("SELECT 1 FROM note_versions WHERE user_id=?", (user_id,)).fetchone()
+        state = progress.get("state", "waiting") if run and progress.get("run_id") == run["id"] else "waiting"
+        if not configured or not has_notes:
+            state = "ready"
+        return JSONResponse(
+            {
+                "run_id": run["id"] if run else None,
+                "state": state,
+                "items": {post["key"]: post["notes"] for post in digests.read(connection, user_id)},
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+    finally:
+        connection.close()
 
 
 @router.get("/api/post-details")
@@ -656,7 +680,6 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
     c = db.connect()
     try:
         uid = reader(request, c)
-        note_folders.sync(c, uid)
         folder = note_folders.folder_for(c, uid)
         docs = [
             {
@@ -702,10 +725,12 @@ def config_page(request: Request, folder_error: str | None = None, submitted_fol
             {
                 "docs": docs,
                 "notes": source_notes,
-                "folder": submitted_folder if submitted_folder is not None else note_folders.folder_label(folder),
+                "folder": submitted_folder if submitted_folder is not None else note_folders.folder_links(c, uid),
                 "notes_enabled": submitted_folder is not None or bool(folder),
                 "drive_viewer": drive_notes.viewer_email(),
-                "notes_state": folder["state"] if folder else "",
+                "notes_state": "unavailable"
+                if any(row["state"] == "unavailable" for row in note_folders.folders_for(c, uid))
+                else "ready",
                 "folder_error": folder_error,
                 "history": [dict(row) | {"changes": profiles.changes(c, uid, row["id"])} for row in history],
             },
@@ -833,7 +858,7 @@ def setup_view(request: Request, error: str | None = None, status_code: int = 20
             {
                 "did": current_did(request),
                 "handle": user["handle"] if user else None,
-                "folder": submitted_folder if submitted_folder is not None else note_folders.folder_label(folder),
+                "folder": submitted_folder if submitted_folder is not None else note_folders.folder_links(c, uid),
                 "notes_enabled": submitted_folder is not None or bool(folder),
                 "drive_viewer": drive_notes.viewer_email(),
                 "error": error,
@@ -847,13 +872,13 @@ def setup_view(request: Request, error: str | None = None, status_code: int = 20
 
 
 @router.post("/setup")
-def finish_setup(request: Request, enabled: str = Form(""), folder: str = Form("notes", max_length=2000)):
+def finish_setup(request: Request, enabled: str = Form(""), folder: str = Form("", max_length=20000)):
     c = db.connect()
     error = None
     try:
         uid = reader(request, c)
         try:
-            note_folders.configure(c, uid, folder if enabled == "yes" else None)
+            note_folders.configure_many(c, uid, folder.splitlines() if enabled == "yes" else [])
             db.kv_set(c, "setup:" + uid, "done")
         except ValueError as exc:
             error = str(exc)
@@ -865,11 +890,11 @@ def finish_setup(request: Request, enabled: str = Form(""), folder: str = Form("
 
 
 @router.post("/settings/notes/folder")
-def set_notes_folder(request: Request, enabled: str = Form(""), folder: str = Form("notes", max_length=2000)):
+def set_notes_folder(request: Request, enabled: str = Form(""), folder: str = Form("", max_length=20000)):
     c = db.connect()
     error = None
     try:
-        note_folders.configure(c, reader(request, c), folder if enabled == "yes" else None)
+        note_folders.configure_many(c, reader(request, c), folder.splitlines() if enabled == "yes" else [])
     except ValueError as exc:
         error = str(exc)
     finally:
