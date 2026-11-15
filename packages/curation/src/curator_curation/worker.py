@@ -172,16 +172,17 @@ def score_user(conn, scorer, did: str, timing: dict | None = None, triager=None,
                     total += 1
     timing["relevance_s"] = round(time.monotonic() - scoring_started, 3)
     if triager:
-        # Flags only matter for posts a digest could deliver, so triage follows relevance.
-        deliverable = {
-            r[0]
+        # Flags are per post and shared by readers; every scored post gets them, deliverable ones first.
+        assessed = {
+            r[0]: r[1]
             for r in conn.execute(
-                """SELECT post_key FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?
-                AND (decision='include' OR (relevance>=0.5 AND substance>=0.75))""",
+                """SELECT post_key, decision='include' OR (relevance>=0.5 AND substance>=0.75)
+                FROM assessments_v2 WHERE user_id=? AND profile_revision=? AND scorer_version=?""",
                 (uid, profile_revision, version),
             )
         }
-        untriaged = triage.missing(conn, [p for p in pool if p.key in deliverable], triager.model)
+        scored = sorted((p for p in pool if p.key in assessed), key=lambda p: not assessed[p.key])
+        untriaged = triage.missing(conn, scored, triager.model)
         untriaged = untriaged[: cfg.candidates_per_cycle]
         if untriaged:
             t0 = time.monotonic()

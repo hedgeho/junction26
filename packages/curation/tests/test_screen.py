@@ -60,8 +60,15 @@ def test_tag_and_mention_stuffing_is_dropped(conn):
     tags = post(conn, "did:plc:a", "1", "Follow me " + " ".join(f"#tag{i}" for i in range(6)))
     mentions = post(conn, "did:plc:b", "2", "hey " + " ".join(f"@user{i}.bsky.social" for i in range(6)))
     fine = post(conn, "did:plc:c", "3", "Mail me at me@example.com about #compilers")
-    kept, dropped = screen.screen(conn, [tags, mentions, fine], set(), 10)
-    assert kept == [fine] and dropped["tags"] == 2
+    captioned = post(
+        conn,
+        "did:plc:d",
+        "4",
+        "A Spotted Towhee with a full mouth and a busy background. "
+        "#birds #birdphotography #photography #nature #wildlife #birding #BirdOfTheDay",
+    )
+    kept, dropped = screen.screen(conn, [tags, mentions, fine, captioned], set(), 10)
+    assert kept == [fine, captioned] and dropped["tags"] == 2
 
 
 def test_labels_drop_posts_and_authors_and_are_cached(conn, labels_on, monkeypatch):

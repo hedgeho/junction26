@@ -22,17 +22,17 @@ class CurationSettings(CoreSettings):
     campaign_min_authors: int = 5
     max_tags: int = 6
     curate_interval_s: int = 60
-    candidates_per_cycle: int = 200
-    candidate_pool_size: int = 2000
+    candidates_per_cycle: int = 400
+    candidate_pool_size: int = 4000
     feed_size: int = 50  # Legacy feed ranking compatibility
     minimum_relevance: float = 0.65  # Generative backend scale
     decision_minimum_relevance: float = 0.4  # Decisions backend: grade/3, combined with want >= 0.5
-    decision_concurrency: int = 4  # Per-post Decisions requests in flight per scoring batch
+    decision_concurrency: int = 8  # Per-post Decisions requests in flight per scoring batch
     decision_tokens_per_minute: int = 500000  # Input tokens per process, scoring and triage combined; 0 = unlimited
     social_slots: int = 3  # Digest positions reserved for followed authors that pass the filter
     serendipity_share: float = 0.1  # Digest share for substantive, clean posts just outside the profile
-    background_score_interval_s: int = 600  # Score new candidates ahead of refreshes this often
-    daily_scoring_cap: int = 1000
+    background_score_interval_s: int = 300  # Score new candidates ahead of refreshes this often
+    daily_scoring_cap: int = 5000
     score_images: bool = True  # Attach post images/thumbnails to Gemini scoring requests
     max_image_bytes: int = 2_000_000
     image_fetch_timeout_s: float = 10
