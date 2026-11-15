@@ -1,5 +1,6 @@
 """Durable per-document jobs. Leases recover interrupted inference without losing feedback."""
 
+import json
 import time
 import uuid
 
@@ -7,6 +8,8 @@ from curator_core import db
 from curator_core.sources import get_post
 
 from . import profiles
+
+EMPTY_PROFILES = {"public": "# Social filtering profile\n", "private": "# Interests\n"}
 
 
 def enqueue(conn, user_id: str, kind: str, feedback: str, key: str, post_key: str | None = None) -> str:
@@ -94,17 +97,22 @@ def process_one(conn, gemma) -> bool:
             revision = existing["id"]
         else:
             current = profiles.head(conn, job["user_id"], job["kind"])
-            proposal = gemma.update_profile(profiles.markdown(conn, job["user_id"], job["kind"]), feedback)
-            revision = profiles.save(
-                conn,
-                job["user_id"],
-                job["kind"],
-                proposal.markdown,
-                current["id"] if current else None,
-                terms=proposal.search_terms,
-                origin=origin,
-                source_chunk_id=job["source_chunk_id"],
-            )
+            terms = json.loads(current["search_terms"]) if current else []
+            body = profiles.markdown(conn, job["user_id"], job["kind"]) or EMPTY_PROFILES[job["kind"]]
+            proposal = gemma.update_profile(body, feedback, terms)
+            if current and proposal.markdown.strip() == body.strip() and proposal.search_terms == terms:
+                revision = current["id"]
+            else:
+                revision = profiles.save(
+                    conn,
+                    job["user_id"],
+                    job["kind"],
+                    proposal.markdown,
+                    current["id"] if current else None,
+                    terms=proposal.search_terms,
+                    origin=origin,
+                    source_chunk_id=job["source_chunk_id"],
+                )
         conn.execute(
             "UPDATE feedback_jobs SET state='applied',lease_until=NULL,error_code=NULL,applied_revision=? WHERE id=?",
             (revision, job["id"]),

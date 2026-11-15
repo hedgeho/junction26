@@ -32,7 +32,7 @@ def own_posts(did: str, limit: int = 50) -> list[str]:
 
 
 def body(interests: list[str]) -> str:
-    lines = "\n".join(f"- {i}" for i in interests)
+    lines = "\n".join(f"- [topic] More: {i}" for i in interests)
     return (
         "# Social filtering profile\n\n## Goals\n"
         "Seeded from the reader's recent public posts; feedback and edits refine it.\n\n"

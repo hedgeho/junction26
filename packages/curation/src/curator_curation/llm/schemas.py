@@ -9,7 +9,19 @@ class StrictModel(BaseModel):
 
 class ProfileProposal(StrictModel):
     markdown: str = Field(min_length=1, max_length=24000)
-    search_terms: list[str] = Field(default_factory=list, max_length=20)
+    search_terms: list[str] = Field(default_factory=list, max_length=30)
+
+
+class PreferenceLine(StrictModel):
+    category: str = Field(pattern=r"^[a-z_]{1,20}$")
+    text: str = Field(min_length=1, max_length=300)
+
+
+class ProfileEdits(StrictModel):
+    add: list[PreferenceLine] = Field(default_factory=list, max_length=5)
+    remove: list[int] = Field(default_factory=list, max_length=20)
+    add_terms: list[str] = Field(default_factory=list, max_length=10)
+    remove_terms: list[str] = Field(default_factory=list, max_length=20)
 
 
 class Assessment(StrictModel):

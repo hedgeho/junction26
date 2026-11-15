@@ -12,7 +12,7 @@ DID = "did:plc:reader"
 
 
 class FakeGemma:
-    def update_profile(self, current, feedback):
+    def update_profile(self, current, feedback, terms=()):
         return ProfileProposal(markdown=current + "\n" + feedback, search_terms=["compilers"])
 
     def match(self, post, chunks, private_profile):
@@ -254,9 +254,9 @@ def test_note_removal_during_inference_cannot_reintroduce_private_profile_data(c
     note = notes.import_note(conn, uid, "Remove while processing", "private original")
 
     class Removed(FakeGemma):
-        def update_profile(self, current, feedback):
+        def update_profile(self, current, feedback, terms=()):
             notes.delete_note(conn, uid, note)
-            return super().update_profile(current, feedback)
+            return super().update_profile(current, feedback, terms)
 
     jobs.process_one(conn, Removed())
     assert profiles.head(conn, uid, "private") is None
