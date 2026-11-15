@@ -5,12 +5,12 @@
 {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}" data-source-url="{{ post.url }}">
   <div class="quote-contributions" aria-label="Your quote posts"></div>
-  <div class="post-original"><div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ 'Bluesky' if post.platform == 'bluesky' else 'X' }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
+  <div class="post-original"><div class="post-head"><div class="author-avatar" hidden></div><div><div class="author">{{ post.author }}</div><div class="meta"><span class="author-handle" hidden></span><span class="platform-dot" aria-hidden="true"></span>{{ platform_names[post.platform] }}{% if post.created_at %}<span aria-hidden="true">&middot;</span><time datetime="{{ post.created_at }}">{{ post.created_at[:10] }}</time>{% endif %}</div></div></div>
   <div class="source-text post-text">{{ post.text }}</div>
   <div class="post-embeds"></div>
   {% for note in post.notes %}<aside class="note-match"><span class="meta">{{ note.title }}</span><blockquote class="source-text">{{ note.text }}</blockquote></aside>{% endfor %}
   </div>
-  {% set platform_name = 'Bluesky' if post.platform == 'bluesky' else 'X' %}
+  {% set platform_name = platform_names[post.platform] %}
   <div class="post-actions" data-platform="{{ post.platform }}">
     <div class="social-actions" aria-label="Actions on {{ platform_name }}">
       <span class="action-platform">{{ platform_name }}</span>

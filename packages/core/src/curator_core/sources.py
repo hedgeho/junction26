@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from . import media as media_refs
 
-Platform = Literal["bluesky", "x"]
+Platform = Literal["bluesky", "x", "threads"]
 
 
 @dataclass(frozen=True)
@@ -106,7 +106,7 @@ def _social(row) -> SocialPost:
 
 def get_post(conn, key: str) -> SocialPost | None:
     platform, sep, native_id = key.partition(":")
-    if not sep or platform not in ("bluesky", "x"):
+    if not sep or platform not in ("bluesky", "x", "threads"):
         return None
     row = conn.execute("SELECT * FROM social_posts WHERE platform=? AND native_id=?", (platform, native_id)).fetchone()
     if row is not None:

@@ -36,6 +36,7 @@ async def csrf_guard(request: Request):
 
 router = APIRouter(dependencies=[Depends(csrf_guard)])
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates.env.globals["platform_names"] = {"bluesky": "Bluesky", "x": "X", "threads": "Threads"}
 
 
 def page(request, name, context):
@@ -703,7 +704,7 @@ def delivery(
     except (ZoneInfoNotFoundError, ValueError):
         raise HTTPException(400, "Invalid timezone") from None
     blocks = [v.strip() for v in blocked_authors.splitlines() if v.strip()]
-    if any(not v.startswith(("bluesky:", "x:")) for v in blocks):
+    if any(not v.startswith(("bluesky:", "x:", "threads:")) for v in blocks):
         raise HTTPException(400, "Use platform-qualified author IDs")
     c = db.connect()
     try:

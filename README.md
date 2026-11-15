@@ -5,7 +5,7 @@ A finite daily selection of original social posts, matched to the reader's inter
 ## Architecture
 
 - `core`: shared SQLite schema, migrations and platform-neutral source read contract.
-- `ingest`: Bluesky Jetstream, follows, retention and normalized Bluesky/X import.
+- `ingest`: Bluesky Jetstream, follows, retention and normalized Bluesky/X import and an optional Threads keyword-search collector.
 - `curation`: versioned public/private Markdown profiles, feedback jobs, Gemini filtering, private Gemma matching and daily digests.
 - `web`: Bluesky identity login, source-only reader, feedback status and secondary settings.
 - `deploy/modal`: authenticated Gemma serving. Hostinger owns application state and calls Modal for inference.

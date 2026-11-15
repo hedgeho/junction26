@@ -55,7 +55,7 @@ Call `curator_core.imports.import_posts` (also exported from `curator_ingest.imp
 ]
 ```
 
-Parent/root/quote references use platform-local IDs. Bluesky native IDs are AT URIs and author IDs are DIDs. X uses stable post/account IDs, not mutable handles. Blocking uses `bluesky:<author-id>` or `x:<author-id>`. Canonical links must use HTTPS and the platform's allowed domain. Context must be accessible original source text, never an AI summary.
+Threads (`platform: "threads"`) uses post IDs and the `threads.com` permalink; its search API omits account IDs, so the author ID is the mutable username, and media comes from Meta's `*.cdninstagram.com`/`*.fbcdn.net` hosts. Parent/root/quote references use platform-local IDs. Bluesky native IDs are AT URIs and author IDs are DIDs. X uses stable post/account IDs, not mutable handles. Blocking uses `bluesky:<author-id>`, `x:<author-id>` or `threads:<username>`. Canonical links must use HTTPS and the platform's allowed domain. Context must be accessible original source text, never an AI summary.
 
 `media`, `author_handle` and `author_avatar` are optional. Image/thumbnail/avatar URLs must be HTTPS on the platform's media hosts (`curator_core.media.MEDIA_HOSTS`); others are dropped. At most 4 images/videos and one link card are kept. Media is part of the content hash, so changing it causes the post to be rescored.
 
