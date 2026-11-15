@@ -30,9 +30,13 @@ def render(head: str, items: list[tuple[str, str]], tail: str) -> str:
     return "\n\n".join(p for p in parts if p) + "\n"
 
 
+TERM = "search_term"
+
+
 def numbered(markdown: str) -> tuple[str, list[dict]]:
+    """Editable lines for the model. Legacy `[search_term]` lines are terms, not preferences, so they are left out."""
     head, items, _ = parse(markdown)
-    return head, [{"id": i, "category": c, "text": t} for i, (c, t) in enumerate(items)]
+    return head, [{"id": i, "category": c, "text": t} for i, (c, t) in enumerate(items) if c != TERM]
 
 
 def apply(markdown: str, terms: list[str], edits) -> tuple[str, list[str]]:
@@ -40,15 +44,17 @@ def apply(markdown: str, terms: list[str], edits) -> tuple[str, list[str]]:
     if any(not 0 <= i < len(items) for i in edits.remove):
         raise ValueError("unknown preference id")
     # Removals only replace lines; a small model's bare removals were often the opposite of the feedback.
-    removed_ids = set(edits.remove) if edits.add else set()
+    lines = [line for line in edits.add if line.category != TERM]
+    removed_ids = {i for i in edits.remove if items[i][0] != TERM} if lines else set()
     kept = [item for i, item in enumerate(items) if i not in removed_ids]
-    for line in edits.add:
+    for line in lines:
         item = (line.category, " ".join(line.text.split()))
         if item[1] and item not in kept:
             kept.append(item)
+    added_terms = [*edits.add_terms, *(line.text for line in edits.add if line.category == TERM)]
     removed = {t.casefold() for t in edits.remove_terms}
     out = []
-    for term in [*terms, *edits.add_terms]:
+    for term in [*terms, *added_terms]:
         term = " ".join(term.split())
         if (
             term

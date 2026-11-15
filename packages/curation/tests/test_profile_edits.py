@@ -55,7 +55,7 @@ def test_gemma_sees_numbered_lines_and_terms_not_a_document(monkeypatch):
 
     seen = {}
 
-    def call(self, instruction, payload, schema):
+    def call(self, instruction, payload, schema, max_tokens=8192):
         seen.update(payload)
         return ProfileEdits(add_terms=["kingfisher"])
 
@@ -69,3 +69,19 @@ def test_gemma_sees_numbered_lines_and_terms_not_a_document(monkeypatch):
 def test_bare_removals_are_ignored_so_lines_change_only_by_replacement():
     markdown, _ = profile_edits.apply(FLAT, [], ProfileEdits(remove=[2]))
     assert "- [rule] Exclude: furries\n" in markdown
+
+
+def test_legacy_search_term_lines_are_hidden_from_the_model_and_kept():
+    _, shown = profile_edits.numbered(FLAT)
+    assert all(item["category"] != "search_term" for item in shown) and len(shown) == 4
+    edits = ProfileEdits(
+        remove=[3, 4],
+        add=[
+            PreferenceLine(category="topic", text="Much more: politics"),
+            PreferenceLine(category="search_term", text="elections"),
+        ],
+    )
+    markdown, terms = profile_edits.apply(FLAT, ["politics"], edits)
+    assert "- [search_term] green bird" in markdown and "- [search_term] elections" not in markdown
+    assert "- [topic] Much more: politics" in markdown and "- [topic] More: politics\n" not in markdown
+    assert terms == ["politics", "elections"]
