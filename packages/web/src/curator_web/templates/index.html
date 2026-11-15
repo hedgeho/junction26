@@ -1,61 +1,127 @@
-{% extends "base.html" %}
-{% block title %}Agora &middot; A better public square{% endblock %}
-{% block header_extra %}<a class="landing-header-cta" href="#join">Try Agora <span aria-hidden="true">&rarr;</span></a>{% endblock %}
-{% block main_attributes %} class="landing"{% endblock %}
-{% block body %}
-<section class="landing-hero" aria-labelledby="hero-title">
-  <svg class="olive-vine hero-vine" viewBox="0 0 200 520" fill="none" aria-hidden="true"><path d="M194 520C117 460 185 391 127 332S180 213 116 158 119 54 82 0M145 374c-46-13-67-43-76-76M137 288c-34-4-60-26-77-59M130 192c-32-2-56-21-67-52M119 99C95 95 73 76 63 51" stroke="currentColor" stroke-width="2"/><g fill="currentColor"><path d="M168 466c-30 1-43-11-48-29 26 1 42 11 48 29ZM155 430c-5-24 3-43 22-55 4 26-4 44-22 55ZM137 391c-25 1-41-10-47-27 24-1 40 9 47 27ZM127 351c-5-24 3-42 22-54 4 24-4 42-22 54ZM99 322c-25-1-40-12-44-29 24 1 39 11 44 29ZM132 306c-4-24 5-41 24-51 3 23-5 41-24 51ZM104 273c-24 2-41-8-47-25 24-2 40 7 47 25ZM130 259c-3-23 6-40 25-50 2 23-6 40-25 50ZM102 220c-23 0-38-11-43-27 23 0 38 9 43 27ZM122 205c-3-23 6-40 25-49 2 22-7 40-25 49ZM101 171c-22-1-36-12-40-29 22 1 36 11 40 29ZM116 150c-3-22 6-38 24-47 2 21-6 38-24 47ZM91 121c-21-1-34-11-38-27 21 1 34 10 38 27ZM107 100c-4-21 4-37 21-46 3 21-4 36-21 46ZM82 72C63 70 51 59 48 44c19 2 31 11 34 28ZM94 48c-5-20 2-35 18-45 4 19-2 34-18 45Z"/></g><g fill="#9aa58c"><circle cx="114" cy="340" r="4"/><circle cx="115" cy="240" r="4"/><circle cx="94" cy="145" r="4"/></g></svg>
-  <div class="landing-inner hero-copy">
-    <div class="hero-wordmark" aria-label="Agora"><svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><path d="M8 92H92V8H8V72H72V28H28V52" stroke="currentColor" stroke-width="10"/><circle cx="52" cy="52" r="7" fill="#FFB000"/></svg><span>AGORA</span></div>
-    <h1 id="hero-title">A better public square.</h1>
-    <p class="hero-intro"><span>agora</span> (&#7936;&#947;&#959;&#961;&#940;): the ancient Greek gathering place for intellectual, civic and commercial life.</p>
-    <div class="hero-actions"><a class="story-link" href="#square"><span class="mini-mark" aria-hidden="true">&#9635;</span> Read the story</a><a class="button primary landing-button network-cta" href="#join" aria-label="Try Agora with Bluesky and Threads; sign in with Bluesky">Try Agora <span class="network-label" aria-hidden="true"><span class="network-bluesky">with Bluesky</span><span class="network-threads">with Threads</span></span><span class="network-arrow" aria-hidden="true">&rarr;</span></a></div>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f1f2ec">
+<title>Agora &middot; A better public square</title>
+<script src="/static/theme.js?v={{ asset_version }}"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=Marcellus&amp;family=Newsreader:ital,opsz,wght@0,6..72,400..500;1,6..72,400&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="/static/landing.css?v={{ asset_version }}">
+<script defer src="/static/landing.js?v={{ asset_version }}"></script>
+</head>
+<body>
+<a class="skip-link" href="#top">Skip to content</a>
+<div class="side-vine l" aria-hidden="true"><svg id="sideL" viewBox="0 0 90 1000" preserveAspectRatio="xMidYMin slice"></svg></div>
+<div class="side-vine r" aria-hidden="true"><svg id="sideR" viewBox="0 0 90 1000" preserveAspectRatio="xMidYMax slice"></svg></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <g id="meander"><path d="M8 92H92V8H8V72H72V28H28V52" fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="square"/><circle cx="52" cy="52" r="8" fill="#FFB000"/></g>
+</defs></svg>
+
+<header class="band top">
+  <div class="inner">
+    <a class="brand" href="#top" aria-label="Agora, back to top"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg>AGORA</a>
+    <div class="top-actions"><a class="toplink" href="#join">Try Agora</a><button class="theme-toggle" type="button" aria-label="Switch color theme"><span aria-hidden="true">&#9680;</span> <span>Theme</span></button></div>
   </div>
-  <div class="meander-rule" aria-hidden="true"></div>
-</section>
-<section class="landing-section" id="square">
-  <div class="landing-inner story-grid">
-    <div><p class="landing-eyebrow">I &middot; The square</p><h2>Every Greek<br>city had one.</h2><p class="story-copy">A square where people traded goods, news and ideas. Where you could hear a philosopher in the morning and argue politics by the afternoon. Where a city made up its mind, together.</p></div>
-    <div class="statue-art" role="img" aria-label="Illustration of a classical bust against an olive grid">
-      <svg viewBox="0 0 340 425" aria-hidden="true"><circle cx="292" cy="68" r="9" fill="#ffb000"/><path fill="#f1f2ec" d="M57 366c49-17 64-41 70-79 4-29-1-49-13-64-18-8-34-20-40-39-6-20 2-39 25-47 13-36 40-61 77-61 33 0 48 24 50 51 3 22 12 43 23 59 5 7 11 13 10 17-1 4-10 4-13 7 4 6 3 10-3 13 4 6 2 12-4 14-4 26-14 36-28 39-5 25 0 48 19 62 13 11 31 20 52 27l8 23H50z"/><path d="M114 137c-31-16-53 13-33 35 12 13 31 7 30-6-2-12-17-15-22-4M119 126c22-17 58-20 91-9M125 141c22-13 54-16 80-8M130 157c20-13 47-15 70-10M224 149c8-5 15-5 22 0M225 160c7 4 13 3 18-1M177 261l11 60M143 324c-14 21-37 34-72 43M158 337c-7 18-17 30-27 37M211 318c10 22 28 36 53 46" fill="none" stroke="#4e5b2c" stroke-width="2.4" stroke-linecap="round"/><path d="M116 112c23-11 44-18 68-22M132 100l-3-10m13 8 1-11m10 9 4-11m7 9 6-10m4 9 7-8" fill="none" stroke="#718454" stroke-width="3"/><path fill="#d4dac7" d="M53 388h235v13H53z"/></svg>
+</header>
+
+<main id="top">
+  <section class="band hero" aria-labelledby="name">
+    <div class="inner">
+      <div class="lockup">
+        <svg class="logo-story" id="logoStory" viewBox="-20 -20 140 140" role="img" aria-label="The Agora logo: scattered pieces fall into place as a single meander line leading to a golden dot"></svg>
+        <h1 class="name" id="name">AGORA</h1>
+      </div>
+      <p class="promise typed" data-type data-delay="900" data-speed="140">A better public square.</p>
+      <p class="define"><b>agora</b> (ἀγορά): the ancient Greek gathering place for intellectual, civic and commercial life.</p>
+      <a class="cta network-cta" href="#join" aria-label="Try Agora with Bluesky and Threads; sign in with Bluesky"><i></i><span>Try Agora with</span><span class="network-label" aria-hidden="true"><span class="network-bluesky">Bluesky</span><span class="network-threads">Threads</span></span></a>
+      <a class="cue" href="#square"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg>Read the story</a>
     </div>
-  </div>
-</section>
-<section class="landing-section landing-olive">
-  <div class="landing-inner"><p class="landing-eyebrow">II &middot; The promise</p><h2>The internet was supposed to be the biggest square ever built.</h2><p class="story-copy">Open to anyone. Every voice, every idea, every corner of the world, one tap away.</p></div>
-</section>
-<section class="landing-section">
-  <div class="landing-inner"><p class="landing-eyebrow">III &middot; The sale</p><h2>Then someone noticed that anger keeps people scrolling.</h2><p class="story-copy">Feeds learned to reward outrage. The conversations we came for got harder to find.</p></div>
-</section>
-<section class="landing-section landing-soft">
-  <div class="landing-inner"><p class="landing-eyebrow">IV &middot; We stay</p><h2>We're not leaving.</h2><p class="story-copy">Our friends are here. The news is here. The ideas we haven't met yet are here.</p></div>
-</section>
-<section class="landing-section">
-  <div class="landing-inner"><p class="landing-eyebrow">V &middot; A better square</p><h2>So we built one.</h2>
-    <ul class="landing-features">
-      <li><strong>Tell Agora what you care about.</strong> Your feed starts with your interests, in your own words.</li>
-      <li><strong>Make the feed yours.</strong> Share feedback to shape what you see next.</li>
-      <li><strong>Bring your own ideas.</strong> Connect your notes to find relevant thoughts alongside posts.</li>
-    </ul>
-  </div>
-</section>
-<section class="landing-section landing-join" id="join">
-  <svg class="olive-vine join-vine" viewBox="0 0 200 520" fill="none" aria-hidden="true"><path d="M194 520C117 460 185 391 127 332S180 213 116 158 119 54 82 0" stroke="currentColor" stroke-width="2"/><g fill="currentColor"><path d="M168 466c-30 1-43-11-48-29 26 1 42 11 48 29ZM155 430c-5-24 3-43 22-55 4 26-4 44-22 55ZM137 391c-25 1-41-10-47-27 24-1 40 9 47 27ZM127 351c-5-24 3-42 22-54 4 24-4 42-22 54ZM132 306c-4-24 5-41 24-51 3 23-5 41-24 51ZM104 273c-24 2-41-8-47-25 24-2 40 7 47 25ZM130 259c-3-23 6-40 25-50 2 23-6 40-25 50ZM102 220c-23 0-38-11-43-27 23 0 38 9 43 27ZM122 205c-3-23 6-40 25-49 2 22-7 40-25 49ZM101 171c-22-1-36-12-40-29 22 1 36 11 40 29ZM116 150c-3-22 6-38 24-47 2 21-6 38-24 47ZM91 121c-21-1-34-11-38-27 21 1 34 10 38 27ZM107 100c-4-21 4-37 21-46 3 21-4 36-21 46ZM82 72C63 70 51 59 48 44c19 2 31 11 34 28ZM94 48c-5-20 2-35 18-45 4 19-2 34-18 45Z"/></g></svg>
-  <div class="landing-inner join-grid">
-    <div><p class="landing-eyebrow">VI &middot; Take back the square</p><h2>Take back the square.</h2><p class="story-copy">A little more curiosity. A feed shaped around you.</p></div>
-    <div class="join-card">
-      <h3>Connect Bluesky</h3><p>Use your Bluesky account to get started.</p>
-      <form method="post" action="/login">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <label for="handle">Bluesky handle</label>
-        <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true" autofocus{% endif %}>
-        <p class="help" id="login-help">Read your feed and allow interactions you choose to make, including deleting your posts.</p>
-        {% if error %}<p class="error" role="alert" id="login-error">{{ error }}</p>{% endif %}
-        <button class="primary landing-button">Continue <span aria-hidden="true">&rarr;</span></button>
-      </form>
-      <div class="auth-footer"><span>Bluesky OAuth</span><a href="/privacy">Privacy</a></div>
+  </section>
+
+  <div class="band key" aria-hidden="true"><svg class="keyline" preserveAspectRatio="xMinYMid slice"></svg></div>
+
+  <section class="band ch" id="square" aria-labelledby="h1">
+    <div class="inner split">
+      <div style="display:grid;gap:22px;min-width:0">
+        <span class="num">I · The square</span>
+        <h2 id="h1">Every Greek city had one.</h2>
+        <p class="story typed" data-type data-speed="95">A square where people traded goods, news and ideas. Where you could hear a philosopher in the morning and argue politics by the afternoon. Where a city made up its mind, together.</p>
+      </div>
+      <div class="bust" aria-label="Marble bust of a woman in profile, drawn in line, on olive">
+        <div class="grid"></div>
+        <svg id="bust" viewBox="0 0 300 400" aria-hidden="true"></svg>
+        <i></i>
+      </div>
     </div>
-  </div>
-</section>
-<footer class="landing-footer"><div class="landing-inner"><span>Agora &middot; A better public square</span><span>Built on Bluesky's open protocol</span></div></footer>
-{% endblock %}
+  </section>
+
+  <div class="band key" aria-hidden="true"><svg class="keyline" preserveAspectRatio="xMinYMid slice"></svg></div>
+
+  <section class="band ch" aria-labelledby="h2">
+    <div class="inner">
+      <span class="num">II · The promise</span>
+      <h2 id="h2">The internet was supposed to be the biggest square ever built.</h2>
+      <p class="story">Open to anyone. Every voice, every idea, every corner of the world, one tap away.</p>
+    </div>
+  </section>
+
+  <section class="band ch dark" aria-labelledby="h3">
+    <div class="inner">
+      <span class="num">III · The sale</span>
+      <p class="turn typed" id="h3" data-type data-speed="150">Then someone noticed that anger keeps people scrolling.</p>
+      <p class="story">Feeds learned to reward outrage. Coordinated networks learned to pass for public opinion. And the square was sold, one minute of our attention at a time.</p>
+    </div>
+  </section>
+
+  <section class="band ch" aria-labelledby="h4">
+    <div class="inner">
+      <span class="num">IV · We stay</span>
+      <h2 id="h4">We're not leaving.</h2>
+      <p class="story">Our friends are here. The news is here. The ideas we haven't met yet are here.</p>
+    </div>
+  </section>
+
+  <section class="band ch olive" aria-labelledby="h5">
+    <div class="inner">
+      <span class="num">V · A better square</span>
+      <h2 id="h5">So we built one.</h2>
+      <ul class="feature-list">
+        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Tell Agora what you care about,</strong> in your own words, and your feed starts there.</span></li>
+        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Make the feed yours.</strong> Share feedback to shape what you see next.</span></li>
+        <li><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg><span><strong>Bring your own ideas.</strong> Connect your notes to find relevant thoughts alongside posts.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="band ch close" id="join" aria-labelledby="h6">
+    <div class="inner">
+      <span class="num">VI · Take back the square</span>
+      <p class="values">Fewer bots. More voices. A square built for people, not clicks.</p>
+      <h2 class="big typed" id="h6" data-type data-speed="170">Take back the square.</h2>
+      <div class="join-card">
+        <h3>Connect Bluesky</h3><p>Use your Bluesky account to get started.</p>
+        <form method="post" action="/login">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label for="handle">Bluesky handle</label>
+          <input id="handle" name="handle" value="{{ handle or '' }}" required maxlength="253" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="login-help{% if error %} login-error{% endif %}" {% if error %}aria-invalid="true" autofocus{% endif %}>
+          <p class="join-help" id="login-help">Read your feed and allow interactions you choose to make, including deleting your posts.</p>
+          {% if error %}<p class="join-error" role="alert" id="login-error">{{ error }}</p>{% endif %}
+          <button class="cta" type="submit"><i></i>Continue</button>
+        </form>
+        <div class="join-footer"><span>Bluesky OAuth</span><a href="/privacy">Privacy</a></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="band foot">
+  <div class="inner"><span>Agora · A better public square</span><span>Built at Junction 2026 on Bluesky's open protocol</span></div>
+</footer>
+
+
+</body>
+</html>

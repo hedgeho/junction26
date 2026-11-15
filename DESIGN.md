@@ -42,7 +42,7 @@ Tests cover source-only responses, public allowlists, idempotent feedback, revis
 
 ## Reader interface
 
-The product name in the UI is Agora. The visual language uses the brand's chalk, ink and olive palette, a meander mark and a restrained sun accent. Light and dark themes follow the system preference initially and allow a locally saved override. Shared local CSS/JavaScript provide responsive layouts, accessible dialogs, form loading states and conditional fields. Font stacks use local fallbacks; no third-party font or image services or browser-side model calls are needed.
+The product name in the UI is Agora. The visual language uses the brand's chalk, ink and olive palette, a meander mark and a restrained sun accent. Light and dark themes follow the system preference initially and allow a locally saved override. Shared local CSS/JavaScript provide responsive layouts, accessible dialogs, form loading states and conditional fields. The landing page loads its reference typefaces from Google Fonts, with local fallbacks; there are no browser-side model calls.
 
 The reader is a single column of original post cards. The header contains Agora, Feed and Settings. Each post has its author, platform, original text, source link and one feedback icon. That icon opens a native dialog with the original post and a feedback field. Feedback is queued with an owned post reference, then updates Markdown configuration; the UI receives fixed status labels only. No slogans, generated replies or sample-content preview are shipped.
 

@@ -252,7 +252,7 @@ def test_browser_errors_are_readable_and_api_errors_stay_json(conn):
 
 def test_static_interactions_and_styles_are_served_without_source_data(conn):
     client = client_for()
-    for path in ("/static/app.css", "/static/app.js", "/static/theme.js"):
+    for path in ("/static/app.css", "/static/app.js", "/static/theme.js", "/static/landing.css", "/static/landing.js"):
         response = client.get(path)
         assert response.status_code == 200
         assert "GENERATED_CONFIG_SENTINEL" not in response.text
