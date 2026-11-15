@@ -3,10 +3,14 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   lint:
@@ -42,3 +46,52 @@ jobs:
       # --exact installs only this package's dependency closure, so an import
       # across an ownership boundary (e.g. ingest -> curation) fails here.
       - run: uv run --frozen --exact --package curator-${{ matrix.package }} --with pytest pytest -q packages/${{ matrix.package }}
+
+  # Builds in parallel with lint/test and pushes only the commit tag; `promote` moves
+  # `latest` (which production's autodeploy timer follows) once everything is green.
+  build:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: craci
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: cracicorp/setup@v1
+        with:
+          network: |
+            default: deny
+            presets: [github, ghcr, pypi]
+            connections:
+              - tls:
+                  serverNamePatterns: [pkg-containers.githubusercontent.com]
+                  ports: [443]
+      - uses: actions/checkout@v4
+      - name: Login to GHCR, build and push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker buildx build -f deploy/Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            --cache-from type=registry,ref="$IMAGE:latest" \
+            --cache-to type=inline \
+            -t "$IMAGE:${{ github.sha }}" \
+            --push .
+
+  promote:
+    needs: [lint, test, build]
+    runs-on: craci
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: cracicorp/setup@v1
+        with:
+          network: |
+            default: deny
+            presets: [github, ghcr]
+      - name: Tag commit image as latest
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:${{ github.sha }}"

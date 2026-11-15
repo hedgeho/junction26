@@ -6,8 +6,9 @@ The DNS record lives in `~/personal/vps_deployment/dns/ilia_fi.tf`.
 ## Deploy
 
 Production runs the image CI built, so it matches the CRACI build record and SBOM for that
-commit. On push to `main`, `.github/workflows/deploy_image.yml` builds on a CRACI runner and
-pushes `ghcr.io/hedgeho/junction26:<sha>` and `:latest`. Once that run is green:
+commit. On push to `main`, `.github/workflows/ci.yml` builds on a CRACI runner alongside lint and
+tests, pushes `ghcr.io/hedgeho/junction26:<sha>`, and moves `:latest` to it once lint and
+tests pass. Once that run is green:
 
 ```sh
 deploy/hostinger/deploy.sh                       # pulls the image for your HEAD commit
@@ -21,8 +22,8 @@ for the compose file and bootstrap script, pulls (or builds) the image, records 
 Traefik (`/docker/traefik`); leave it and the Hermes agent next to it alone. The first run
 installs Docker, enables ufw (22, 80, 443) and creates the secrets file.
 
-Production also runs `agora-autodeploy.timer`, which checks the registry once a minute.
-The image workflow runs lint and tests before publishing `latest`; the timer pulls that
+Production also runs `agora-autodeploy.timer`, which checks the registry every 15 seconds.
+CI only moves `latest` after lint and tests pass; the timer pulls that
 image and its matching commit tag, backs up SQLite, and starts the new image. It rolls
 back the image on startup/health failure and will not retry the same failed revision.
 Backups remain in `/opt/junction26/data/backups` and must be monitored and cleaned up

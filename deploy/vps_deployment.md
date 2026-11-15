@@ -1,7 +1,7 @@
 # Suggested changes to ~/personal/vps_deployment (not applied)
 
 This assumes the image is published as `ghcr.io/hedgeho/junction26` (the workflow in
-`.github/workflows/deploy_image.yml` pushes `ghcr.io/<owner>/<repo>` on push to `main`) and served at **feed.ilia.fi**.
+`.github/workflows/ci.yml` pushes `ghcr.io/<owner>/<repo>` on push to `main`) and served at **feed.ilia.fi**.
 
 ## 1. `services/curator/docker-compose.yml` (new)
 

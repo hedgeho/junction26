@@ -3,7 +3,8 @@ Description=Check for a new Agora production image
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=1min
+OnUnitActiveSec=15s
+AccuracySec=1s
 Persistent=true
 
 [Install]

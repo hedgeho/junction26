@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy to the Hostinger box.
 # Usage: deploy/hostinger/deploy.sh [--local] [ssh-host]   (default host: hostinger, see README.md)
-#   default  pull ghcr.io/hedgeho/junction26:<HEAD sha>, built by .github/workflows/deploy_image.yml
+#   default  pull ghcr.io/hedgeho/junction26:<HEAD sha>, built by .github/workflows/ci.yml
 #   --local  build the working tree on the box instead (fallback if CI is down)
 set -euo pipefail
 MODE=ghcr
