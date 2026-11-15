@@ -1,6 +1,7 @@
 import time
 
 from curator_core import db
+from curator_core.config import clear_settings
 from curator_core.testing import add_user, insert_post
 from curator_curation import digests, profiles, worker
 from curator_curation.llm.schemas import Assessment, Assessments
@@ -104,6 +105,8 @@ def test_current_digest_keeps_scoring_ahead_within_pacing(conn, monkeypatch):
 
 
 def test_background_scoring_covers_a_full_batch_each_interval(conn, monkeypatch):
+    monkeypatch.setenv("BACKGROUND_SCORE_SIZE", "40")
+    clear_settings()
     uid = reader(conn)
     insert_post(conn, "did:plc:a", "1", "STRONG first compiler post")
     scorer = ScriptedScorer({"STRONG": ("include", 0.95, 0.9)})

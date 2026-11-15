@@ -34,7 +34,7 @@ class CurationSettings(CoreSettings):
     social_slots: int = 3  # Digest positions reserved for followed authors that pass the filter
     serendipity_share: float = 0.1  # Digest share for substantive, clean posts just outside the profile
     background_score_interval_s: int = 60  # Score new candidates ahead of refreshes this often
-    background_score_size: int = 40  # Candidates scored per background interval
+    background_score_size: int = 200  # Candidates scored per background interval
     daily_scoring_cap: int = 30000
     score_images: bool = True  # Attach post images/thumbnails to Gemini scoring requests
     max_image_bytes: int = 2_000_000
