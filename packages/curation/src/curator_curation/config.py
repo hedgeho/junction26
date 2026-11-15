@@ -15,6 +15,8 @@ class CurationSettings(CoreSettings):
     inference_timeout_s: float = 120
     note_match_concurrency: int = 4
     gemma_concurrency: int = 2
+    gemma_warmup: bool = True
+    note_profile_jobs_per_cycle: int = 1
     note_match_top_notes: int = 12
     note_match_chunks_per_note: int = 6
     score_batch_size: int = 20

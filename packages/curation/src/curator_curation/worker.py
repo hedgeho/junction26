@@ -27,6 +27,7 @@ from .llm.gemma import GemmaClient
 log = logging.getLogger(__name__)
 _notes_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-worker")
 _notes_future = None
+_warmup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemma-warmup")
 
 
 def scorer_version(backend: str | None = None) -> str:
@@ -411,7 +412,9 @@ def process_notes(conn, gemma, dids):
         user_id = profiles.bootstrap(conn, did)
         note_folders.sync(conn, user_id)
     if gemma:
-        for _ in range(10):
+        # Publish note matches after a bounded amount of profile work rather than
+        # making the first recommendations wait behind an entire folder's backlog.
+        for _ in range(max(0, min(10, settings().note_profile_jobs_per_cycle))):
             if not jobs.process_one(conn, gemma, notes_only=True):
                 break
         for did in dids:
@@ -459,8 +462,22 @@ def wait_for_work(conn, seen: set[tuple], timeout_s: float, poll_s: float = 1.0)
         time.sleep(poll_s)
 
 
+def _warm_inference():
+    cfg = settings()
+    try:
+        GemmaClient(cfg.gemma_url, cfg.gemma_token, cfg.gemma_model, cfg.inference_timeout_s).warmup(
+            scoring=cfg.scoring_backend == "gemma"
+        )
+    except Exception:  # noqa: BLE001 - provider errors can contain private request details
+        log.warning("Gemma warm-up unavailable; normal requests remain enabled")
+
+
 def run_forever() -> None:
     conn = db.connect()
+    cfg = settings()
+    if cfg.gemma_warmup and cfg.gemma_url and cfg.gemma_token:
+        # Synthetic grammar preparation does not hold up publication of the feed.
+        _warmup_executor.submit(_warm_inference)
     while True:
         seen = pending_work(conn)
         run_cycle(conn, defer_notes=True)

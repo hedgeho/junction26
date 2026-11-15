@@ -319,3 +319,62 @@ def test_shared_drive_does_not_reuse_an_old_single_file_listing(conn, monkeypatc
     )
     note_folders.configure(conn, uid, "drive:rootfolder123")
     assert conn.execute("SELECT count(*) FROM note_versions WHERE user_id=?", (uid,)).fetchone()[0] == 7
+
+
+def test_shared_downloads_are_bounded_parallel_and_fail_atomically(conn, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event, Lock
+
+    uid = reader(conn)
+    monkeypatch.setenv("CONTEXT_DEV_API_KEY", "test-key")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    clear_settings()
+    original_client = httpx.Client
+    started, release, lock = Event(), Event(), Lock()
+    active = peak = 0
+
+    def handle(request):
+        nonlocal active, peak
+        if request.url.host == "api.context.dev":
+            rows = "".join(
+                f'<tr data-id="file12345678{i}" data-target="doc"><span class="WQJtxb">{i}.md</span></tr>'
+                for i in range(7)
+            )
+            return httpx.Response(
+                200,
+                json={
+                    "html": {
+                        "success": True,
+                        "data": f'<table role="grid" aria-label="Item List" aria-rowcount="7">{rows}</table>',
+                    }
+                },
+            )
+        with lock:
+            active += 1
+            peak = max(peak, active)
+            if active == 4:
+                started.set()
+        try:
+            assert release.wait(5)
+            if request.url.params["id"].endswith("6"):
+                return httpx.Response(403)
+            return httpx.Response(200, content=b"Original note")
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(
+        drive_notes.httpx, "Client", lambda **kwargs: original_client(transport=httpx.MockTransport(handle))
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(note_folders.configure, conn, uid, "drive:rootfolder123")
+        try:
+            assert started.wait(5)
+            assert peak == 4
+        finally:
+            release.set()
+        with pytest.raises(drive_notes.DriveNotesError):
+            future.result(timeout=5)
+    assert peak == 4
+    assert not conn.execute("SELECT 1 FROM note_versions").fetchone()
+    assert not note_folders.folder_for(conn, uid)

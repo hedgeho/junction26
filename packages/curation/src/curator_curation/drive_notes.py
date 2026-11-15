@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -187,7 +188,7 @@ def scan_shared(conn, user_id, root):
 
 def _scan_shared(conn, user_id, root):
     found, folders, pending = {}, set(), [(root, "")]
-    total = 0
+    downloads = {}
     with httpx.Client(timeout=45, follow_redirects=False) as client:
         while pending:
             current, prefix = pending.pop()
@@ -242,25 +243,40 @@ def _scan_shared(conn, user_id, root):
                     raise DriveNotesError("An unsupported Drive item prevents a complete scan.")
                 if Path(name).suffix.lower() != ".md":
                     continue
-                if len(found) >= 500 or relative in found:
+                if len(downloads) >= 500 or relative in downloads:
                     raise DriveNotesError("Notes exceed the folder import limits or contain duplicate names.")
-                with client.stream(
-                    "GET",
-                    "https://drive.usercontent.google.com/download",
-                    params={"export": "download", "id": native_id},
-                ) as download:
-                    download.raise_for_status()
-                    if download.headers.get("content-type", "").startswith("text/html"):
-                        raise DriveNotesError("A Markdown file cannot be downloaded publicly.")
-                    raw = bytearray()
-                    for chunk in download.iter_bytes():
-                        raw.extend(chunk)
-                        total += len(chunk)
-                        if len(raw) > 800_000 or total > 10_000_000:
-                            raise DriveNotesError("Notes exceed the folder import limits.")
-                text = raw.decode("utf-8")
-                if len(text) > 200_000 or "\x00" in text:
-                    raise DriveNotesError("A Markdown file is invalid.")
-                if text.strip():
-                    found[relative] = (text, hashlib.sha256(text.encode()).hexdigest())
+                downloads[relative] = native_id
+        # Validate every listing before downloading. Four in-flight files bound both
+        # requests and retained buffers; publish the snapshot only after all succeed.
+        entries = list(downloads.items())
+        total = 0
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for offset in range(0, len(entries), 4):
+                batch = entries[offset : offset + 4]
+                futures = [pool.submit(_download_shared, client, native_id) for _, native_id in batch]
+                for (relative, _), future in zip(batch, futures, strict=True):
+                    text, size = future.result()
+                    total += size
+                    if total > 10_000_000:
+                        raise DriveNotesError("Notes exceed the folder import limits.")
+                    if text.strip():
+                        found[relative] = (text, hashlib.sha256(text.encode()).hexdigest())
     return found, folders
+
+
+def _download_shared(client, native_id):
+    with client.stream(
+        "GET", "https://drive.usercontent.google.com/download", params={"export": "download", "id": native_id}
+    ) as download:
+        download.raise_for_status()
+        if download.headers.get("content-type", "").startswith("text/html"):
+            raise DriveNotesError("A Markdown file cannot be downloaded publicly.")
+        raw = bytearray()
+        for chunk in download.iter_bytes():
+            if len(raw) + len(chunk) > 800_000:
+                raise DriveNotesError("Notes exceed the folder import limits.")
+            raw.extend(chunk)
+    text = raw.decode("utf-8")
+    if len(text) > 200_000 or "\x00" in text:
+        raise DriveNotesError("A Markdown file is invalid.")
+    return text, len(raw)

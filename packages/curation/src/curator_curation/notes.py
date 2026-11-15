@@ -154,21 +154,30 @@ def match_feed(conn, user_id, run_id, posts, gemma):
     for items in ranked_notes[: max(1, min(50, cfg.note_match_top_notes))]:
         short = [
             chunk
-            for _, chunk in sorted(items, key=lambda item: -item[0])[: max(1, min(12, cfg.note_match_chunks_per_note))]
+            for _, chunk in sorted(items, key=lambda item: (-item[0], item[1]["chunk_id"]))[
+                : max(1, min(12, cfg.note_match_chunks_per_note))
+            ]
         ]
-        cache_key = hashlib.sha256(
-            json.dumps(
-                [revision, public_posts, [p.content_hash for p in posts], short, getattr(gemma, "model", "")],
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
-        cached = conn.execute(
-            "SELECT state,attempts FROM note_match_batches WHERE user_id=? AND cache_key=?", (user_id, cache_key)
-        ).fetchone()
-        if public_posts and (not cached or (cached["state"] != "ready" and cached["attempts"] < 3)):
-            work.append((cache_key, short))
-        elif cached and cached["state"] != "ready":
-            exhausted += 1
+        short.sort(key=lambda chunk: chunk["chunk_id"])
+        pending = []
+        for post, public_post in zip(posts, public_posts, strict=True):
+            # Cache both positive and empty decisions per note/post, so a single new post
+            # does not send the unchanged selection through inference again.
+            cache_key = hashlib.sha256(
+                json.dumps(
+                    ["note-pair-v2", revision, post.key, post.content_hash, short, getattr(gemma, "model", "")],
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+            cached = conn.execute(
+                "SELECT state,attempts FROM note_match_batches WHERE user_id=? AND cache_key=?", (user_id, cache_key)
+            ).fetchone()
+            if not cached or (cached["state"] != "ready" and cached["attempts"] < 3):
+                pending.append((cache_key, public_post))
+            elif cached["state"] != "ready":
+                exhausted += 1
+        if pending:
+            work.append((pending, short))
     progress = {"run_id": run_id, "state": "processing", "completed": 0, "total": len(work)}
     key = "note-matching:" + user_id
     db.kv_set(conn, key, json.dumps(progress))
@@ -177,14 +186,15 @@ def match_feed(conn, user_id, run_id, posts, gemma):
     matched = 0
     with ThreadPoolExecutor(max_workers=max(1, min(16, cfg.note_match_concurrency))) as pool:
         futures = {}
-        for cache_key, short in work:
-            conn.execute(
-                "INSERT INTO note_match_batches VALUES (?,?,'processing',1,?) ON CONFLICT(user_id,cache_key) DO UPDATE SET state='processing',attempts=attempts+1,updated_at=excluded.updated_at",
-                (user_id, cache_key, int(time.time())),
-            )
-            futures[pool.submit(gemma.match_note, public_posts, short, profile)] = (cache_key, short)
+        for pending, short in work:
+            for cache_key, _ in pending:
+                conn.execute(
+                    "INSERT INTO note_match_batches VALUES (?,?,'processing',1,?) ON CONFLICT(user_id,cache_key) DO UPDATE SET state='processing',attempts=attempts+1,updated_at=excluded.updated_at",
+                    (user_id, cache_key, int(time.time())),
+                )
+            futures[pool.submit(gemma.match_note, [post for _, post in pending], short, profile)] = (pending, short)
         for future in as_completed(futures):
-            cache_key, short = futures[future]
+            pending, short = futures[future]
             try:
                 result = future.result()
                 with db.tx(conn):
@@ -192,7 +202,8 @@ def match_feed(conn, user_id, run_id, posts, gemma):
                     if (current["id"] if current else "") != revision:
                         raise ValueError("profile changed during matching")
                     allowed = {chunk["chunk_id"] for chunk in short}
-                    by_post = {post.key: post for post in posts}
+                    requested = {post["post_key"] for _, post in pending}
+                    by_post = {post.key: post for post in posts if post.key in requested}
                     seen = set()
                     for item in result.items:
                         if item.post_key not in by_post or item.chunk_id not in allowed or item.post_key in seen:
@@ -219,20 +230,24 @@ def match_feed(conn, user_id, run_id, posts, gemma):
                                 ),
                             )
                             matched += 1
-                    conn.execute(
+                    conn.executemany(
                         "UPDATE note_match_batches SET state='ready' WHERE user_id=? AND cache_key=?",
-                        (user_id, cache_key),
+                        [(user_id, cache_key) for cache_key, _ in pending],
                     )
             except Exception:  # noqa: BLE001
                 failures += 1
-                conn.execute(
-                    "UPDATE note_match_batches SET state='failed' WHERE user_id=? AND cache_key=?", (user_id, cache_key)
+                conn.executemany(
+                    "UPDATE note_match_batches SET state='failed' WHERE user_id=? AND cache_key=?",
+                    [(user_id, cache_key) for cache_key, _ in pending],
                 )
                 log.warning("Private note matching failed; feed remains available")
-                attempts = conn.execute(
-                    "SELECT attempts FROM note_match_batches WHERE user_id=? AND cache_key=?", (user_id, cache_key)
-                ).fetchone()
-                retryable = retryable or attempts["attempts"] < 3
+                retryable = retryable or any(
+                    conn.execute(
+                        "SELECT attempts FROM note_match_batches WHERE user_id=? AND cache_key=?", (user_id, cache_key)
+                    ).fetchone()["attempts"]
+                    < 3
+                    for cache_key, _ in pending
+                )
             progress["completed"] += 1
             db.kv_set(conn, key, json.dumps(progress))
     progress["state"] = "retrying" if retryable else "partial" if failures else "ready"
