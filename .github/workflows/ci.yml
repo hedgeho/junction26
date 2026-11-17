@@ -35,10 +35,33 @@ jobs:
       - run: uv run --frozen --exact --package curator-${{ matrix.package }} --with pytest pytest -q packages/${{ matrix.package }}
 
   # After lint and tests, so `latest` (which the production VPS cron follows) only moves on green.
+  # Mirrors hedgeho/vps_deployment's build-image.yml, which this public repo can't call (it's private).
   image:
     needs: [lint, test]
     if: github.event_name != 'pull_request'
-    uses: hedgeho/vps_deployment/.github/workflows/build-image.yml@master
-    permissions: { contents: read, packages: write }
-    secrets: inherit
-    with: { dockerfile: deploy/Dockerfile }
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/hedgeho/junction26:${{ github.sha }}
+            ${{ github.ref_name == github.event.repository.default_branch && 'ghcr.io/hedgeho/junction26:latest' || '' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
