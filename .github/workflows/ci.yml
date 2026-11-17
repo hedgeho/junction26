@@ -9,19 +9,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
   lint:
-    runs-on: craci
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: cracicorp/setup@v1
-        with:
-          network: |
-            default: deny
-            presets: [github, pypi]
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --all-packages --frozen
@@ -29,69 +21,24 @@ jobs:
       - run: uv run ruff format --check .
 
   test:
-    runs-on: craci
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         package: [core, ingest, curation, web]
     steps:
-      - uses: cracicorp/setup@v1
-        with:
-          network: |
-            default: deny
-            presets: [github, pypi]
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       # --exact installs only this package's dependency closure, so an import
       # across an ownership boundary (e.g. ingest -> curation) fails here.
       - run: uv run --frozen --exact --package curator-${{ matrix.package }} --with pytest pytest -q packages/${{ matrix.package }}
 
-  # Builds in parallel with lint/test and pushes only the commit tag; `promote` moves
-  # `latest` (which the production VPS cron follows) once everything is green.
-  build:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: craci
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: cracicorp/setup@v1
-        with:
-          network: |
-            default: deny
-            presets: [github, ghcr, pypi]
-            connections:
-              - tls:
-                  serverNamePatterns: [pkg-containers.githubusercontent.com]
-                  ports: [443]
-      - uses: actions/checkout@v4
-      - name: Login to GHCR, build and push
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker buildx build -f deploy/Dockerfile \
-            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
-            --label org.opencontainers.image.revision=${{ github.sha }} \
-            --cache-from type=registry,ref="$IMAGE:latest" \
-            --cache-to type=inline \
-            -t "$IMAGE:${{ github.sha }}" \
-            --push .
-
-  promote:
-    needs: [lint, test, build]
-    runs-on: craci
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: cracicorp/setup@v1
-        with:
-          network: |
-            default: deny
-            presets: [github, ghcr]
-      - name: Tag commit image as latest
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:${{ github.sha }}"
+  # After lint and tests, so `latest` (which the production VPS cron follows) only moves on green.
+  image:
+    needs: [lint, test]
+    if: github.event_name != 'pull_request'
+    uses: hedgeho/vps_deployment/.github/workflows/build-image.yml@master
+    permissions: { contents: read, packages: write }
+    secrets: inherit
+    with: { dockerfile: deploy/Dockerfile }

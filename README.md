@@ -86,7 +86,7 @@ Set `DEMO_DID` to a dedicated reader that has completed setup to show its feed r
 - [Gemini](https://ai.google.dev/) matches public posts to what readers asked for and filters out clickbait, rage bait, spam and coordinated campaigns.
 - [Modal](https://modal.com/) serves the private Gemma model that edits profiles and matches notes to posts.
 - [Hetzner](https://www.hetzner.com/) hosts the application, SQLite state and the live site.
-- [CRACI](https://craci.com/) runs CI: lint, tests and image builds, with deny-by-default network egress.
+- [CRACI](https://craci.com/) ran CI during Junction 2026: lint, tests and image builds, with deny-by-default network egress.
 - [Context.dev](https://context.dev/) reads link-shared Google Drive folder listings so readers can connect their notes.
 
 ## License
