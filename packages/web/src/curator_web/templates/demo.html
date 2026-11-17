@@ -3,7 +3,7 @@
 {% block header_extra %}{% if archived_on() %}<nav aria-label="Navigation"><a href="/">About</a><a href="/demo" aria-current="page">Demo</a></nav>{% elif not request.session.get('did') %}<nav aria-label="Navigation"><a href="/demo" aria-current="page">Demo</a><a href="/#join">Sign in</a></nav>{% endif %}{% endblock %}
 {% block body %}
 <div class="toolbar"><h1>Demo feed</h1><div class="toolbar-meta"><span>{{ posts|length }} {{ 'post' if posts|length == 1 else 'posts' }}</span><button type="button" class="funnel-open" aria-haspopup="dialog" aria-controls="algorithm-info-dialog">How these were picked</button></div></div>
-{% if archived_on() %}<div class="notice" role="note"><span>Archived: a sample reader's picks from {{ archived_on() }}, during Junction 2026. Curation and sign-in are closed.</span></div>
+{% if archived_on() %}<div class="notice" role="note"><span>Archived: a sample reader's picks from {{ archived_on() }}, during Junction 2026. Curation and sign-in are closed to save model tokens.</span></div>
 {% else %}<div class="notice" role="note"><span>Today's picks for a sample reader, read-only. Sign in to get a feed shaped by your own interests, feedback and notes.</span><a href="/#join">Sign in with Bluesky</a></div>{% endif %}
 <div id="feed-posts" data-read-only data-details-url="/api/demo/post-details">
 {% for post in posts %}
