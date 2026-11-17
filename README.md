@@ -36,7 +36,7 @@ We want social media to feel like a public square again: somewhere you go to tal
 - `ingest`: Bluesky Jetstream, follows, retention and normalized Bluesky/X import and an optional Threads keyword-search collector.
 - `curation`: versioned public/private Markdown profiles, feedback jobs, Gemini filtering, private Gemma matching and daily digests.
 - `web`: Bluesky identity login, source-only reader, feedback status and secondary settings.
-- `deploy/modal`: authenticated Gemma serving. Hostinger owns application state and calls Modal for inference.
+- `deploy/modal`: authenticated Gemma serving. The application host owns application state and calls Modal for inference.
 
 Dependencies remain `web -> curation -> core` and `ingest -> core`. Curation never modifies or publishes source posts or original notes. X import/classification/rendering are supported; an X API collector and X login are not included.
 
@@ -71,7 +71,7 @@ uv run --with playwright python scripts/check_reader_ui.py
 
 ## Deployment
 
-Hostinger instructions remain in `deploy/hostinger/README.md`. SQLite and profile files stay on one host; never share its WAL file via Modal Volumes. Modal persists model weights only. Configure HTTPS, a strong session secret and a 512 KiB proxy body limit.
+feed.ilia.fi is an archived demo on the ilia.fi VPS; see `deploy/README.md`. SQLite and profile files stay on one host; never share its WAL file via Modal Volumes. Modal persists model weights only. Configure HTTPS, a strong session secret and a 512 KiB proxy body limit.
 
 The optional Bluesky feed projects only Bluesky digest items, with no generated reasons or popular fallback. Publishing scripts register the feed record. The web client supports explicit user-initiated Bluesky comments, quotes, likes, reposts, saves and deletion of the user's own contributions. Original notes are never edited or published.
 
@@ -85,7 +85,7 @@ Set `DEMO_DID` to a dedicated reader that has completed setup to show its feed r
 
 - [Gemini](https://ai.google.dev/) matches public posts to what readers asked for and filters out clickbait, rage bait, spam and coordinated campaigns.
 - [Modal](https://modal.com/) serves the private Gemma model that edits profiles and matches notes to posts.
-- [Hostinger](https://www.hostinger.com/) hosts the application, SQLite state and the live site.
+- [Hetzner](https://www.hetzner.com/) hosts the application, SQLite state and the live site.
 - [CRACI](https://craci.com/) runs CI: lint, tests and image builds, with deny-by-default network egress.
 - [Context.dev](https://context.dev/) reads link-shared Google Drive folder listings so readers can connect their notes.
 

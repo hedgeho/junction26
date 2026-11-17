@@ -10,7 +10,7 @@ When `DEMO_DID` is set, `/demo` shows that reader's current feed read-only to an
 
 ## State and compute
 
-Hostinger owns SQLite WAL state and immutable Markdown revision files. Ingest and the authenticated Bluesky feed adapter write source facts through a shared validator. Curation updates profiles through Gemma on Modal, filters public posts through Gemini, and creates daily snapshots. Remote inference never opens the application database.
+The application host owns SQLite WAL state and immutable Markdown revision files. Ingest and the authenticated Bluesky feed adapter write source facts through a shared validator. Curation updates profiles through Gemma on Modal, filters public posts through Gemini, and creates daily snapshots. Remote inference never opens the application database.
 
 Feed curation and note matching have separate Markdown heads. With `SCORING_BACKEND=gemma`, note chunks also queue feed-profile updates and Gemma scores candidates. The system marks a feed profile once notes influence it and blocks Gemini scoring for that reader to avoid sending note-derived interests to Gemini. With Gemini scoring, note-derived updates stay in the note-matching profile. Jobs reference note chunks rather than duplicating their text.
 

@@ -1,6 +1,6 @@
 # Private Gemma inference on Modal
 
-The application and SQLite stay on Hostinger. Only bounded inference payloads go to this GPU endpoint. The Volume holds Hugging Face model files, never application notes or the SQLite database. Gemini public scoring is called by the application coordinator.
+The application and SQLite stay on the application host. Only bounded inference payloads go to this GPU endpoint. The Volume holds Hugging Face model files, never application notes or the SQLite database. Gemini public scoring is called by the application coordinator.
 
 ## Provision
 
@@ -14,7 +14,7 @@ uv run --with 'modal>=1.0,<2' modal deploy deploy/modal/gemma_service.py
 ```
 
 5. Set the application host's `GEMMA_URL` to the returned endpoint URL plus `/v1`, and `GEMMA_TOKEN` to the same service token. Set `GEMMA_MODEL=google/gemma-3-12b-it`.
-6. Set `GEMINI_API_KEY` for the default `gemini-decision-1` scorer. For the previous generative scorer, set `SCORING_BACKEND=generative` and `GEMINI_MODEL=gemini-3.1-flash-lite`. Restart the Hostinger curation/web processes through the existing deployment procedure.
+6. Set `GEMINI_API_KEY` for the default `gemini-decision-1` scorer. For the previous generative scorer, set `SCORING_BACKEND=generative` and `GEMINI_MODEL=gemini-3.1-flash-lite`. Restart the curation/web processes (see `deploy/README.md`).
 
 Model weights are pinned to revision `96b6f1eccf38110c56df3a15bffe176da04bfd80`. vLLM/Transformers are pinned in the image. The 12B model runs in bfloat16 on an L40S (48 GB), text only. The 1B model edited profiles unreliably. One container is kept warm (`min_containers=1`), because cold starts exceeded the application's inference timeout. That bills the GPU around the clock. The service is capped at one container/two concurrent inputs. Failed feedback jobs retry with a bounded attempt count, and no private data is sent to Gemini on failure.
 

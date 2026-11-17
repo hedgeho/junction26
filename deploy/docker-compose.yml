@@ -1,5 +1,5 @@
 # Local/dev compose; run from the repo root: docker compose -f deploy/docker-compose.yml up
-# Production uses deploy/hostinger/docker-compose.yml.
+# Production runs from hedgeho/vps_deployment; see deploy/README.md.
 x-curator: &curator
   build:
     context: ..

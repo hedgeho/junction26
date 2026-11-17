@@ -48,7 +48,7 @@ jobs:
       - run: uv run --frozen --exact --package curator-${{ matrix.package }} --with pytest pytest -q packages/${{ matrix.package }}
 
   # Builds in parallel with lint/test and pushes only the commit tag; `promote` moves
-  # `latest` (which production's autodeploy timer follows) once everything is green.
+  # `latest` (which the production VPS cron follows) once everything is green.
   build:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: craci
