@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
@@ -14,6 +15,19 @@ from . import bluesky_feed, feedback_status, feedgen, oauth, site, threads_callb
 from .config import settings
 
 log = logging.getLogger(__name__)
+
+ARCHIVE_PATHS = (
+    "/",
+    "/demo",
+    "/api/demo/post-details",
+    "/api/demo/funnel",
+    "/privacy",
+    "/terms",
+    "/data-deletion",
+    "/.well-known/did.json",
+    "/xrpc/app.bsky.feed.describeFeedGenerator",
+    "/xrpc/app.bsky.feed.getFeedSkeleton",
+)
 
 
 async def sync_for_you_forever(interval_s: int) -> None:
@@ -27,7 +41,7 @@ async def sync_for_you_forever(interval_s: int) -> None:
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    interval = settings().for_you_sync_interval_s
+    interval = 0 if settings().archived_on else settings().for_you_sync_interval_s
     task = asyncio.create_task(sync_for_you_forever(interval)) if interval > 0 else None
     yield
     if task:
@@ -38,6 +52,17 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Agora", lifespan=lifespan)
     app.add_middleware(SessionMiddleware, secret_key=settings().session_secret, https_only=not oauth.is_dev())
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+
+    @app.middleware("http")
+    async def archive_only(request, call_next):
+        path = request.url.path
+        if not settings().archived_on or path.startswith("/static/"):
+            return await call_next(request)
+        if request.method in ("GET", "HEAD") and path in ARCHIVE_PATHS:
+            return await call_next(request)
+        if path.startswith(("/api/", "/xrpc/", "/oauth", "/.well-known/", "/threads/")) or request.method != "GET":
+            return JSONResponse({"error": "Archived", "message": "This demo is archived."}, status_code=410)
+        return site.RedirectResponse("/demo", status_code=303)
 
     @app.middleware("http")
     async def private_cache_headers(request, call_next):

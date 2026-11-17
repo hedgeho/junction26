@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Demo feed &middot; Agora{% endblock %}
-{% block header_extra %}{% if not request.session.get('did') %}<nav aria-label="Navigation"><a href="/demo" aria-current="page">Demo</a><a href="/#join">Sign in</a></nav>{% endif %}{% endblock %}
+{% block header_extra %}{% if archived_on() %}<nav aria-label="Navigation"><a href="/">About</a><a href="/demo" aria-current="page">Demo</a></nav>{% elif not request.session.get('did') %}<nav aria-label="Navigation"><a href="/demo" aria-current="page">Demo</a><a href="/#join">Sign in</a></nav>{% endif %}{% endblock %}
 {% block body %}
 <div class="toolbar"><h1>Demo feed</h1><div class="toolbar-meta"><span>{{ posts|length }} {{ 'post' if posts|length == 1 else 'posts' }}</span><button type="button" class="funnel-open" aria-haspopup="dialog" aria-controls="algorithm-info-dialog">How these were picked</button></div></div>
-<div class="notice" role="note"><span>Today's picks for a sample reader, read-only. Sign in to get a feed shaped by your own interests, feedback and notes.</span><a href="/#join">Sign in with Bluesky</a></div>
+{% if archived_on() %}<div class="notice" role="note"><span>Archived: a sample reader's picks from {{ archived_on() }}, during Junction 2026. Curation and sign-in are closed.</span></div>
+{% else %}<div class="notice" role="note"><span>Today's picks for a sample reader, read-only. Sign in to get a feed shaped by your own interests, feedback and notes.</span><a href="/#join">Sign in with Bluesky</a></div>{% endif %}
 <div id="feed-posts" data-read-only data-details-url="/api/demo/post-details">
 {% for post in posts %}
 <article class="post" data-post-key="{{ post.key }}" data-source-url="{{ post.url }}">
@@ -21,7 +22,7 @@
 {% else %}
 <section class="empty" aria-label="Feed status">
   <svg class="empty-icon" viewBox="0 0 28 28" aria-hidden="true"><rect x="5" y="4" width="18" height="20" rx="4"/><path d="M10 10h8M10 14h8M10 18h4"/></svg>
-  <h2>No demo posts yet.</h2><p>Check back soon, or sign in to build your own feed.</p>
+  {% if archived_on() %}<h2>The archived demo is unavailable.</h2>{% else %}<h2>No demo posts yet.</h2><p>Check back soon, or sign in to build your own feed.</p>{% endif %}
 </section>
 {% endfor %}
 </div>

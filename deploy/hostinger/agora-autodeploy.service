@@ -1,9 +1,0 @@
-[Unit]
-Description=Update Agora from the main-branch container image
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/opt/junction26/bin/autodeploy.sh
-TimeoutStartSec=900

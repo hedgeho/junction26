@@ -41,17 +41,25 @@ async def get_feed_skeleton(
 ):
     if feed != settings().feed_uri:
         return JSONResponse({"error": "UnknownFeed", "message": "unknown feed"}, status_code=400)
-    did = await feedauth.requester_did(authorization, "app.bsky.feed.getFeedSkeleton")
+    archived = bool(settings().archived_on)
+    did = None if archived else await feedauth.requester_did(authorization, "app.bsky.feed.getFeedSkeleton")
     limit = max(1, min(limit, 100))
     offset = int(cursor) if cursor and cursor.isdigit() else 0
 
     def read():
-        if not did:
+        if not did and not archived:
             return []
         c = db.connect()
         try:
-            ensure_user(c, did)
-            uid = profiles.bootstrap(c, did)
+            if archived:
+                # Everyone gets the demo reader's last picks; nothing is written.
+                row = c.execute("SELECT id FROM reader_accounts WHERE bluesky_did=?", (settings().demo_did,)).fetchone()
+                if not row:
+                    return []
+                uid = row["id"]
+            else:
+                ensure_user(c, did)
+                uid = profiles.bootstrap(c, did)
             # This adapter only emits Bluesky references, never generated feedContext.
             items = [p for p in digests.read(c, uid) if p["platform"] == "bluesky"]
             return items[offset : offset + limit]

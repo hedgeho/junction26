@@ -39,6 +39,8 @@ async def csrf_guard(request: Request):
 router = APIRouter(dependencies=[Depends(csrf_guard)])
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 templates.env.globals["platform_names"] = {"bluesky": "Bluesky", "x": "X", "threads": "Threads"}
+templates.env.globals["archived_on"] = lambda: web_settings().archived_on
+ARCHIVED_FUNNEL_KEY = "archive:demo-funnel"
 
 
 def page(request, name, context):
@@ -190,6 +192,10 @@ async def demo_post_details_api():
 def demo_funnel_api():
     c = db.connect()
     try:
+        if web_settings().archived_on:
+            # The live funnel counts against the current day; the archive serves the one stored when it was frozen.
+            stored = db.kv_get(c, ARCHIVED_FUNNEL_KEY)
+            return json.loads(stored) if stored else {"stages": [], "check": None, "notes": {}}
         return funnel.compute(c, demo_reader(c), web_settings().demo_did)
     finally:
         c.close()

@@ -24,7 +24,7 @@
 <header class="band top">
   <div class="inner">
     <a class="brand" href="#top" aria-label="Agora, back to top"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg>AGORA</a>
-    <div class="top-actions"><a class="toplink" href="#join">Try Agora</a><button class="theme-toggle" type="button" aria-label="Switch color theme"><span aria-hidden="true">&#9680;</span> <span>Theme</span></button></div>
+    <div class="top-actions">{% if archived_on() %}<a class="toplink" href="/demo">See the demo</a>{% else %}<a class="toplink" href="#join">Try Agora</a>{% endif %}<button class="theme-toggle" type="button" aria-label="Switch color theme"><span aria-hidden="true">&#9680;</span> <span>Theme</span></button></div>
   </div>
 </header>
 
@@ -38,8 +38,12 @@
       <p class="promise typed" data-type data-delay="900" data-speed="140">The modern public square.</p>
       <p class="define"><b>agora</b> (ἀγορά): the ancient Greek gathering place for intellectual, civic and commercial life.</p>
     <div class="hero-actions">
+      {% if archived_on() %}
+        <a class="cta" href="/demo"><i></i>See the archived demo feed</a>
+      {% else %}
         <a class="cta network-cta" href="#join" aria-label="Try Agora with Bluesky and Threads; sign in with Bluesky"><i></i><span>Try Agora with</span><span class="network-label" aria-hidden="true"><span class="network-bluesky">Bluesky</span><span class="network-threads">Threads</span></span></a>
       {% if demo_available %}<a class="cta cta-secondary" href="/demo"><i></i>See a demo feed</a>{% endif %}
+      {% endif %}
       <a class="cue" href="#square"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#meander"/></svg>Read the story</a>
     </div>
     </div>
@@ -109,6 +113,12 @@
       <h2 class="big typed" id="h6" data-type data-speed="170">Take back the square.</h2>
       </div>
       <div class="join-card">
+        {% if archived_on() %}
+        <h3>Archived</h3>
+        <p>Agora was built at Junction 2026. Sign-in and curation are now closed; the demo feed keeps a sample reader's picks from {{ archived_on() }}.</p>
+        <a class="cta" href="/demo"><i></i>See the demo feed</a>
+        <div class="join-footer"><a href="/privacy">Privacy</a></div>
+        {% else %}
         <h3>Connect <label class="visually-hidden" for="login-platform">Sign-in platform</label><select id="login-platform" aria-describedby="platform-help"><option value="bluesky">Bluesky</option><option value="threads" disabled>Threads (coming soon)</option></select></h3>
         <p id="platform-help">Sign in with Bluesky to get started. Threads posts are available when enabled; Threads sign-in is not yet supported.</p>
         <form method="post" action="/login">
@@ -120,6 +130,7 @@
           <button class="cta" type="submit"><i></i>Continue</button>
         </form>
         <div class="join-footer"><span>Bluesky OAuth</span>{% if demo_available %}<a href="/demo">Demo feed</a>{% endif %}<a href="/privacy">Privacy</a></div>
+        {% endif %}
       </div>
     </div>
   </section>

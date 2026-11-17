@@ -28,7 +28,7 @@ Production note work runs after feed publication on a background worker. Page re
 
 For operator-managed local imports, the backend retains `note_folders.configure` and `AGORA_NOTES_ROOTS`. Local paths refer to the host and are not offered in the web form. Symlinks/junctions are skipped, and overlapping folders cannot belong to different readers.
 
-For private Drive notes on Hostinger:
+For private Drive notes on the application host:
 
 1. Enable the Google Drive API in a Google Cloud project and create a service account. It needs no project-wide Drive access or domain-wide delegation.
 2. Store its JSON key outside the repository, or within ignored `data/`, readable only by the app service user. Set `GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/drive-service-account.json` in the host's `.env`, shared by web and curation. Restart both processes.
